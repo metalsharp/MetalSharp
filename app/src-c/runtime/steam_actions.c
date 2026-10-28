@@ -6423,6 +6423,10 @@ static bool write_fex_launch_env(const char* home, unsigned id, const char* pipe
     bool ok = false;
     if (slash)
         *slash = '\0';
+    /* Caches that FEX builds before 1.0.0 left in the game's folders now live in the lanes' folders. */
+    (void)ms_wine_fex_remove_old_game_caches(game_dir, executable);
+    if (exe_dir && (!game_dir || strcmp(exe_dir, game_dir)))
+        (void)ms_wine_fex_remove_old_game_caches(exe_dir, executable);
     if (!prefix || pipe(fds) != 0) {
         free(prefix);
         free(exe_dir);

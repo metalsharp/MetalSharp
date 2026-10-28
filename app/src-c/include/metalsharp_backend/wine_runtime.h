@@ -80,6 +80,12 @@ bool ms_wine_fex_prefix_ready(const char* prefix);
 bool ms_wine_graphics_conf_path(const char* home, char* out, size_t out_size);
 const char* ms_wine_graphics_conf_env(void);
 
+/* The caches FEX builds before 1.0.0 let VKD3D-Proton and DXVK write next to a game, before they went
+ * in the lanes' folders: exactly vkd3d-proton.cache (with VKD3D-Proton's vkd3d-proton.cache.write)
+ * and <executable name>.dxvk-cache, regular files in `dir` only. Once per folder
+ * (.metalsharp/old-caches-cleared); returns how many it removed. */
+unsigned ms_wine_fex_remove_old_game_caches(const char* dir, const char* executable);
+
 bool ms_wine_prefix_is_arm64(const char* prefix);
 /* One prefix: converted as above when the x86_64 Wine built it, else prepared (setup's Steam
  * prefix, which may still be the 0.80.0 one). */

@@ -103,6 +103,43 @@ int main(int argc, char** argv) {
         EXPECT(access(path, F_OK) == 0);
     }
 
+    /* Caches earlier FEX builds left next to a game go, once: exactly vkd3d-proton.cache(.write)
+     * and <exe>.dxvk-cache; everything else in the folder stays. */
+    {
+        static const char* const removed[] = {"vkd3d-proton.cache", "vkd3d-proton.cache.write",
+                                              "Game.dxvk-cache"};
+        static const char* const kept[] = {"Other.dxvk-cache", "vkd3d-proton.cache.bak", "save.dat",
+                                           "Game.exe"};
+        snprintf(command, sizeof(command), "mkdir -p '%s/old-caches/sub/vkd3d-proton.cache'", home);
+        EXPECT(system(command) == 0);
+        for (size_t i = 0; i < sizeof(removed) / sizeof(removed[0]); i++) {
+            snprintf(path, sizeof(path), "%s/old-caches/%s", home, removed[i]);
+            write_text(path, "cache\n");
+        }
+        for (size_t i = 0; i < sizeof(kept) / sizeof(kept[0]); i++) {
+            snprintf(path, sizeof(path), "%s/old-caches/%s", home, kept[i]);
+            write_text(path, "keep\n");
+        }
+        snprintf(path, sizeof(path), "%s/old-caches", home);
+        snprintf(other, sizeof(other), "%s/old-caches/Game.exe", home);
+        EXPECT(ms_wine_fex_remove_old_game_caches(path, other) == 3);
+        for (size_t i = 0; i < sizeof(removed) / sizeof(removed[0]); i++) {
+            snprintf(other, sizeof(other), "%s/old-caches/%s", home, removed[i]);
+            EXPECT(access(other, F_OK) != 0);
+        }
+        for (size_t i = 0; i < sizeof(kept) / sizeof(kept[0]); i++) {
+            snprintf(other, sizeof(other), "%s/old-caches/%s", home, kept[i]);
+            EXPECT(access(other, F_OK) == 0);
+        }
+        snprintf(other, sizeof(other), "%s/old-caches/sub/vkd3d-proton.cache", home);
+        EXPECT(access(other, F_OK) == 0);
+        /* Once: a cache written after the cleanup is the game's own. */
+        snprintf(other, sizeof(other), "%s/old-caches/vkd3d-proton.cache", home);
+        write_text(other, "new cache\n");
+        EXPECT(ms_wine_fex_remove_old_game_caches(path, "Game.exe") == 0);
+        EXPECT(access(other, F_OK) == 0);
+    }
+
     /* A prefix the fex build converted gets its x86_64 backup back; one without a backup is
      * counted and left alone; an x86_64 prefix is not touched. */
     {

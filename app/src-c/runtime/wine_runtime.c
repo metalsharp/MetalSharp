@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -624,6 +625,38 @@ const char* ms_wine_graphics_conf_env(void) {
 }
 
 #define X86_64_BACKUP ".metalsharp-x86_64-backup"
+
+static bool remove_regular_file(const char* dir, const char* name) {
+    char path[PATH_MAX];
+    struct stat info;
+    return format_path(path, sizeof(path), "%s/%s", dir, name) && lstat(path, &info) == 0 &&
+           S_ISREG(info.st_mode) && unlink(path) == 0;
+}
+
+unsigned ms_wine_fex_remove_old_game_caches(const char* dir, const char* executable) {
+    static const char* const vkd3d_names[] = {"vkd3d-proton.cache", "vkd3d-proton.cache.write"};
+    char meta[PATH_MAX], marker[PATH_MAX], dxvk_name[NAME_MAX + 1];
+    const char* base = executable ? strrchr(executable, '/') : NULL;
+    size_t stem;
+    unsigned removed = 0;
+    if (!dir || !format_path(meta, sizeof(meta), "%s/%s", dir, ".metalsharp") ||
+        !format_path(marker, sizeof(marker), "%s/%s", meta, "old-caches-cleared") || access(marker, F_OK) == 0)
+        return 0;
+    for (size_t i = 0; i < sizeof(vkd3d_names) / sizeof(vkd3d_names[0]); i++)
+        removed += remove_regular_file(dir, vkd3d_names[i]);
+    /* DXVK names its state cache after the executable without its extension. */
+    base = base ? base + 1 : executable;
+    if (base && base[0]) {
+        stem = strlen(base);
+        if (stem > 4 && !strcasecmp(base + stem - 4, ".exe"))
+            stem -= 4;
+        if (snprintf(dxvk_name, sizeof(dxvk_name), "%.*s.dxvk-cache", (int)stem, base) < (int)sizeof(dxvk_name))
+            removed += remove_regular_file(dir, dxvk_name);
+    }
+    if (ensure_dir(meta))
+        (void)write_file(marker, "1\n", 0644);
+    return removed;
+}
 
 bool ms_wine_prefix_is_arm64(const char* prefix) {
     char path[PATH_MAX], text[16] = "";
