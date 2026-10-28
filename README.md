@@ -8,8 +8,6 @@ ___
 
 ### Run Windows games on MacOS Silicon.
 
-MetalSharp 1.0.0 Is Here! Now With an Arm64 Build That Runs Games Through FEX, No Rosetta Needed. In Early Access!
-
 <a href="https://github.com/metalsharp/MetalSharp/releases/tag/v1.0.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v1.0.0&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases"><img src="https://img.shields.io/github/downloads/metalsharp/MetalSharp/total?style=for-the-badge" alt="Downloads"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-purple.svg?style=for-the-badge" alt="License"></a>
