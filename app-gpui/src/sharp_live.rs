@@ -2279,11 +2279,13 @@ impl SharpPreview {
                     let factor = r.get("factor").and_then(Value::as_f64).unwrap_or(2.0);
                     this.state.launch_preferences[0] =
                         if r.get("enabled").and_then(Value::as_bool) == Some(false) {
-                            2
-                        } else if (factor - 1.75).abs() < 0.01 {
+                            3
+                        } else if (factor - 1.5).abs() < 0.01 {
                             0
-                        } else {
+                        } else if (factor - 1.75).abs() < 0.01 {
                             1
+                        } else {
+                            2
                         };
                     cx.notify();
                 }
@@ -2304,8 +2306,9 @@ impl SharpPreview {
         }
         if index == 0 {
             let body = match choice {
-                0 => json!({"enabled": true, "factor": 1.75}),
-                1 => json!({"enabled": true, "factor": 2.0}),
+                0 => json!({"enabled": true, "factor": 1.5}),
+                1 => json!({"enabled": true, "factor": 1.75}),
+                2 => json!({"enabled": true, "factor": 2.0}),
                 _ => json!({"enabled": false}),
             };
             live::call(

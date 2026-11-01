@@ -3452,7 +3452,7 @@ impl MetalSharpApp {
         };
         let mut cells: Vec<gpui::Div> = Vec::new();
         let mut metal_fx = div().flex().gap(px(4.0));
-        for (index, (mode, text)) in [("1.75", "1.75×"), ("2.0", "2×"), ("off", "Off")]
+        for (index, (mode, text)) in [("1.5", "1.5×"), ("1.75", "1.75×"), ("2.0", "2×"), ("off", "Off")]
             .into_iter()
             .enumerate()
         {

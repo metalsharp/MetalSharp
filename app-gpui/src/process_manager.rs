@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 const HELPER: &str = "metalsharp-process-manager-helper";
-const METALFX_FACTORS: [f64; 2] = [1.75, 2.0];
+const METALFX_FACTORS: [f64; 3] = [1.5, 1.75, 2.0];
 const MONO: &str = "Menlo";
 
 const ACCENT: u32 = 0x5fb7e8;
@@ -976,7 +976,15 @@ impl Render for ProcessManager {
             },
             ACCENT,
         );
-        let factor_label = |f: f64| if f == 2.0 { "2×" } else { "1.75×" };
+        let factor_label = |f: f64| {
+            if f == 2.0 {
+                "2×"
+            } else if f == 1.5 {
+                "1.5×"
+            } else {
+                "1.75×"
+            }
+        };
         let mono_button = |id: &'static str, label: String| {
             div()
                 .id(id)

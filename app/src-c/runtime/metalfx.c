@@ -130,7 +130,7 @@ static metalfx_state read_state(const char* home) {
     if (ms_json_as_i64(ms_json_object_get(json, "ts"), &timestamp) && timestamp >= 0)
         state.timestamp = (unsigned long long)timestamp;
     ms_json_free(json);
-    if (fabs(state.factor - 1.75) > 0.01 && fabs(state.factor - 2.0) > 0.01)
+    if (fabs(state.factor - 1.5) > 0.01 && fabs(state.factor - 1.75) > 0.01 && fabs(state.factor - 2.0) > 0.01)
         state.factor = 2.0;
     return state;
 }
@@ -231,7 +231,8 @@ static double read_conf_factor_found(const char* home, bool* found) {
     }
     free(text);
     /* 1.00: MetalFX off. */
-    if (fabs(result - 1.0) > 0.01 && fabs(result - 1.75) > 0.01 && fabs(result - 2.0) > 0.01)
+    if (fabs(result - 1.0) > 0.01 && fabs(result - 1.5) > 0.01 && fabs(result - 1.75) > 0.01 &&
+        fabs(result - 2.0) > 0.01)
         result = 2.0;
     return result;
 }
@@ -441,7 +442,7 @@ char* ms_metalfx_set_json(const char* metalsharp_home, const unsigned char* body
             state.enabled = enabled;
         }
         if (state.enabled && ms_json_as_number(ms_json_object_get(request, "factor"), &factor) && isfinite(factor) &&
-            (fabs(factor - 1.75) <= 0.01 || fabs(factor - 2.0) <= 0.01))
+            (fabs(factor - 1.5) <= 0.01 || fabs(factor - 1.75) <= 0.01 || fabs(factor - 2.0) <= 0.01))
             state.factor = factor;
     }
     ms_json_free(request);
