@@ -769,6 +769,17 @@ static void set_fex_route_paths(const char* home, const char* pipeline) {
         unsetenv("DXMT_CONFIG_FILE");
         unsetenv("MULLION_CONFIG_FILE");
     }
+    /* VKD3D-Proton's lane: MetalFX in vkd3d.conf and dxvk.conf, which MetalSharp keeps like mullion.conf */
+    {
+        static const char* const names[2] = {"VKD3D_CONFIG_FILE", "DXVK_CONFIG_FILE"};
+        char config[PATH_MAX];
+        for (int i = 0; i < 2; i++) {
+            if (!strcmp(pipeline, "vkd3d") && ms_wine_vkd3d_lane_conf_path(home, i, config, sizeof(config)))
+                setenv(names[i], config, 1);
+            else
+                unsetenv(names[i]);
+        }
+    }
     setenv("GRAPHICS_BACKEND", backend, 1);
     setenv("MS_GRAPHICS_BACKEND", backend, 1);
     if (!strcmp(pipeline, "vkd3d"))
@@ -6376,6 +6387,7 @@ static bool launch_env_skipped(const char* name, size_t length) {
  * none of them. */
 static const char* const launch_env_route_names[] = {
     "GRAPHICS_BACKEND", "MULLION_CONFIG_FILE", "DXMT_CONFIG_FILE", "DXMT_CONFIG", "MULLION_CONFIG",
+    "VKD3D_CONFIG_FILE", "DXVK_CONFIG_FILE", "DXVK_CONFIG",
     "WINEDLLOVERRIDES", "OPENGL_BACKEND",
     "DXVK_STATE_CACHE_PATH", "DXVK_LOG_PATH", "DXVK_LOG_LEVEL", "VKD3D_DEBUG", "VKD3D_CONFIG", "VKD3D_FRAME_RATE",
     "VKD3D_SHADER_CACHE_PATH", "MULLION_SHADER_CACHE_PATH",
