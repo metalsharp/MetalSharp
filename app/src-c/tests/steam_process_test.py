@@ -83,7 +83,7 @@ def main() -> int:
         (steamapps / "appmanifest_1.acf").write_text(
             '"AppState"\n{\n\t"appid"\t"1"\n\t"name"\t"Test Game"\n\t"installdir"\t"Test Game"\n}\n'
         )
-        # A cold Steam start (-no-cef-sandbox) becomes a long-lived stand-in
+        # A cold Steam start (Steam.exe alone, or with -no-cef-sandbox) becomes a long-lived stand-in
         # for the Windows client; every invocation's first argument is logged.
         steam_stand_in = (
             f'exec "{sys.executable}" -c \'import os; '
@@ -95,7 +95,7 @@ def main() -> int:
                 "#!/bin/sh\n"
                 'printf "%s\\n" "$@" > "$METALSHARP_HOME/steam-launch.args"\n'
                 'printf "%s\\n" "$1" >> "$METALSHARP_HOME/wine-calls.log"\n'
-                f'case "$2" in -no-cef-sandbox) {steam_stand_in};; esac\n'
+                f'case "$1:$#:$2" in *Steam.exe:1:|*Steam.exe:*:-no-cef-sandbox) {steam_stand_in};; esac\n'
             )
             target.chmod(0o755)
 
@@ -173,7 +173,8 @@ def main() -> int:
             assert launched.get("ok") is True, launched
             stale_helper.wait(timeout=5)
             args = launch_args.read_text().splitlines()
-            assert "-no-cef-sandbox" in args and "steam://open/library" not in args, args
+            # the FEX build starts Steam without CEF flags; the other build passes them
+            assert args and args[0].endswith("Steam.exe") and "steam://open/library" not in args, args
             assert "reg" not in calls.read_text().splitlines(), calls.read_text()
             stopped = request_json(sock, "/steam/stop", method="POST")
             assert stopped.get("ok") is True and stopped.get("running") is False, stopped

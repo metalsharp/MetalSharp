@@ -4030,6 +4030,28 @@ static char* spawn_wine_for_pipeline(const char* home, const char* pipeline, uns
     /* MetalSharp Wine (the fex build) starts the Steam client directly through runtime/wine/bin's
      * wrapper: under the helper app's identity macOS refuses the wrapper on an external volume. */
     char* helper = !ms_wine_is_fex() && id == 0 && is_steam_client_executable(first) ? steam_helper_app_path() : NULL;
+    /* On MetalSharp Wine the Steam client starts as Steam starts it on Windows: Steam's own webhelper,
+     * none of the CEF flags and no DLL overrides from the environment. Its UI does not load otherwise. */
+    bool plain_client = ms_wine_is_fex() && id == 0 && is_steam_client_executable(first);
+    if (plain_client) {
+        static const char* const cef_flags[] = {"-no-cef-sandbox", "-cef-single-process", "-noverifyfiles",
+                                                "-no-dwrite"};
+        const char* args[] = {second, third, fourth, fifth};
+        size_t kept = 0;
+        for (size_t i = 0; i < 4 && args[i]; i++) {
+            bool flag = false;
+            for (size_t j = 0; j < sizeof(cef_flags) / sizeof(cef_flags[0]); j++)
+                flag = flag || !strcmp(args[i], cef_flags[j]);
+            if (!flag)
+                args[kept++] = args[i];
+        }
+        while (kept < 4)
+            args[kept++] = NULL;
+        second = args[0];
+        third = args[1];
+        fourth = args[2];
+        fifth = args[3];
+    }
     child = fork();
     if (child < 0) {
         char* error_text = strdup(strerror(errno));
@@ -4057,7 +4079,7 @@ static char* spawn_wine_for_pipeline(const char* home, const char* pipeline, uns
         setenv("WINEDEBUGGER", "none", 1);
         setenv("STEAM_RUNTIME", "0", 1);
         setenv("MS_FWD_COMPAT_GL_CTX", "1", 1);
-        if (overrides_ready)
+        if (overrides_ready && !plain_client)
             setenv("WINEDLLOVERRIDES", overrides, 1);
         else
             unsetenv("WINEDLLOVERRIDES");
@@ -4911,12 +4933,50 @@ done:
     return cached;
 }
 
+/* MetalSharp Wine (the fex build) runs Steam's own webhelper: Steam's UI does not load through the
+ * wrapper there. Where a wrapper was deployed, Steam's webhelper goes back to steamwebhelper.exe. */
+static void restore_steam_webhelpers(const char* steam_dir) {
+    char* cef_root = steam_dir ? join(steam_dir, "bin/cef") : NULL;
+    DIR* dir = cef_root ? opendir(cef_root) : NULL;
+    struct dirent* entry;
+    while (dir && (entry = readdir(dir)) != NULL) {
+        char *cef_dir, *original, *real, *marker;
+        struct stat original_stat, real_stat;
+        if (strncmp(entry->d_name, "cef.", 4) != 0)
+            continue;
+        cef_dir = join(cef_root, entry->d_name);
+        original = cef_dir ? join(cef_dir, "steamwebhelper.exe") : NULL;
+        real = cef_dir ? join(cef_dir, "steamwebhelper_real.exe") : NULL;
+        marker = cef_dir ? join(cef_dir, ".ms_wrapper_deployed") : NULL;
+        if (original && real && stat(real, &real_stat) == 0 &&
+            (unsigned long long)real_stat.st_size > STEAMWEBHELPER_WRAPPER_MAX_BYTES &&
+            (stat(original, &original_stat) != 0 ||
+             (unsigned long long)original_stat.st_size <= STEAMWEBHELPER_WRAPPER_MAX_BYTES)) {
+            (void)unlink(original);
+            if (rename(real, original) == 0 && marker)
+                (void)unlink(marker);
+        }
+        free(cef_dir);
+        free(original);
+        free(real);
+        free(marker);
+    }
+    if (dir)
+        closedir(dir);
+    free(cef_root);
+}
+
 /* Puts the verified webhelper wrapper into every CEF directory and keeps Steam's
  * own webhelper as steamwebhelper_real.exe. A small steamwebhelper.exe is taken
  * as the wrapper; with `refresh` it must also be the verified wrapper, or it is
  * replaced (what Fix Steam does). */
 static void deploy_steamwebhelper_wrapper(const char* home, const char* steam_dir, bool refresh) {
-    char* wrapper = extract_steamwebhelper_wrapper(home);
+    char* wrapper;
+    if (ms_wine_is_fex()) {
+        restore_steam_webhelpers(steam_dir);
+        return;
+    }
+    wrapper = extract_steamwebhelper_wrapper(home);
     char* cef_root;
     DIR* dir;
     struct dirent* entry;
@@ -5133,6 +5193,12 @@ static bool refresh_stale_steamwebhelpers(const char* home, const char* steam_di
     DIR* dir = package_dir ? opendir(package_dir) : NULL;
     struct dirent* item;
     bool ok = true;
+    if (ms_wine_is_fex()) {
+        if (dir)
+            closedir(dir);
+        free(package_dir);
+        return true;
+    }
     while (dir && (item = readdir(dir)) != NULL) {
         size_t name_length = strlen(item->d_name);
         char* manifest;
@@ -5201,6 +5267,10 @@ static bool refresh_stale_steamwebhelpers(const char* home, const char* steam_di
 }
 
 static void ensure_steam_launch_ready(const char* home, const char* steam_dir) {
+    if (ms_wine_is_fex()) {
+        restore_steam_webhelpers(steam_dir);
+        return;
+    }
     char* cef_root = steam_dir ? join(steam_dir, "bin/cef") : NULL;
     DIR* dir = cef_root ? opendir(cef_root) : NULL;
     struct dirent* entry;
@@ -5247,6 +5317,11 @@ static bool steamwebhelper_wrappers_ready(const char* steam_dir) {
     if (!dir) {
         free(cef_root);
         return false;
+    }
+    if (ms_wine_is_fex()) {  /* no wrapper there (restore_steam_webhelpers) */
+        closedir(dir);
+        free(cef_root);
+        return true;
     }
     while ((entry = readdir(dir)) != NULL) {
         char* cef_dir;
