@@ -759,15 +759,31 @@ static void set_fex_route_paths(const char* home, const char* pipeline) {
     const char* backend = ms_wine_fex_graphics_backend(pipeline);
     for (size_t i = 0; i < sizeof(x86_64_runtime_env) / sizeof(x86_64_runtime_env[0]); i++)
         unsetenv(x86_64_runtime_env[i]);
-    if (pipeline_is_dxmt(pipeline)) {
+    /* The OpenGL lane's WineMetalGL upscales by mullion.conf's MetalFX factor, which MetalSharp Wine reads
+     * from there too to show the game the display it upscales to. */
+    if (pipeline_is_dxmt(pipeline) || !strcmp(backend, "wine")) {
         char config[PATH_MAX];
-        ensure_dxmt_shader_metal_version(home);
+        if (pipeline_is_dxmt(pipeline))
+            ensure_dxmt_shader_metal_version(home);
         unsetenv("DXMT_CONFIG_FILE");
         if (ms_wine_graphics_conf_path(home, config, sizeof(config)))
             setenv("MULLION_CONFIG_FILE", config, 1);
     } else {
         unsetenv("DXMT_CONFIG_FILE");
         unsetenv("MULLION_CONFIG_FILE");
+    }
+    /* VKD3D-Proton's lane: MetalFX in vkd3d.conf and dxvk.conf; DXVK's lane: dxvk.conf. MetalSharp keeps them
+     * like mullion.conf */
+    {
+        static const char* const names[2] = {"VKD3D_CONFIG_FILE", "DXVK_CONFIG_FILE"};
+        char config[PATH_MAX];
+        for (int i = 0; i < 2; i++) {
+            bool lane = !strcmp(pipeline, "vkd3d") || (i == 1 && !strcmp(backend, "dxvk"));
+            if (lane && ms_wine_vkd3d_lane_conf_path(home, i, config, sizeof(config)))
+                setenv(names[i], config, 1);
+            else
+                unsetenv(names[i]);
+        }
     }
     setenv("GRAPHICS_BACKEND", backend, 1);
     setenv("MS_GRAPHICS_BACKEND", backend, 1);
@@ -6451,6 +6467,7 @@ static bool launch_env_skipped(const char* name, size_t length) {
  * none of them. */
 static const char* const launch_env_route_names[] = {
     "GRAPHICS_BACKEND", "MULLION_CONFIG_FILE", "DXMT_CONFIG_FILE", "DXMT_CONFIG", "MULLION_CONFIG",
+    "VKD3D_CONFIG_FILE", "DXVK_CONFIG_FILE", "DXVK_CONFIG",
     "WINEDLLOVERRIDES", "OPENGL_BACKEND",
     "DXVK_STATE_CACHE_PATH", "DXVK_LOG_PATH", "DXVK_LOG_LEVEL", "VKD3D_DEBUG", "VKD3D_CONFIG", "VKD3D_FRAME_RATE",
     "VKD3D_SHADER_CACHE_PATH", "MULLION_SHADER_CACHE_PATH",

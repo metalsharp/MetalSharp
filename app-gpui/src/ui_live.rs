@@ -1472,6 +1472,8 @@ impl MetalSharpApp {
                     this.live.metal_fx_mode =
                         if state.get("enabled").and_then(Value::as_bool) == Some(false) {
                             "off"
+                        } else if (factor - 1.5).abs() < 0.01 {
+                            "1.5"
                         } else if (factor - 1.75).abs() < 0.01 {
                             "1.75"
                         } else {
@@ -1494,7 +1496,12 @@ impl MetalSharpApp {
         let body = if mode == "off" {
             json!({"enabled": false})
         } else {
-            json!({"enabled": true, "factor": if mode == "1.75" { 1.75 } else { 2.0 }})
+            let factor = match mode {
+                "1.5" => 1.5,
+                "1.75" => 1.75,
+                _ => 2.0,
+            };
+            json!({"enabled": true, "factor": factor})
         };
         live::call(
             cx,

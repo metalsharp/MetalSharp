@@ -130,7 +130,7 @@ static metalfx_state read_state(const char* home) {
     if (ms_json_as_i64(ms_json_object_get(json, "ts"), &timestamp) && timestamp >= 0)
         state.timestamp = (unsigned long long)timestamp;
     ms_json_free(json);
-    if (fabs(state.factor - 1.75) > 0.01 && fabs(state.factor - 2.0) > 0.01)
+    if (fabs(state.factor - 1.5) > 0.01 && fabs(state.factor - 1.75) > 0.01 && fabs(state.factor - 2.0) > 0.01)
         state.factor = 2.0;
     return state;
 }
@@ -201,9 +201,8 @@ static bool line_is_switch(const char* line) {
     return line_is_key(line, "d3d11.metalSpatialUpscale");
 }
 
-/* The factor in dxmt.conf; *found tells whether the file has one. */
-static double read_conf_factor_found(const char* home, bool* found) {
-    char* path = conf_path(home);
+/* The factor in a conf file; *found tells whether the file has one. */
+static double read_conf_file_factor(char* path, bool* found) {
     char* text;
     char* line;
     double result = 2.0;
@@ -231,9 +230,15 @@ static double read_conf_factor_found(const char* home, bool* found) {
     }
     free(text);
     /* 1.00: MetalFX off. */
-    if (fabs(result - 1.0) > 0.01 && fabs(result - 1.75) > 0.01 && fabs(result - 2.0) > 0.01)
+    if (fabs(result - 1.0) > 0.01 && fabs(result - 1.5) > 0.01 && fabs(result - 1.75) > 0.01 &&
+        fabs(result - 2.0) > 0.01)
         result = 2.0;
     return result;
+}
+
+/* The factor in dxmt.conf (mullion.conf on the fex build); *found tells whether the file has one. */
+static double read_conf_factor_found(const char* home, bool* found) {
+    return read_conf_file_factor(conf_path(home), found);
 }
 
 static double read_conf_factor(const char* home) {
@@ -241,8 +246,7 @@ static double read_conf_factor(const char* home) {
     return read_conf_factor_found(home, &found);
 }
 
-static bool write_conf_factor(const char* home, double factor, bool enabled) {
-    char* path = conf_path(home);
+static bool write_conf_file(char* path, double factor, bool enabled) {
     char* parent;
     char* text;
     char line[128], switch_line[64];
@@ -331,6 +335,7 @@ static bool write_conf_factor(const char* home, double factor, bool enabled) {
         }
     }
     if (!replaced) {
+        /* At the top: after a [program.exe] line, a line applies to that program only. */
         size_t line_length = strlen(line) + strlen(switch_line) + 2;
         if (length + line_length + 1 > capacity) {
             capacity = length + line_length + 1;
@@ -341,8 +346,18 @@ static bool write_conf_factor(const char* home, double factor, bool enabled) {
                 return false;
             }
         }
-        length += (size_t)snprintf(output + length, capacity - length, switch_line[0] ? "%s\n%s\n" : "%s\n", line,
-                                   switch_line);
+        memmove(output + line_length - (switch_line[0] ? 0 : 1), output, length + 1);
+        if (switch_line[0]) {
+            memcpy(output, line, strlen(line));
+            output[strlen(line)] = '\n';
+            memcpy(output + strlen(line) + 1, switch_line, strlen(switch_line));
+            output[line_length - 1] = '\n';
+            length += line_length;
+        } else {
+            memcpy(output, line, strlen(line));
+            output[strlen(line)] = '\n';
+            length += strlen(line) + 1;
+        }
     }
     file = fopen(path, "wb");
     if (file == NULL) {
@@ -369,8 +384,7 @@ static double conf_factor_for(metalfx_state state) {
 }
 
 /* Whether the conf's switch line says `enabled`; false when it has none. */
-static bool conf_switch_is(const char* home, bool enabled) {
-    char* path = conf_path(home);
+static bool conf_file_switch_is(char* path, bool enabled) {
     char* text = path ? read_file(path, NULL) : NULL;
     bool matches = false;
     for (char *save = NULL, *line = text ? strtok_r(text, "\n", &save) : NULL; line;
@@ -389,16 +403,50 @@ static bool conf_switch_is(const char* home, bool enabled) {
     return matches;
 }
 
+/* The conf files MetalSharp keeps the MetalFX lines in: dxmt.conf (mullion.conf on the fex build), and on the fex
+ * build VKD3D-Proton's lane's vkd3d.conf and dxvk.conf, with the same lines. Returns how many it put in paths. */
+static int conf_paths(const char* home, char* paths[3]) {
+    char path[PATH_MAX];
+    int count = 0;
+    if ((paths[count] = conf_path(home)) != NULL)
+        count++;
+    for (int i = 0; i < 2; i++)
+        if (ms_wine_vkd3d_lane_conf_path(home, i, path, sizeof(path)) && (paths[count] = strdup(path)) != NULL)
+            count++;
+    return count;
+}
+
+static bool write_conf_factor(const char* home, double factor, bool enabled) {
+    char* paths[3];
+    int count = conf_paths(home, paths);
+    bool ok = count > 0;
+    for (int i = 0; i < count; i++)
+        ok = write_conf_file(paths[i], factor, enabled) && ok;
+    return ok;
+}
+
+/* Whether a conf file holds the factor and, on the fex build, the switch the state asks for. */
+static bool conf_file_matches(const char* path, metalfx_state state) {
+    bool found;
+    double factor = read_conf_file_factor(strdup(path), &found);
+    return found && fabs(factor - conf_factor_for(state)) <= 0.001 &&
+           (!ms_wine_is_fex() || conf_file_switch_is(strdup(path), state.enabled));
+}
+
 bool ms_metalfx_sync_conf(const char* metalsharp_home) {
     metalfx_state state;
-    bool found;
-    double factor;
+    char* paths[3];
+    int count;
+    bool matches = true;
     if (metalsharp_home == NULL)
         return false;
     state = read_state(metalsharp_home);
-    factor = read_conf_factor_found(metalsharp_home, &found);
-    if (found && fabs(factor - conf_factor_for(state)) <= 0.001 &&
-        (!ms_wine_is_fex() || conf_switch_is(metalsharp_home, state.enabled)))
+    count = conf_paths(metalsharp_home, paths);
+    for (int i = 0; i < count; i++) {
+        matches = matches && conf_file_matches(paths[i], state);
+        free(paths[i]);
+    }
+    if (count > 0 && matches)
         return true;
     return write_conf_factor(metalsharp_home, conf_factor_for(state), state.enabled);
 }
@@ -441,7 +489,7 @@ char* ms_metalfx_set_json(const char* metalsharp_home, const unsigned char* body
             state.enabled = enabled;
         }
         if (state.enabled && ms_json_as_number(ms_json_object_get(request, "factor"), &factor) && isfinite(factor) &&
-            (fabs(factor - 1.75) <= 0.01 || fabs(factor - 2.0) <= 0.01))
+            (fabs(factor - 1.5) <= 0.01 || fabs(factor - 1.75) <= 0.01 || fabs(factor - 2.0) <= 0.01))
             state.factor = factor;
     }
     ms_json_free(request);

@@ -184,7 +184,7 @@ impl Default for PreviewState {
             card_picker: None,
             selected_card: None,
             launch_settings_open: false,
-            launch_preferences: [1, 0, 1, 0, 0],
+            launch_preferences: [2, 0, 1, 0, 0],
             resolution_open: false,
             browser_height: 24.0,
             browser_drag: None,
@@ -572,7 +572,7 @@ impl SharpPreview {
                     ),
             );
         for (index, label, choices) in [
-            (0, "METALFX", vec!["1.75×", "2×", "Off"]),
+            (0, "METALFX", vec!["1.5×", "1.75×", "2×", "Off"]),
             (1, "CONTROLLER INPUT", vec!["Off", "XInput", "DInput"]),
             (2, "MSYNC", vec!["Off", "On"]),
             (
