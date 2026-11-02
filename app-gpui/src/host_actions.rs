@@ -224,7 +224,14 @@ pub fn verify_data_access(home: &Path) -> Value {
 pub fn related_data_paths(home: &Path) -> Vec<PathBuf> {
     let user = user_home();
     let library = user.join("Library");
-    let mut paths = vec![
+    let mut paths = Vec::new();
+    // a data folder on an external drive: its folder there, ahead of the link to it
+    if std::fs::symlink_metadata(home).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        if let Ok(folder) = std::fs::canonicalize(home) {
+            paths.push(folder);
+        }
+    }
+    paths.extend([
         home.to_path_buf(),
         user.join(".metalsharp"),
         user.join(".metalsharp-dev"),
@@ -238,7 +245,7 @@ pub fn related_data_paths(home: &Path) -> Vec<PathBuf> {
         library.join("Saved Application State/com.metalsharp.app.savedState"),
         library.join("HTTPStorages/com.metalsharp.app"),
         library.join("WebKit/com.metalsharp.app"),
-    ];
+    ]);
     if let Ok(entries) = std::fs::read_dir(library.join("Application Support/CrashReporter")) {
         for entry in entries.flatten() {
             if entry

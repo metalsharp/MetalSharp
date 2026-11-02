@@ -79,7 +79,8 @@
     "ui.settings.libraryLayout": "Library Layout",
     "ui.settings.layoutGrid": "Grid",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck shows the selected game with a dock of games; Grid shows every game. The library opens in the layout you choose."
+    "ui.settingsDesc.libraryLayout": "Steam Deck shows the selected game with a dock of games; Grid shows every game. The library opens in the layout you choose.",
+    "ui.settings.dataLocation": "Data Location"
   },
   "zh-CN": {
     "actions.save": "保存",
@@ -161,7 +162,8 @@
     "ui.settings.libraryLayout": "游戏库布局",
     "ui.settings.layoutGrid": "网格",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck 显示所选游戏和游戏栏；网格显示所有游戏。游戏库会以你选择的布局打开。"
+    "ui.settingsDesc.libraryLayout": "Steam Deck 显示所选游戏和游戏栏；网格显示所有游戏。游戏库会以你选择的布局打开。",
+    "ui.settings.dataLocation": "数据位置"
   },
   "es": {
     "actions.save": "Guardar",
@@ -243,7 +245,8 @@
     "ui.settings.libraryLayout": "Diseño de la biblioteca",
     "ui.settings.layoutGrid": "Cuadrícula",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck muestra el juego seleccionado con una barra de juegos; Cuadrícula muestra todos los juegos. La biblioteca se abre con el diseño que elijas."
+    "ui.settingsDesc.libraryLayout": "Steam Deck muestra el juego seleccionado con una barra de juegos; Cuadrícula muestra todos los juegos. La biblioteca se abre con el diseño que elijas.",
+    "ui.settings.dataLocation": "Ubicación de los datos"
   },
   "hi": {
     "actions.save": "सहेजें",
@@ -325,7 +328,8 @@
     "ui.settings.libraryLayout": "लाइब्रेरी लेआउट",
     "ui.settings.layoutGrid": "ग्रिड",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck चुने गए गेम को गेम पट्टी के साथ दिखाता है; ग्रिड सभी गेम दिखाता है। लाइब्रेरी आपके चुने हुए लेआउट में खुलती है।"
+    "ui.settingsDesc.libraryLayout": "Steam Deck चुने गए गेम को गेम पट्टी के साथ दिखाता है; ग्रिड सभी गेम दिखाता है। लाइब्रेरी आपके चुने हुए लेआउट में खुलती है।",
+    "ui.settings.dataLocation": "डेटा का स्थान"
   },
   "ar": {
     "actions.save": "حفظ",
@@ -407,7 +411,8 @@
     "ui.settings.libraryLayout": "تخطيط المكتبة",
     "ui.settings.layoutGrid": "شبكة",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "يعرض Steam Deck اللعبة المحددة مع شريط الألعاب، وتعرض الشبكة جميع الألعاب. تُفتح المكتبة بالتخطيط الذي تختاره."
+    "ui.settingsDesc.libraryLayout": "يعرض Steam Deck اللعبة المحددة مع شريط الألعاب، وتعرض الشبكة جميع الألعاب. تُفتح المكتبة بالتخطيط الذي تختاره.",
+    "ui.settings.dataLocation": "موقع البيانات"
   },
   "pt-BR": {
     "actions.save": "Salvar",
@@ -489,7 +494,8 @@
     "ui.settings.libraryLayout": "Layout da biblioteca",
     "ui.settings.layoutGrid": "Grade",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck mostra o jogo selecionado com uma barra de jogos; Grade mostra todos os jogos. A biblioteca abre no layout que você escolher."
+    "ui.settingsDesc.libraryLayout": "Steam Deck mostra o jogo selecionado com uma barra de jogos; Grade mostra todos os jogos. A biblioteca abre no layout que você escolher.",
+    "ui.settings.dataLocation": "Local dos dados"
   },
   "bn": {
     "actions.save": "সংরক্ষণ",
@@ -571,7 +577,8 @@
     "ui.settings.libraryLayout": "লাইব্রেরি লেআউট",
     "ui.settings.layoutGrid": "গ্রিড",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck বাছাই করা গেমটি গেম বারসহ দেখায়; গ্রিড সব গেম দেখায়। লাইব্রেরি আপনার বেছে নেওয়া লেআউটে খোলে।"
+    "ui.settingsDesc.libraryLayout": "Steam Deck বাছাই করা গেমটি গেম বারসহ দেখায়; গ্রিড সব গেম দেখায়। লাইব্রেরি আপনার বেছে নেওয়া লেআউটে খোলে।",
+    "ui.settings.dataLocation": "ডেটার অবস্থান"
   },
   "ru": {
     "actions.save": "Сохранить",
@@ -653,7 +660,8 @@
     "ui.settings.libraryLayout": "Вид библиотеки",
     "ui.settings.layoutGrid": "Сетка",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck показывает выбранную игру с панелью игр, а Сетка — все игры. Библиотека открывается в выбранном виде."
+    "ui.settingsDesc.libraryLayout": "Steam Deck показывает выбранную игру с панелью игр, а Сетка — все игры. Библиотека открывается в выбранном виде.",
+    "ui.settings.dataLocation": "Расположение данных"
   },
   "ja": {
     "actions.save": "保存",
@@ -735,7 +743,8 @@
     "ui.settings.libraryLayout": "ライブラリのレイアウト",
     "ui.settings.layoutGrid": "グリッド",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck は選択したゲームとゲームバーを表示し、グリッドはすべてのゲームを表示します。ライブラリは選んだレイアウトで開きます。"
+    "ui.settingsDesc.libraryLayout": "Steam Deck は選択したゲームとゲームバーを表示し、グリッドはすべてのゲームを表示します。ライブラリは選んだレイアウトで開きます。",
+    "ui.settings.dataLocation": "データの保存場所"
   },
   "pa": {
     "actions.save": "ਸੰਭਾਲੋ",
@@ -817,7 +826,8 @@
     "ui.settings.libraryLayout": "ਲਾਇਬ੍ਰੇਰੀ ਲੇਆਉਟ",
     "ui.settings.layoutGrid": "ਗ੍ਰਿਡ",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck ਚੁਣੀ ਗਈ ਗੇਮ ਨੂੰ ਗੇਮ ਪੱਟੀ ਨਾਲ ਦਿਖਾਉਂਦਾ ਹੈ; ਗ੍ਰਿਡ ਸਾਰੀਆਂ ਗੇਮਾਂ ਦਿਖਾਉਂਦਾ ਹੈ। ਲਾਇਬ੍ਰੇਰੀ ਤੁਹਾਡੇ ਚੁਣੇ ਲੇਆਉਟ ਵਿੱਚ ਖੁੱਲ੍ਹਦੀ ਹੈ।"
+    "ui.settingsDesc.libraryLayout": "Steam Deck ਚੁਣੀ ਗਈ ਗੇਮ ਨੂੰ ਗੇਮ ਪੱਟੀ ਨਾਲ ਦਿਖਾਉਂਦਾ ਹੈ; ਗ੍ਰਿਡ ਸਾਰੀਆਂ ਗੇਮਾਂ ਦਿਖਾਉਂਦਾ ਹੈ। ਲਾਇਬ੍ਰੇਰੀ ਤੁਹਾਡੇ ਚੁਣੇ ਲੇਆਉਟ ਵਿੱਚ ਖੁੱਲ੍ਹਦੀ ਹੈ।",
+    "ui.settings.dataLocation": "ਡਾਟਾ ਦੀ ਥਾਂ"
   },
   "de": {
     "actions.save": "Speichern",
@@ -899,7 +909,8 @@
     "ui.settings.libraryLayout": "Bibliothekslayout",
     "ui.settings.layoutGrid": "Raster",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck zeigt das ausgewählte Spiel mit einer Spieleleiste, Raster zeigt alle Spiele. Die Bibliothek öffnet sich im gewählten Layout."
+    "ui.settingsDesc.libraryLayout": "Steam Deck zeigt das ausgewählte Spiel mit einer Spieleleiste, Raster zeigt alle Spiele. Die Bibliothek öffnet sich im gewählten Layout.",
+    "ui.settings.dataLocation": "Datenspeicherort"
   },
   "jv": {
     "actions.save": "Simpen",
@@ -981,7 +992,8 @@
     "ui.settings.libraryLayout": "Tata letak perpustakaan",
     "ui.settings.layoutGrid": "Kothak",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck nuduhake game sing dipilih karo bilah game; Kothak nuduhake kabeh game. Perpustakaan dibukak nganggo tata letak sing sampeyan pilih."
+    "ui.settingsDesc.libraryLayout": "Steam Deck nuduhake game sing dipilih karo bilah game; Kothak nuduhake kabeh game. Perpustakaan dibukak nganggo tata letak sing sampeyan pilih.",
+    "ui.settings.dataLocation": "Lokasi Data"
   },
   "ko": {
     "actions.save": "저장",
@@ -1063,7 +1075,8 @@
     "ui.settings.libraryLayout": "라이브러리 레이아웃",
     "ui.settings.layoutGrid": "그리드",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck은 선택한 게임을 게임 바와 함께 보여 주고, 그리드는 모든 게임을 보여 줍니다. 라이브러리는 선택한 레이아웃으로 열립니다."
+    "ui.settingsDesc.libraryLayout": "Steam Deck은 선택한 게임을 게임 바와 함께 보여 주고, 그리드는 모든 게임을 보여 줍니다. 라이브러리는 선택한 레이아웃으로 열립니다.",
+    "ui.settings.dataLocation": "데이터 위치"
   },
   "fr": {
     "actions.save": "Enregistrer",
@@ -1145,7 +1158,8 @@
     "ui.settings.libraryLayout": "Disposition de la bibliothèque",
     "ui.settings.layoutGrid": "Grille",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck affiche le jeu sélectionné avec une barre de jeux ; Grille affiche tous les jeux. La bibliothèque s’ouvre dans la disposition choisie."
+    "ui.settingsDesc.libraryLayout": "Steam Deck affiche le jeu sélectionné avec une barre de jeux ; Grille affiche tous les jeux. La bibliothèque s’ouvre dans la disposition choisie.",
+    "ui.settings.dataLocation": "Emplacement des données"
   },
   "te": {
     "actions.save": "సేవ్ చేయి",
@@ -1227,7 +1241,8 @@
     "ui.settings.libraryLayout": "లైబ్రరీ లేఅవుట్",
     "ui.settings.layoutGrid": "గ్రిడ్",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck ఎంచుకున్న గేమ్‌ను గేమ్ బార్‌తో చూపిస్తుంది; గ్రిడ్ అన్ని గేమ్‌లను చూపిస్తుంది. లైబ్రరీ మీరు ఎంచుకున్న లేఅవుట్‌లో తెరుచుకుంటుంది."
+    "ui.settingsDesc.libraryLayout": "Steam Deck ఎంచుకున్న గేమ్‌ను గేమ్ బార్‌తో చూపిస్తుంది; గ్రిడ్ అన్ని గేమ్‌లను చూపిస్తుంది. లైబ్రరీ మీరు ఎంచుకున్న లేఅవుట్‌లో తెరుచుకుంటుంది.",
+    "ui.settings.dataLocation": "డేటా స్థానం"
   },
   "vi": {
     "actions.save": "Lưu",
@@ -1309,7 +1324,8 @@
     "ui.settings.libraryLayout": "Bố cục thư viện",
     "ui.settings.layoutGrid": "Lưới",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck hiển thị trò chơi đã chọn cùng thanh trò chơi; Lưới hiển thị mọi trò chơi. Thư viện mở theo bố cục bạn chọn."
+    "ui.settingsDesc.libraryLayout": "Steam Deck hiển thị trò chơi đã chọn cùng thanh trò chơi; Lưới hiển thị mọi trò chơi. Thư viện mở theo bố cục bạn chọn.",
+    "ui.settings.dataLocation": "Vị trí dữ liệu"
   },
   "tr": {
     "actions.save": "Kaydet",
@@ -1391,7 +1407,8 @@
     "ui.settings.libraryLayout": "Kitaplık düzeni",
     "ui.settings.layoutGrid": "Izgara",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck seçili oyunu bir oyun çubuğuyla gösterir; Izgara tüm oyunları gösterir. Kitaplık seçtiğiniz düzende açılır."
+    "ui.settingsDesc.libraryLayout": "Steam Deck seçili oyunu bir oyun çubuğuyla gösterir; Izgara tüm oyunları gösterir. Kitaplık seçtiğiniz düzende açılır.",
+    "ui.settings.dataLocation": "Veri Konumu"
   },
   "ur": {
     "actions.save": "محفوظ کریں",
@@ -1473,7 +1490,8 @@
     "ui.settings.libraryLayout": "لائبریری لے آؤٹ",
     "ui.settings.layoutGrid": "گرڈ",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck منتخب گیم کو گیم بار کے ساتھ دکھاتا ہے؛ گرڈ تمام گیمز دکھاتا ہے۔ لائبریری آپ کے منتخب کردہ لے آؤٹ میں کھلتی ہے۔"
+    "ui.settingsDesc.libraryLayout": "Steam Deck منتخب گیم کو گیم بار کے ساتھ دکھاتا ہے؛ گرڈ تمام گیمز دکھاتا ہے۔ لائبریری آپ کے منتخب کردہ لے آؤٹ میں کھلتی ہے۔",
+    "ui.settings.dataLocation": "ڈیٹا کا مقام"
   },
   "it": {
     "actions.save": "Salva",
@@ -1555,7 +1573,8 @@
     "ui.settings.libraryLayout": "Layout della libreria",
     "ui.settings.layoutGrid": "Griglia",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck mostra il gioco selezionato con una barra dei giochi; Griglia mostra tutti i giochi. La libreria si apre nel layout scelto."
+    "ui.settingsDesc.libraryLayout": "Steam Deck mostra il gioco selezionato con una barra dei giochi; Griglia mostra tutti i giochi. La libreria si apre nel layout scelto.",
+    "ui.settings.dataLocation": "Posizione dei dati"
   },
   "mr": {
     "actions.save": "जतन करा",
@@ -1637,6 +1656,7 @@
     "ui.settings.libraryLayout": "लायब्ररी लेआउट",
     "ui.settings.layoutGrid": "ग्रिड",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck निवडलेला गेम गेम पट्टीसह दाखवतो; ग्रिड सर्व गेम दाखवतो. लायब्ररी तुम्ही निवडलेल्या लेआउटमध्ये उघडते."
+    "ui.settingsDesc.libraryLayout": "Steam Deck निवडलेला गेम गेम पट्टीसह दाखवतो; ग्रिड सर्व गेम दाखवतो. लायब्ररी तुम्ही निवडलेल्या लेआउटमध्ये उघडते.",
+    "ui.settings.dataLocation": "डेटाचे स्थान"
   }
 }

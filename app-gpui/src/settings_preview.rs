@@ -54,6 +54,8 @@ pub enum SettingsPreviewEvent {
     LibraryLayout(bool),
     DeviceName(String),
     BackendRestarted,
+    /// Data Location's Move, confirmed: the app stops the backend and moves the data folder (ui_data_location.rs).
+    MoveData(crate::data_location::Target),
 }
 
 /// App-level state the Electron overlay injects from `App.vue`.
@@ -84,6 +86,8 @@ enum ConfirmAction {
     Uninstall,
     /// FEX: after Mullion's own caches are cleared, Metal's cache that every Mullion game shares.
     ClearMullionShared,
+    /// Move the data folder to `move_target`.
+    MoveData,
 }
 
 pub struct SettingsPreview {
@@ -109,6 +113,11 @@ pub struct SettingsPreview {
     /// FEX only: each graphics lane's caches (`lanes` in `/cache/size`), by lane id.
     cache_lanes: Option<Value>,
     confirm: Option<ConfirmAction>,
+    /// Data Location: where the data folder is, the drives it can move to, and its size once counted.
+    data_location: Option<crate::data_location::Location>,
+    data_drives: Vec<crate::data_location::Drive>,
+    data_size: Option<u64>,
+    move_target: Option<crate::data_location::Target>,
     language_menu: bool,
     uninstalling: bool,
     /// Window position of the language button click; the menu is drawn at
@@ -185,6 +194,10 @@ impl SettingsPreview {
             pipeline_cache: None,
             cache_lanes: None,
             confirm: None,
+            data_location: None,
+            data_drives: Vec::new(),
+            data_size: None,
+            move_target: None,
             language_menu: false,
             uninstalling: false,
             language_anchor: gpui::Point::default(),
@@ -243,6 +256,96 @@ impl SettingsPreview {
             self.refresh_gamesdb_status(cx);
             self.refresh_config(cx);
             self.refresh_cache_sizes(cx);
+            self.refresh_data_location(cx);
+        }
+    }
+
+    /// Data Location: where the data folder is and the drives it can go to now; its size is counted off the UI
+    /// thread, as it walks every file.
+    fn refresh_data_location(&mut self, cx: &mut Context<Self>) {
+        let Some(live) = crate::live::Live::get(cx) else {
+            return;
+        };
+        let home = live.home();
+        self.data_location = Some(crate::data_location::location(&home));
+        self.data_drives = crate::data_location::drives();
+        cx.spawn(async move |this, cx| {
+            let size = cx
+                .background_executor()
+                .spawn(async move { crate::data_location::data_size(&home) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.data_size = Some(size);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Data Location's Move buttons: to each other drive, and back to this Mac from a drive.
+    fn data_location_control(&self, cx: &mut Context<Self>) -> gpui::Div {
+        use crate::data_location::{Location, Target};
+        let current = self
+            .data_location
+            .as_ref()
+            .and_then(Location::drive_name)
+            .map(str::to_owned);
+        let mut control = div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .justify_end()
+            .gap(px(8.));
+        if current.is_some() {
+            control = control.child(
+                self.action_button("move-data-mac", "Move to This Mac", false)
+                    .on_click(cx.listener(|s, _, _, cx| {
+                        s.move_target = Some(Target::ThisMac);
+                        s.confirm = Some(ConfirmAction::MoveData);
+                        cx.notify();
+                    })),
+            );
+        }
+        for (index, drive) in self.data_drives.iter().enumerate() {
+            if current.as_deref() == Some(drive.name.as_str()) {
+                continue;
+            }
+            let drive = drive.clone();
+            control = control.child(
+                self.action_button(
+                    ("move-data-drive", index),
+                    format!("Move to {}", drive.name),
+                    false,
+                )
+                .on_click(cx.listener(move |s, _, _, cx| {
+                    s.move_target = Some(Target::Drive(drive.clone()));
+                    s.confirm = Some(ConfirmAction::MoveData);
+                    cx.notify();
+                })),
+            );
+        }
+        control
+    }
+
+    fn data_location_text(&self) -> String {
+        use crate::data_location::Location;
+        let size = self
+            .data_size
+            .map(|size| format!(" ({})", crate::data_location::format_size(size)))
+            .unwrap_or_default();
+        match &self.data_location {
+            Some(Location::Drive { folder, name }) => {
+                format!(
+                    "On {name}{size}, in {}. The drive needs to be connected to use MetalSharp.",
+                    folder.display()
+                )
+            }
+            Some(Location::Disconnected { name, .. }) => {
+                format!("On {name}, which isn't connected.")
+            }
+            _ => format!(
+                "On this Mac{size}. Moving it to an external drive frees space here; the drive then needs to be connected to use MetalSharp."
+            ),
         }
     }
 
@@ -1209,27 +1312,45 @@ impl SettingsPreview {
 
     fn confirmation_overlay(&self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
         let action = self.confirm.unwrap();
-        let (title, copy, confirm) = match action {
+        let (title, copy, confirm): (gpui::SharedString, gpui::SharedString, gpui::SharedString) = match action {
             ConfirmAction::ForceKill => (
-                "Force Kill Processes",
-                "Force kill MetalSharp Wine/runtime processes? This can stop active games, installers, and downloads.",
-                "Force Kill",
+                "Force Kill Processes".into(),
+                "Force kill MetalSharp Wine/runtime processes? This can stop active games, installers, and downloads.".into(),
+                "Force Kill".into(),
             ),
             ConfirmAction::Uninstall => (
-                "Uninstall MetalSharp?",
-                "Permanently delete the Steam, Ubisoft, GOG and Epic Wine prefixes, bottles, Steam installation, Wine runtime, shader caches, and settings? The app will close after cleanup.",
-                "Uninstall",
+                "Uninstall MetalSharp?".into(),
+                "Permanently delete the Steam, Ubisoft, GOG and Epic Wine prefixes, bottles, Steam installation, Wine runtime, shader caches, and settings? The app will close after cleanup.".into(),
+                "Uninstall".into(),
             ),
             ConfirmAction::SwitchToMac => (
-                "Switch Steam Client",
-                "Stop Wine Steam and start Mac Steam?",
-                "OK",
+                "Switch Steam Client".into(),
+                "Stop Wine Steam and start Mac Steam?".into(),
+                "OK".into(),
             ),
             ConfirmAction::ClearMullionShared => (
-                "Also clear Metal's Mullion cache?",
-                "MetalSharp's Mullion caches are cleared. Metal also keeps a pipeline cache that every Mullion game shares, including games started outside MetalSharp. Clearing it affects every Mullion game: each rebuilds its shaders the next time it starts.",
-                "Clear for Every Mullion Game",
+                "Also clear Metal's Mullion cache?".into(),
+                "MetalSharp's Mullion caches are cleared. Metal also keeps a pipeline cache that every Mullion game shares, including games started outside MetalSharp. Clearing it affects every Mullion game: each rebuilds its shaders the next time it starts.".into(),
+                "Clear for Every Mullion Game".into(),
             ),
+            ConfirmAction::MoveData => {
+                let place = match &self.move_target {
+                    Some(crate::data_location::Target::Drive(drive)) => drive.name.clone(),
+                    _ => "this Mac".to_owned(),
+                };
+                let size = self
+                    .data_size
+                    .map(|size| format!(" ({})", crate::data_location::format_size(size)))
+                    .unwrap_or_default();
+                (
+                    format!("Move MetalSharp's data to {place}?").into(),
+                    format!(
+                        "MetalSharp closes Steam and any running games, copies its data{size} to {place}, checks the copy, and then deletes the original. This can take a while; keep MetalSharp open and the drive connected until it's done."
+                    )
+                    .into(),
+                    "Move".into(),
+                )
+            }
         };
         div()
             .id("settings-confirm-backdrop")
@@ -1294,6 +1415,11 @@ impl SettingsPreview {
                                             ConfirmAction::ClearMullionShared => {
                                                 this.clear_cache_with("dxmt", true, cx)
                                             }
+                                            ConfirmAction::MoveData => {
+                                                if let Some(target) = this.move_target.take() {
+                                                    cx.emit(SettingsPreviewEvent::MoveData(target));
+                                                }
+                                            }
                                         }
                                     }
                                     cx.notify();
@@ -1308,7 +1434,7 @@ impl SettingsPreview {
     }
     fn action_button(
         &self,
-        id: &'static str,
+        id: impl Into<gpui::ElementId>,
         label: impl Into<gpui::SharedString>,
         primary: bool,
     ) -> gpui::Stateful<gpui::Div> {
@@ -1853,6 +1979,11 @@ impl Render for SettingsPreview {
                         .on_click(cx.listener(|s, _, _, cx| s.open_folder(true, cx))),
                 ),
         );
+        let data_location = self.row(
+            self.tr("ui.settings.dataLocation"),
+            self.data_location_text(),
+            self.data_location_control(cx),
+        );
         let repair = self.row(
             self.tr("ui.settings.dataAccess"),
             self.tr("ui.settingsDesc.dataAccess"),
@@ -2120,7 +2251,7 @@ impl Render for SettingsPreview {
             )
             .child(self.card(
                 self.tr("settings.dataPermissions"),
-                div().child(folders).child(repair),
+                div().child(folders).child(data_location).child(repair),
                 false,
             ))
             .child(self.card(
@@ -2301,7 +2432,7 @@ mod tests {
         let mut preview = SettingsPreview::new();
         for (language, _) in LANGUAGES {
             preview.language = language;
-            assert_eq!(preview.locales[language].len(), 80);
+            assert_eq!(preview.locales[language].len(), 81);
             assert!(!preview.tr("settings.title").is_empty());
         }
         preview.language = "unsupported";
