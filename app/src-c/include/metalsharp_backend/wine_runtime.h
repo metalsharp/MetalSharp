@@ -38,6 +38,15 @@ const char* ms_wine_fex_graphics_backend(const char* pipeline);
  * (runtime/wine/bin/wine, lib/wine/x86_64-unix/wine) or MetalSharp-Wine.app's
  * (Contents/MacOS/wine, Contents/lib/wine/aarch64-unix/wine). */
 bool ms_wine_is_runtime_wine_path(const char* home, const char* path);
+/* Whether a path the kernel reports for a process (its executable from proc_pidpath, its working directory) is root or
+ * under it. Such paths are resolved, and the data folder can be a link to a folder on another drive
+ * (~/.metalsharp -> /Volumes/<Drive>/MetalSharp), so root is compared resolved, or as written when it does not
+ * resolve. */
+bool ms_resolved_path_within(const char* path, const char* root);
+/* A path for keeping: a resolved path inside the data folder (realpath of a file in it, when the data folder is a link
+ * to another drive) as a path through home, which stays valid if the drive is renamed; any other path as it is.
+ * malloc'd, NULL without memory. */
+char* ms_data_path_for_keeping(const char* home, const char* path);
 /* The directory every Wine process's executable is under, for telling MetalSharp's Wine processes
  * from others: runtime/wine, or runtime/MetalSharp-Wine.app on fex. The _dup form is malloc'd. */
 bool ms_wine_process_root(const char* home, char* out, size_t out_size);

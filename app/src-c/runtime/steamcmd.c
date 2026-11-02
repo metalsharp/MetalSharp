@@ -744,7 +744,8 @@ char* ms_steamcmd_libraries_json(const char* home) {
         ms_json_writer_key(&w, "internal");
         ms_json_writer_bool(&w, internal);
         ms_json_writer_key(&w, "external");
-        ms_json_writer_bool(&w, !strncmp(list.paths[i], "/Volumes/", 9));
+        /* the internal library resolves to /Volumes/... when the data folder is on an external drive */
+        ms_json_writer_bool(&w, !internal && !strncmp(list.paths[i], "/Volumes/", 9));
         ms_json_writer_key(&w, "available");
         ms_json_writer_bool(&w, available);
         ms_json_writer_key(&w, "freeBytes");

@@ -57,6 +57,61 @@ int main(int argc, char** argv) {
         return 2;
     }
 
+    /* A data folder on another drive: ~/.metalsharp is a link to the folder, and the kernel reports its processes'
+     * paths through the folder itself. Here <scratch>/drive/MetalSharp is the folder and <scratch>/data the link. */
+    {
+        char drive[PATH_MAX], link[PATH_MAX], resolved[PATH_MAX], inside[PATH_MAX], kept[PATH_MAX];
+        char* path_kept;
+        snprintf(drive, sizeof(drive), "%s/drive", home);
+        mkdir(drive, 0755);
+        snprintf(drive, sizeof(drive), "%s/drive/MetalSharp", home);
+        mkdir(drive, 0755);
+        snprintf(inside, sizeof(inside), "%s/runtime", drive);
+        mkdir(inside, 0755);
+        snprintf(link, sizeof(link), "%s/data", home);
+        EXPECT(symlink(drive, link) == 0);
+        EXPECT(realpath(drive, resolved) != NULL);
+        snprintf(inside, sizeof(inside), "%s/runtime/wine/bin/wine", resolved);
+        snprintf(kept, sizeof(kept), "%s/runtime", link);
+        /* a resolved executable is within the root through the link, the link's own text, and the folder */
+        EXPECT(ms_resolved_path_within(inside, kept));
+        EXPECT(ms_resolved_path_within(inside, link));
+        EXPECT(ms_resolved_path_within(resolved, link));
+        EXPECT(ms_resolved_path_within(inside, drive));
+        /* not a sibling sharing its name's start, nor a path elsewhere */
+        snprintf(path, sizeof(path), "%s-other/runtime/wine/bin/wine", resolved);
+        EXPECT(!ms_resolved_path_within(path, link));
+        EXPECT(!ms_resolved_path_within("/usr/bin/true", link));
+        /* a root that does not exist compares as written */
+        EXPECT(ms_resolved_path_within("/no/such/root/bin", "/no/such/root"));
+        EXPECT(ms_resolved_path_within("/no/such/root/bin", "/no/such/root/"));
+        EXPECT(!ms_resolved_path_within("/no/such/rootless", "/no/such/root"));
+        /* kept paths go through the link; others stay as they are */
+        path_kept = ms_data_path_for_keeping(link, inside);
+        snprintf(path, sizeof(path), "%s/runtime/wine/bin/wine", link);
+        EXPECT(path_kept && !strcmp(path_kept, path));
+        free(path_kept);
+        path_kept = ms_data_path_for_keeping(link, resolved);
+        EXPECT(path_kept && !strcmp(path_kept, link));
+        free(path_kept);
+        path_kept = ms_data_path_for_keeping(link, "/Volumes/Games/Library/game.exe");
+        EXPECT(path_kept && !strcmp(path_kept, "/Volumes/Games/Library/game.exe"));
+        free(path_kept);
+        snprintf(path, sizeof(path), "%s-other/game.exe", resolved);
+        path_kept = ms_data_path_for_keeping(link, path);
+        EXPECT(path_kept && !strcmp(path_kept, path));
+        free(path_kept);
+        /* a data folder given through another link (the scratch folder's /var for /private/var) keeps paths as
+         * written; one given resolved keeps them as they are */
+        path_kept = ms_data_path_for_keeping(drive, inside);
+        snprintf(path, sizeof(path), "%s/runtime/wine/bin/wine", drive);
+        EXPECT(path_kept && !strcmp(path_kept, path));
+        free(path_kept);
+        path_kept = ms_data_path_for_keeping(resolved, inside);
+        EXPECT(path_kept && !strcmp(path_kept, inside));
+        free(path_kept);
+    }
+
     /* MetalFX on the fex build: the same lines in mullion.conf and in VKD3D-Proton's lane's vkd3d.conf and
      * dxvk.conf, which its games are pointed at */
     {
