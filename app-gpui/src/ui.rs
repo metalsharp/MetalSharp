@@ -7,6 +7,8 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+#[path = "ui_data_location.rs"]
+mod data_location_impl;
 #[path = "ui_live.rs"]
 mod live_impl;
 #[path = "ui_steamcmd.rs"]
@@ -1241,12 +1243,18 @@ impl Render for MetalSharpApp {
         let toasts = crate::toast::hub(cx);
         let library_visible = !(self.live.enabled && self.live.booting)
             && self.live.boot_error.is_none()
+            && self.live.data_prompt.is_none()
+            && self.live.data_move.is_none()
             && !self.live.migration
             && !self.show_setup;
         if !library_visible {
             self.deactivate_polling_pages(cx);
         }
-        let body: gpui::AnyElement = if self.live.enabled && self.live.booting {
+        let body: gpui::AnyElement = if let Some(moving) = self.live.data_move.clone() {
+            self.render_data_move(&moving).into_any_element()
+        } else if let Some(prompt) = self.live.data_prompt.clone() {
+            self.render_data_prompt(prompt, cx).into_any_element()
+        } else if self.live.enabled && self.live.booting {
             self.render_status_screen(
                 "Starting MetalSharp…".into(),
                 "Starting the MetalSharp backend.".into(),
@@ -1322,27 +1330,7 @@ impl MetalSharpApp {
     }
 
     fn retry_boot(&mut self, cx: &mut Context<Self>) {
-        let Some(live) = crate::live::Live::get(cx) else {
-            return;
-        };
-        self.live.boot_error = None;
-        self.live.booting = true;
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let started = cx
-                .background_executor()
-                .spawn(async move { live.start_backend() })
-                .await;
-            let _ = this.update(cx, |this, cx| match started {
-                Ok(()) => this.after_backend_started(cx),
-                Err(error) => {
-                    this.live.booting = false;
-                    this.live.boot_error = Some(error);
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
+        self.boot_backend(false, cx);
     }
 }
 
@@ -3228,6 +3216,7 @@ impl MetalSharpApp {
                     E::BackendRestarted => {
                         this.check_backend(cx);
                     }
+                    E::MoveData(target) => this.start_data_move(target.clone(), cx),
                 }
                 cx.notify();
             })
