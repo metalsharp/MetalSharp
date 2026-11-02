@@ -6,6 +6,7 @@ mod backend_host;
 mod compat;
 #[allow(dead_code)]
 mod configuration;
+mod data_location;
 mod diagnostics;
 mod host_actions;
 mod hotkeys;

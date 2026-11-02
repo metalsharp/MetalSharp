@@ -86,6 +86,10 @@ pub(super) struct LiveState {
     pub update_check_after_library: bool,
     pub booting: bool,
     pub boot_error: Option<String>,
+    /// Asked before the backend starts: where its data goes, or to connect its drive (ui_data_location.rs).
+    pub data_prompt: Option<super::data_location_impl::DataPrompt>,
+    /// Settings' Move of the data folder, with the backend stopped.
+    pub data_move: Option<super::data_location_impl::DataMove>,
     pub migration: bool,
     pub backend_connected: bool,
     pub backend_version: Option<String>,
@@ -185,6 +189,8 @@ impl Default for LiveState {
             update_check_after_library: false,
             booting: false,
             boot_error: None,
+            data_prompt: None,
+            data_move: None,
             migration: false,
             backend_connected: false,
             backend_version: None,
@@ -296,26 +302,9 @@ impl MetalSharpApp {
             async {}
         })
         .detach();
-        cx.spawn(async move |this, cx| {
-            let started = {
-                let live = live.clone();
-                cx.background_executor()
-                    .spawn(async move {
-                        // Electron retries the backend start once (index.ts:1373-1384).
-                        live.start_backend().or_else(|_| live.start_backend())
-                    })
-                    .await
-            };
-            let _ = this.update(cx, |this, cx| match started {
-                Ok(()) => this.after_backend_started(cx),
-                Err(error) => {
-                    this.live.booting = false;
-                    this.live.boot_error = Some(error);
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
+        // The data folder first: a first launch can put it on an external drive, and one on a drive that is not
+        // connected waits for it (ui_data_location.rs); then the backend, retried once as Electron did.
+        app.boot_or_ask_data_location(cx);
         app.start_tick_loop(cx);
         app
     }
@@ -587,7 +576,12 @@ impl MetalSharpApp {
     }
 
     fn on_tick(&mut self, tick: u64, cx: &mut Context<Self>) {
-        if !self.live.enabled || self.live.booting || self.live.boot_error.is_some() {
+        if !self.live.enabled
+            || self.live.booting
+            || self.live.boot_error.is_some()
+            || self.live.data_prompt.is_some()
+            || self.live.data_move.is_some()
+        {
             // Never replay a Cmd+Option+Q pressed before the backend was ready.
             let _ = crate::hotkeys::take_force_quit_request();
             return;
