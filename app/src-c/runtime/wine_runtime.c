@@ -26,7 +26,7 @@
 #endif
 
 #define FACADE_MARKER  ".metalsharp-fex-facade"
-#define FACADE_VERSION "2"
+#define FACADE_VERSION "3"
 
 const char* ms_wine_variant(void) {
     return ms_wine_is_fex() ? "fex" : "regular";
@@ -176,9 +176,9 @@ static const char facade_metalsharp_wine[] =
     "  steam)\n"
     "    shift\n"
     "    export GRAPHICS_BACKEND=dxmt\n"
-    "    export WINEDLLOVERRIDES=\"bcrypt=b;ncrypt=b;gameoverlayrenderer,gameoverlayrenderer64=d\"\n"
-    "    exec \"$MS_WINE\" \"$WINEPREFIX/drive_c/Program Files (x86)/Steam/steam.exe\" \\\n"
-    "      -no-cef-sandbox -cef-single-process -noverifyfiles -no-dwrite \"$@\"\n"
+    "    # Steam starts as on Windows: its UI does not load with CEF flags or DLL overrides here\n"
+    "    unset WINEDLLOVERRIDES\n"
+    "    exec \"$MS_WINE\" \"$WINEPREFIX/drive_c/Program Files (x86)/Steam/steam.exe\" \"$@\"\n"
     "    ;;\n"
     "  gptk)\n"
     "    echo \"ERROR: GPTK runs on the x86_64 build of MetalSharp only\" >&2\n"
