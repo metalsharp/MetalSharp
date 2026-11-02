@@ -683,6 +683,11 @@ const char* ms_wine_graphics_conf_env(void) {
     return ms_wine_is_fex() ? "MULLION_CONFIG_FILE" : "DXMT_CONFIG_FILE";
 }
 
+bool ms_wine_vkd3d_lane_conf_path(const char* home, int index, char* out, size_t out_size) {
+    return home && ms_wine_is_fex() && (index == 0 || index == 1) &&
+           format_path(out, out_size, "%s/runtime/wine/etc/%s", home, index == 0 ? "vkd3d.conf" : "dxvk.conf");
+}
+
 #define X86_64_BACKUP ".metalsharp-x86_64-backup"
 
 static bool steam_prefix_arm64(const char* home, bool* x86_64) {
