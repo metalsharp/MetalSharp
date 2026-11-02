@@ -158,6 +158,10 @@ static bool format_wine_host_path(char* out, size_t out_size, const char* host_p
 static const d3dmetal_steam_launcher_game* d3dmetal_steam_launcher_game_for(unsigned id, const char* pipeline) {
     if (!pipeline || strcmp(pipeline, d3dmetal_lane()))
         return NULL;
+    /* On Mullion, EVE Online and Assassin's Creed Odyssey start like any Steam game: the Chromium switches the
+     * handoff passes them are D3DMetal's. */
+    if (ms_wine_is_fex())
+        return NULL;
     for (size_t i = 0; i < sizeof(D3DMETAL_STEAM_LAUNCHER_GAMES) / sizeof(D3DMETAL_STEAM_LAUNCHER_GAMES[0]); i++)
         if (D3DMETAL_STEAM_LAUNCHER_GAMES[i].appid == id)
             return &D3DMETAL_STEAM_LAUNCHER_GAMES[i];
@@ -1084,7 +1088,8 @@ static const char* opengl_engine_flag(const char* executable) {
 }
 
 static void build_launch_args(unsigned id, const char* pipeline, char** argv, size_t* count, size_t max) {
-    if (id == 8500) {
+    /* D3DMetal's Chromium switches for EVE's launcher; on Mullion it starts without them */
+    if (id == 8500 && !ms_wine_is_fex()) {
         static const char* const eve_chromium_args[] = {"--no-sandbox",
                                                         "--in-process-gpu",
                                                         "--disable-gpu",
