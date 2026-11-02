@@ -93,9 +93,10 @@ bool ms_wine_fex_prefix_ready(const char* prefix);
 bool ms_wine_graphics_conf_path(const char* home, char* out, size_t out_size);
 const char* ms_wine_graphics_conf_env(void);
 
-/* The fex build's VKD3D-Proton lane reads the same MetalFX lines from its own files: runtime/wine/etc/vkd3d.conf
- * (VKD3D_CONFIG_FILE, Direct3D 12) and runtime/wine/etc/dxvk.conf (DXVK_CONFIG_FILE, Direct3D 11 and earlier, and
- * DXGI). index 0 is vkd3d.conf, 1 dxvk.conf; false on the regular build, which has no such lane. */
+/* The fex build's VKD3D-Proton and DXVK lanes read the same MetalFX lines from their own files:
+ * runtime/wine/etc/vkd3d.conf (VKD3D_CONFIG_FILE, VKD3D-Proton's Direct3D 12) and runtime/wine/etc/dxvk.conf
+ * (DXVK_CONFIG_FILE, DXVK's Direct3D 11 and earlier, and DXGI, on both lanes). index 0 is vkd3d.conf, 1 dxvk.conf;
+ * false on the regular build, which has no such lanes. */
 bool ms_wine_vkd3d_lane_conf_path(const char* home, int index, char* out, size_t out_size);
 
 /* The caches FEX builds before 1.0.0 let VKD3D-Proton and DXVK write next to a game, before they went

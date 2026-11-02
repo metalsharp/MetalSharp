@@ -769,12 +769,14 @@ static void set_fex_route_paths(const char* home, const char* pipeline) {
         unsetenv("DXMT_CONFIG_FILE");
         unsetenv("MULLION_CONFIG_FILE");
     }
-    /* VKD3D-Proton's lane: MetalFX in vkd3d.conf and dxvk.conf, which MetalSharp keeps like mullion.conf */
+    /* VKD3D-Proton's lane: MetalFX in vkd3d.conf and dxvk.conf; DXVK's lane: dxvk.conf. MetalSharp keeps them
+     * like mullion.conf */
     {
         static const char* const names[2] = {"VKD3D_CONFIG_FILE", "DXVK_CONFIG_FILE"};
         char config[PATH_MAX];
         for (int i = 0; i < 2; i++) {
-            if (!strcmp(pipeline, "vkd3d") && ms_wine_vkd3d_lane_conf_path(home, i, config, sizeof(config)))
+            bool lane = !strcmp(pipeline, "vkd3d") || (i == 1 && !strcmp(backend, "dxvk"));
+            if (lane && ms_wine_vkd3d_lane_conf_path(home, i, config, sizeof(config)))
                 setenv(names[i], config, 1);
             else
                 unsetenv(names[i]);
