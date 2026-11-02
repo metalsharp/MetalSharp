@@ -759,9 +759,12 @@ static void set_fex_route_paths(const char* home, const char* pipeline) {
     const char* backend = ms_wine_fex_graphics_backend(pipeline);
     for (size_t i = 0; i < sizeof(x86_64_runtime_env) / sizeof(x86_64_runtime_env[0]); i++)
         unsetenv(x86_64_runtime_env[i]);
-    if (pipeline_is_dxmt(pipeline)) {
+    /* The OpenGL lane's WineMetalGL upscales by mullion.conf's MetalFX factor, which MetalSharp Wine reads
+     * from there too to show the game the display it upscales to. */
+    if (pipeline_is_dxmt(pipeline) || !strcmp(backend, "wine")) {
         char config[PATH_MAX];
-        ensure_dxmt_shader_metal_version(home);
+        if (pipeline_is_dxmt(pipeline))
+            ensure_dxmt_shader_metal_version(home);
         unsetenv("DXMT_CONFIG_FILE");
         if (ms_wine_graphics_conf_path(home, config, sizeof(config)))
             setenv("MULLION_CONFIG_FILE", config, 1);
