@@ -75,10 +75,20 @@ impl Live {
 
     /// App quit: end MetalSharp's Wine processes (wine_shutdown), then stop the backend without blocking.
     pub fn quit(&self) {
+        self.stop_wine();
+        self.stop_backend_detached();
+    }
+
+    /// End MetalSharp's Wine processes: the Wine Steam client, games, wineserver (wine_shutdown).
+    pub fn stop_wine(&self) {
         let roots =
             crate::wine_shutdown::WineRoots::new(&self.0.config.home, &self.0.config.resources);
         crate::wine_shutdown::kill_all(&roots);
-        self.stop_backend_detached();
+    }
+
+    /// An isolated validation home (--connected-validation), not the user's data.
+    pub fn validation(&self) -> bool {
+        self.0.config.validation
     }
 
     /// Non-blocking stop for app quit (see `BackendHost::terminate_detached`).
