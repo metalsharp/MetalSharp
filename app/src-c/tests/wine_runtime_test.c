@@ -2,6 +2,7 @@
  * runtime/MetalSharp-Wine.app links to a real MetalSharp Wine app (argv[2]); without one, only
  * the pipeline mapping and path checks run. Built with -DMS_BACKEND_VARIANT="fex". */
 #include "metalsharp_backend/cache.h"
+#include "metalsharp_backend/metalfx.h"
 #include "metalsharp_backend/wine_runtime.h"
 #include <limits.h>
 #include <stdio.h>
@@ -54,6 +55,44 @@ int main(int argc, char** argv) {
     if (!home) {
         fprintf(stderr, "usage: %s <scratch home> [MetalSharp-Wine.app]\n", argv[0]);
         return 2;
+    }
+
+    /* MetalFX on the fex build: the same lines in mullion.conf and in VKD3D-Proton's lane's vkd3d.conf and
+     * dxvk.conf, which its games are pointed at */
+    {
+        static const char on[] = "{\"enabled\":true,\"factor\":1.75}";
+        static const char* const names[] = {"mullion.conf", "vkd3d.conf", "dxvk.conf"};
+        char text[512];
+        char* json = ms_metalfx_set_json(home, (const unsigned char*)on, strlen(on));
+        EXPECT(json && strstr(json, "\"ok\":true"));
+        free(json);
+        EXPECT(ms_wine_vkd3d_lane_conf_path(home, 0, path, sizeof(path)) && strstr(path, "/runtime/wine/etc/vkd3d.conf"));
+        EXPECT(ms_wine_vkd3d_lane_conf_path(home, 1, path, sizeof(path)) && strstr(path, "/runtime/wine/etc/dxvk.conf"));
+        for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+            FILE* file;
+            size_t length = 0;
+            snprintf(path, sizeof(path), "%s/runtime/wine/etc/%s", home, names[i]);
+            if ((file = fopen(path, "rb"))) {
+                length = fread(text, 1, sizeof(text) - 1, file);
+                fclose(file);
+            }
+            text[length] = 0;
+            EXPECT(strstr(text, "d3d11.metalSpatialUpscaleFactor = 1.75\nd3d11.metalSpatialUpscale = True\n"));
+        }
+        /* a lane file that lost its lines gets them back */
+        snprintf(path, sizeof(path), "%s/runtime/wine/etc/dxvk.conf", home);
+        write_text(path, "[game.exe]\ndxgi.maxFrameRate = 60\n");
+        EXPECT(ms_metalfx_sync_conf(home));
+        {
+            FILE* file = fopen(path, "rb");
+            size_t length = file ? fread(text, 1, sizeof(text) - 1, file) : 0;
+            if (file)
+                fclose(file);
+            text[length] = 0;
+            EXPECT(!strncmp(text, "d3d11.metalSpatialUpscaleFactor = 1.75\nd3d11.metalSpatialUpscale = True\n[game.exe]\n",
+                            strlen("d3d11.metalSpatialUpscaleFactor = 1.75\nd3d11.metalSpatialUpscale = True\n[game.exe]\n")));
+            EXPECT(strstr(text, "dxgi.maxFrameRate = 60"));
+        }
     }
 
     /* Settings' cache rows on the fex build: each lane's size from its fex-<lane> folders, and a

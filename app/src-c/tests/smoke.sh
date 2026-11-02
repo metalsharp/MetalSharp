@@ -539,6 +539,20 @@ assert v["enabled"] is False
 assert v["factor"] == 1.75
 assert v["conf_factor"] == 1.0
 '
+curl --silent --fail --request POST --header 'Content-Type: application/json' \
+    --data '{"enabled":true,"factor":1.5}' \
+    --unix-socket "$sock" "http://localhost/metalfx/toggle" >/dev/null
+fx_15=$(curl --silent --fail --unix-socket "$sock" "http://localhost/metalfx/state")
+printf '%s' "$fx_15" | python3 -c '
+import json, sys
+v = json.load(sys.stdin)
+assert v["enabled"] is True
+assert v["factor"] == 1.5
+assert v["conf_factor"] == 1.5
+'
+curl --silent --fail --request POST --header 'Content-Type: application/json' \
+    --data '{"enabled":false}' \
+    --unix-socket "$sock" "http://localhost/metalfx/toggle" >/dev/null
 
 handle_created=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"pid":4242,"object_type":"File","name":"\\\\Device\\\\test"}' --unix-socket "$sock" "http://localhost/kernel-translation/handle/create")
 handle_raw=$(printf '%s' "$handle_created" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["entry"]["object_type"] == "File"; print(v["handle_raw"])')
