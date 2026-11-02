@@ -242,7 +242,7 @@ static char* validated_install_root(const char* home, const char* requested) {
         return NULL;
     if (strncmp(resolved, "/Volumes/", 9) && !path_within(resolved, home) && !path_within(resolved, user_home))
         return NULL;
-    return strdup(resolved);
+    return ms_data_path_for_keeping(home, resolved);
 }
 
 static int epic_command_lock(const char* home) {

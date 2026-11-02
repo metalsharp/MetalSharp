@@ -698,9 +698,16 @@ static bool preserve_user_data(const char* home, preserved_data* out) {
          *destination = NULL;
     DIR* dir = NULL;
     struct dirent* entry;
+    struct stat home_info, temp_info;
     memset(out, 0, sizeof(*out));
-    snprintf(template_path, sizeof(template_path), "/tmp/metalsharp-migration-preserve-%ld-%ld", (long)getpid(),
-             (long)time(NULL));
+    /* The copy of the prefixes and games can be many GB: it goes on the data folder's drive when that is not /tmp's
+     * (the data folder on an external drive), where there is room for it, and in /tmp otherwise. */
+    if (stat(home, &home_info) == 0 && stat("/tmp", &temp_info) == 0 && home_info.st_dev != temp_info.st_dev)
+        snprintf(template_path, sizeof(template_path), "%s/.migration-preserve-%ld-%ld", home, (long)getpid(),
+                 (long)time(NULL));
+    else
+        snprintf(template_path, sizeof(template_path), "/tmp/metalsharp-migration-preserve-%ld-%ld", (long)getpid(),
+                 (long)time(NULL));
     if (mkdir(template_path, 0700) != 0)
         return false;
     out->temp = strdup(template_path);
