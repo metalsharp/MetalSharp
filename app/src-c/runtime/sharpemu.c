@@ -1,6 +1,7 @@
 #include "metalsharp_backend/sharpemu.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/wine_runtime.h"
 
 #include <arpa/inet.h>
 #include <dirent.h>
@@ -3439,8 +3440,7 @@ char* ms_sharpemu_action_json(const char* home, const char* action, const unsign
                          !strncmp(resolved, "/System/", 8) || !strcmp(resolved, "/Library") ||
                          !strncmp(resolved, "/Library/", 9) || !strcmp(resolved, "/Applications") ||
                          !strncmp(resolved, "/Applications/", 14) || (has_home && !strcmp(resolved, resolved_home)) ||
-                         (environment && !strncmp(resolved, environment, strlen(environment)) &&
-                          (resolved[strlen(environment)] == '\0' || resolved[strlen(environment)] == '/'));
+                         (environment && ms_resolved_path_within(resolved, environment));
         bool exists = false, overlaps = false;
         for (size_t i = 0; i < count; ++i) {
             if (!strcmp(roots[i], resolved))

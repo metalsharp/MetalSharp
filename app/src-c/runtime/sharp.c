@@ -197,10 +197,18 @@ static char* new_id(void) {
     snprintf(b, sizeof(b), "sharp_%llu", (unsigned long long)time(NULL) * 1000ULL + (unsigned long long)getpid());
     return strdup(b);
 }
-static char* app_json_from(const char* id, const char* name, const char* exe, const char* dir, const char* bottle_id,
-                           const char* engine, const char* adopted_from, time_t scanned_at) {
+/* exe and dir are kept through home when they are in the data folder (ms_data_path_for_keeping): found programs'
+ * paths are resolved, and the data folder can be on a drive whose name changes. */
+static char* app_json_from(const char* home, const char* id, const char* name, const char* exe, const char* dir,
+                           const char* bottle_id, const char* engine, const char* adopted_from, time_t scanned_at) {
     ms_json_writer w;
     char* o;
+    char* kept_exe = ms_data_path_for_keeping(home, exe);
+    char* kept_dir = ms_data_path_for_keeping(home, dir);
+    if (kept_exe)
+        exe = kept_exe;
+    if (kept_dir)
+        dir = kept_dir;
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
     ms_json_writer_key(&w, "id");
@@ -244,6 +252,8 @@ static char* app_json_from(const char* id, const char* name, const char* exe, co
     }
     ms_json_writer_object_end(&w);
     o = ms_json_writer_take(&w);
+    free(kept_exe);
+    free(kept_dir);
     return o;
 }
 
@@ -1553,7 +1563,7 @@ static void adopt_installed_programs(const char* home, const char* parent_id, ti
             !contains_ci(found.items[i].name, "launcher") && asprintf(&name, "%s Launcher", found.items[i].name) < 0)
             name = NULL;
         char* dir = parent_dir(found.items[i].exe);
-        char* raw = dir ? app_json_from(id, name ? name : found.items[i].name, found.items[i].exe, dir,
+        char* raw = dir ? app_json_from(home, id, name ? name : found.items[i].name, found.items[i].exe, dir,
                                         bottle_id[0] ? bottle_id : NULL, engine, parent_id, since)
                         : NULL;
         if (raw && append_raw(home, raw)) {
@@ -1725,7 +1735,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             }
         }
         /* Moonscraper is a Unity D3D11 app: on wined3d it overflows a stack at startup. */
-        raw = app_json_from(id, name, exe, dir, bottle_id, moonscraper ? "dxmt" : "auto", NULL, 0);
+        raw = app_json_from(home, id, name, exe, dir, bottle_id, moonscraper ? "dxmt" : "auto", NULL, 0);
         if (!raw || !append_raw(home, raw)) {
             free(id);
             free(bottle_id);

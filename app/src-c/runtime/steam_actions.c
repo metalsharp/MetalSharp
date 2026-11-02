@@ -2187,8 +2187,10 @@ static void redirect_wine_steam_desktop(const char* home) {
                     continue;
                 }
                 destination = join(redirect_dir, shortcut->d_name);
-                if (destination && access(destination, F_OK) != 0)
-                    (void)rename(source, destination);
+                /* the data folder can be on another drive, where rename cannot move a file */
+                if (destination && access(destination, F_OK) != 0 && rename(source, destination) != 0 &&
+                    errno == EXDEV && copy_file_path_new(source, destination))
+                    (void)unlink(source);
                 free(source);
                 free(destination);
             }
@@ -3151,9 +3153,7 @@ static bool process_cwd_within(pid_t pid, const char* root) {
 #ifdef __APPLE__
     struct proc_vnodepathinfo info;
     int bytes = proc_pidinfo((int)pid, PROC_PIDVNODEPATHINFO, 0, &info, (int)sizeof(info));
-    size_t length = strlen(root);
-    return bytes == (int)sizeof(info) && !strncmp(info.pvi_cdir.vip_path, root, length) &&
-           (info.pvi_cdir.vip_path[length] == '\0' || info.pvi_cdir.vip_path[length] == '/');
+    return bytes == (int)sizeof(info) && ms_resolved_path_within(info.pvi_cdir.vip_path, root);
 #else
     (void)pid;
     (void)root;
@@ -3165,8 +3165,7 @@ static bool process_executable_within(pid_t pid, const char* root) {
 #ifdef __APPLE__
     char executable[PROC_PIDPATHINFO_MAXSIZE];
     int bytes = proc_pidpath((int)pid, executable, sizeof(executable));
-    size_t length = strlen(root);
-    return bytes > 0 && !strncmp(executable, root, length) && (executable[length] == '\0' || executable[length] == '/');
+    return bytes > 0 && ms_resolved_path_within(executable, root);
 #else
     (void)pid;
     (void)root;
@@ -3982,12 +3981,21 @@ static bool is_steam_client_executable(const char* path) {
            (length == 9 || path[length - 10] == '/' || path[length - 10] == '\\');
 }
 
+/* Whether the data folder is on another drive than the system's (a link to /Volumes/<Drive>/MetalSharp). */
+static bool data_folder_on_other_drive(const char* home) {
+    struct stat data, system;
+    return home && stat(home, &data) == 0 && stat("/", &system) == 0 && data.st_dev != system.st_dev;
+}
+
 /* Child side of the fork: run `open` on the helper, forwarding the prepared
  * environment (minus MetalSharp's own launch identity) and the Wine argv.
  * Exits once LaunchServices accepts the launch. Returns if `open` could not
  * run or LaunchServices refused the helper (a quarantined or launch-disabled
- * bundle fails with -10810), so the caller falls back to a direct exec. */
-static void exec_via_steam_helper(const char* helper, const char* cwd, char* const* wine_argv) {
+ * bundle fails with -10810), so the caller falls back to a direct exec.
+ * With the data folder on an external drive, macOS can refuse the helper's
+ * Wine after `open` has succeeded, so it exits only once Wine Steam is seen
+ * running, and otherwise returns for the direct exec. */
+static void exec_via_steam_helper(const char* home, const char* helper, const char* cwd, char* const* wine_argv) {
     extern char** environ;
     size_t env_count = 0, argc = 0, index = 0;
     char** argv;
@@ -4027,8 +4035,20 @@ static void exec_via_steam_helper(const char* helper, const char* cwd, char* con
     pid_t waited;
     while ((waited = waitpid(opener, &status, 0)) < 0 && errno == EINTR)
         ;
-    if (waited == opener && WIFEXITED(status) && WEXITSTATUS(status) == 0)
-        _exit(0);
+    if (waited == opener && WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+        if (!data_folder_on_other_drive(home))
+            _exit(0);
+        for (int i = 0; i < 24; i++) {
+            if (ms_steam_process_running(home))
+                _exit(0);
+            usleep(250000);
+        }
+        fprintf(stderr,
+                "metalsharp: Wine Steam did not start through the Steam helper app %s with the data folder "
+                "on an external drive; starting Wine directly\n",
+                helper);
+        return;
+    }
     fprintf(stderr, "metalsharp: Steam helper app %s could not be launched; starting Wine directly\n", helper);
 }
 
@@ -4108,7 +4128,7 @@ static char* spawn_wine_for_pipeline(const char* home, const char* pipeline, uns
             (void)chdir(steam_dir);
         if (helper) {
             char* wine_argv[] = {wine, (char*)first, (char*)second, (char*)third, (char*)fourth, (char*)fifth, NULL};
-            exec_via_steam_helper(helper, steam_dir, wine_argv);
+            exec_via_steam_helper(home, helper, steam_dir, wine_argv);
         }
         execl(wine, wine, first, second, third, fourth, fifth, (char*)NULL);
         _exit(127);

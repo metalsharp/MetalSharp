@@ -1,6 +1,7 @@
 #include "metalsharp_backend/pcsx2.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/wine_runtime.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -3816,8 +3817,7 @@ static bool protected_game_root(const char* resolved, const char* environment) {
         return true;
     if (user_home && !strcmp(resolved, user_home))
         return true;
-    return environment && !strncmp(resolved, environment, strlen(environment)) &&
-           (resolved[strlen(environment)] == '\0' || resolved[strlen(environment)] == '/');
+    return environment && ms_resolved_path_within(resolved, environment);
 }
 
 static bool resolve_game_location(const char* path, char resolved[4096], bool* is_file) {

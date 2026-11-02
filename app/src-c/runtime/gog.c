@@ -944,14 +944,18 @@ static bool clear_gogdl_manifest(const char* home, const char* product_id) {
 
 static bool safe_gog_install_path(const char* path, const char* home) {
     char* resolved;
+    char resolved_home[PATH_MAX];
     bool safe;
     if (!path || !*path || !strcmp(path, "/") || !strcmp(path, ".") || !strcmp(path, ".."))
         return false;
     resolved = realpath(path, NULL);
     if (!resolved)
         return false;
-    safe = strcmp(resolved, "/") != 0 && strcmp(resolved, home) != 0 && strcmp(resolved, "/Applications") != 0 &&
-           strcmp(resolved, "/Users") != 0 && strcmp(resolved, "/Volumes") != 0;
+    /* nor the data folder, as written or resolved (it can be a link to a folder on another drive) */
+    safe = strcmp(resolved, "/") != 0 && strcmp(resolved, home) != 0 &&
+           !(realpath(home, resolved_home) && !strcmp(resolved, resolved_home)) &&
+           strcmp(resolved, "/Applications") != 0 && strcmp(resolved, "/Users") != 0 &&
+           strcmp(resolved, "/Volumes") != 0;
     free(resolved);
     return safe;
 }
