@@ -287,10 +287,11 @@ impl MetalSharpApp {
         })
         .detach();
         cx.on_app_quit(|_, cx| {
-            // Electron cleanup(): terminate the owned backend before exiting,
-            // without holding the closing window open while it shuts down.
+            // Electron cleanup(): end MetalSharp's Wine processes and terminate the
+            // owned backend before exiting, without holding the closing window open
+            // while the backend shuts down.
             if let Some(live) = Live::get(cx) {
-                live.stop_backend_detached();
+                live.quit();
             }
             async {}
         })
@@ -570,7 +571,7 @@ impl MetalSharpApp {
                 let alive = this.update(cx, |this, cx| {
                     if crate::lifecycle::quit_requested() {
                         if let Some(live) = Live::get(cx) {
-                            live.stop_backend_detached();
+                            live.quit();
                         }
                         cx.quit();
                         return;

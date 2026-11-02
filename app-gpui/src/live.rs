@@ -73,6 +73,14 @@ impl Live {
         }
     }
 
+    /// App quit: end MetalSharp's Wine processes (wine_shutdown), then stop the backend without blocking.
+    pub fn quit(&self) {
+        let roots =
+            crate::wine_shutdown::WineRoots::new(&self.0.config.home, &self.0.config.resources);
+        crate::wine_shutdown::kill_all(&roots);
+        self.stop_backend_detached();
+    }
+
     /// Non-blocking stop for app quit (see `BackendHost::terminate_detached`).
     pub fn stop_backend_detached(&self) {
         if let Some(host) = self.0.host.lock().unwrap().take() {
