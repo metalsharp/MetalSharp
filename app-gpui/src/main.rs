@@ -30,6 +30,7 @@ mod ui;
 mod unix_transport;
 mod updater_bridge;
 mod variant;
+mod wine_shutdown;
 
 use anyhow::Result;
 use gpui::{App, AppContext, Application, Bounds, WindowBounds, WindowOptions, px, size};
