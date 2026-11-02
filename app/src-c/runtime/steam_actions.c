@@ -7136,6 +7136,12 @@ static bool fex_vkd3d_direct_launch_game(unsigned id, const char* pipeline) {
     return (id == 292030 || id == 1245620) && pipeline && !strcmp(pipeline, "vkd3d");
 }
 
+/* Games the fex build starts directly with no Steam client: Caves of Qud (333640) runs without it, and starting Steam
+ * for it opened the client full screen at every launch (#749). */
+static bool fex_direct_launch_without_steam(unsigned id) {
+    return id == 333640;
+}
+
 static char* launch_game_via_steam_args_json(const char* home, unsigned id, const char* encoded_args, int* status,
                                              pid_t* launched_pid) {
     char url[1024];
@@ -8187,6 +8193,10 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
                 *status = steam_status;
             return steam_error;
         }
+    } else if (ms_wine_is_fex() && fex_direct_launch_without_steam(id)) {
+        char* root = ms_steam_game_dir(home, id);
+        (void)write_fex_launch_env(home, id, pipeline, root ? root : game_dir, executable);
+        free(root);
     } else if (ms_wine_is_fex() && !is_rockstar_launcher_executable(executable)) {
         /* Through the Steam client, so Steam syncs cloud saves and records the launch; the route
          * rides in launch.env. */
