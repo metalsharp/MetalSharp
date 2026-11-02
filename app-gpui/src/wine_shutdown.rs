@@ -134,9 +134,25 @@ mod tests {
         let home = base.join("home");
         let wine = home.join("runtime/wine/bin/wineserver");
         let other = base.join("elsewhere/wineserver");
+        // a program of its own: macOS does not run a copy of a system one (/bin/sleep) from elsewhere
         for path in [&wine, &other] {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::copy("/bin/sleep", path).unwrap();
+            let mut cc = std::process::Command::new("/usr/bin/cc")
+                .args(["-x", "c", "-", "-o"])
+                .arg(path)
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            std::io::Write::write_all(
+                cc.stdin.as_mut().unwrap(),
+                b"#include <unistd.h>\nint main(void) { sleep(30); return 0; }\n",
+            )
+            .unwrap();
+            drop(cc.stdin.take());
+            assert!(
+                cc.wait().unwrap().success(),
+                "cc could not build the test program"
+            );
         }
         let mut owned = std::process::Command::new(&wine).arg("30").spawn().unwrap();
         let mut unowned = std::process::Command::new(&other)
