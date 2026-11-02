@@ -149,7 +149,6 @@ static bool command_runs_executable(const char* command, const char* executable)
 
 static bool process_executable_within(pid_t pid, const char* root) {
     char executable[PATH_MAX];
-    size_t length;
     if (!root || !root[0])
         return false;
 #if defined(__APPLE__)
@@ -167,8 +166,7 @@ static bool process_executable_within(pid_t pid, const char* root) {
     (void)pid;
     return false;
 #endif
-    length = strlen(root);
-    return !strncmp(executable, root, length) && (executable[length] == '\0' || executable[length] == '/');
+    return ms_resolved_path_within(executable, root);
 }
 
 static bool process_is_steam(const char* command) {

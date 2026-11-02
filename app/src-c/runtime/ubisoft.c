@@ -110,11 +110,7 @@ static bool ubisoft_process_cwd_within(pid_t pid, const char* root) {
 #ifdef __APPLE__
     struct proc_vnodepathinfo info;
     int bytes = proc_pidinfo((int)pid, PROC_PIDVNODEPATHINFO, 0, &info, (int)sizeof(info));
-    size_t length = strlen(root);
-    while (length > 1 && root[length - 1] == '/')
-        length--;
-    return bytes == (int)sizeof(info) && !strncmp(info.pvi_cdir.vip_path, root, length) &&
-           (info.pvi_cdir.vip_path[length] == '\0' || info.pvi_cdir.vip_path[length] == '/');
+    return bytes == (int)sizeof(info) && ms_resolved_path_within(info.pvi_cdir.vip_path, root);
 #else
     (void)pid;
     (void)root;
@@ -126,8 +122,7 @@ static bool ubisoft_process_executable_within(pid_t pid, const char* root) {
 #ifdef __APPLE__
     char executable[PROC_PIDPATHINFO_MAXSIZE];
     int bytes = proc_pidpath((int)pid, executable, sizeof(executable));
-    size_t length = strlen(root);
-    return bytes > 0 && !strncmp(executable, root, length) && (executable[length] == '\0' || executable[length] == '/');
+    return bytes > 0 && ms_resolved_path_within(executable, root);
 #else
     (void)pid;
     (void)root;

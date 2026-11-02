@@ -98,6 +98,36 @@ bool ms_wine_is_runtime_wine_path(const char* home, const char* path) {
            (!strcmp(path + length, "/MacOS/wine") || !strcmp(path + length, "/lib/wine/aarch64-unix/wine"));
 }
 
+bool ms_resolved_path_within(const char* path, const char* root) {
+    char resolved[PATH_MAX];
+    size_t length;
+    if (!path || !root || !root[0])
+        return false;
+    if (realpath(root, resolved))
+        root = resolved;
+    length = strlen(root);
+    while (length > 1 && root[length - 1] == '/')
+        length--;
+    return !strncmp(path, root, length) && (path[length] == '\0' || path[length] == '/');
+}
+
+char* ms_data_path_for_keeping(const char* home, const char* path) {
+    char resolved_home[PATH_MAX];
+    size_t length;
+    char* kept;
+    if (!path)
+        return NULL;
+    if (!home || !realpath(home, resolved_home) || !strcmp(resolved_home, home))
+        return strdup(path);
+    length = strlen(resolved_home);
+    if (strncmp(path, resolved_home, length) || (path[length] != '\0' && path[length] != '/'))
+        return strdup(path);
+    if (!(kept = malloc(strlen(home) + strlen(path + length) + 1)))
+        return NULL;
+    sprintf(kept, "%s%s", home, path + length);
+    return kept;
+}
+
 bool ms_wine_process_root(const char* home, char* out, size_t out_size) {
     if (!home || !out)
         return false;
