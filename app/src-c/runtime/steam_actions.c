@@ -7152,8 +7152,10 @@ static char* ensure_wine_steam_running(const char* home, int* status) {
     return NULL;
 }
 
-static bool fex_vkd3d_direct_launch_game(unsigned id, const char* pipeline) {
-    return (id == 292030 || id == 1245620) && pipeline && !strcmp(pipeline, "vkd3d");
+/* Hogwarts Legacy (990080) starts directly on every lane: its executable is Phoenix/Binaries/Win64/HogwartsLegacy.exe,
+ * not the launcher stub at the top of its folder the Steam client's launch goes through. */
+static bool fex_direct_launch_game(unsigned id, const char* pipeline) {
+    return id == 990080 || ((id == 292030 || id == 1245620) && pipeline && !strcmp(pipeline, "vkd3d"));
 }
 
 /* Games the fex build starts directly with no Steam client: Caves of Qud (333640) runs without it, and starting Steam
@@ -8199,8 +8201,9 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
     }
     /* Witcher 3 and Elden Ring on the fex build's VKD3D-Proton lane don't start through the Steam client
      * (Witcher 3's REDprelauncher hands off to a witcher3.exe that dies; Elden Ring's launch goes through
-     * its protected-game starter): they start directly, with Steam running for their Steam API. */
-    if (ms_wine_is_fex() && fex_vkd3d_direct_launch_game(id, pipeline)) {
+     * its protected-game starter), nor does Hogwarts Legacy on any lane: they start directly, with Steam
+     * running for their Steam API. */
+    if (ms_wine_is_fex() && fex_direct_launch_game(id, pipeline)) {
         char* root = ms_steam_game_dir(home, id);
         char* steam_error;
         int steam_status = 500;
