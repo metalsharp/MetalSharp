@@ -2210,6 +2210,10 @@ int main(int argc, char** argv) {
         assert(!launches_through_steam_client(220) && !launches_through_steam_client(620));
         assert(fex_direct_launch_without_steam(333640) && !launches_through_steam_client(333640));
         assert(!fex_direct_launch_without_steam(1245620) && !fex_direct_launch_without_steam(673130));
+        /* Hogwarts Legacy starts directly on every lane; Witcher 3 and Elden Ring only on VKD3D-Proton's. */
+        assert(fex_direct_launch_game(990080, "dxmt") && fex_direct_launch_game(990080, "vkd3d"));
+        assert(fex_direct_launch_game(292030, "vkd3d") && !fex_direct_launch_game(292030, "dxmt"));
+        assert(!fex_direct_launch_game(2322010, "dxmt") && !fex_direct_launch_game(1245620, NULL));
         char* json = launch_mode_pid_result(42, 673130, "steam_handoff");
         char* launch_mode = NULL;
         long long number = 0;
