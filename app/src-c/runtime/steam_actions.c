@@ -2958,8 +2958,12 @@ static char* preferred_steam_game_executable(const char* game_dir, unsigned id, 
         preferred[count++] = "Chameleon/Binaries/Win64/PenguinHotel-Win64-Shipping.exe";
     else if (id == 4126040)
         preferred[count++] = "Aniimo.exe";
-    else if (id == 284160)
+    else if (id == 284160) {
+        /* BeamNG.drive ships a native ARM64 build; the fex build runs it rather than the x64 one under FEX */
+        if (ms_wine_is_fex())
+            preferred[count++] = "BinArm64/BeamNG.drive.arm64.exe";
         preferred[count++] = "Bin64/BeamNG.drive.x64.exe";
+    }
     else if (id == 292030) {
         char* witcher3 = ms_witcher3_game_executable(game_dir);
         if (witcher3)
@@ -7153,9 +7157,12 @@ static char* ensure_wine_steam_running(const char* home, int* status) {
 }
 
 /* Hogwarts Legacy (990080) starts directly on every lane: its executable is Phoenix/Binaries/Win64/HogwartsLegacy.exe,
- * not the launcher stub at the top of its folder the Steam client's launch goes through. */
+ * not the launcher stub at the top of its folder the Steam client's launch goes through. So does BeamNG.drive (284160):
+ * its launcher, a 32-bit x86 program under FEX, starts BinArm64/BeamNG.drive.arm64.exe, which then fails with
+ * STATUS_ILLEGAL_INSTRUCTION; started directly, the ARM64 build runs. */
 static bool fex_direct_launch_game(unsigned id, const char* pipeline) {
-    return id == 990080 || ((id == 292030 || id == 1245620) && pipeline && !strcmp(pipeline, "vkd3d"));
+    return id == 990080 || id == 284160 ||
+           ((id == 292030 || id == 1245620) && pipeline && !strcmp(pipeline, "vkd3d"));
 }
 
 /* Games the fex build starts directly with no Steam client: Caves of Qud (333640) runs without it, and starting Steam
