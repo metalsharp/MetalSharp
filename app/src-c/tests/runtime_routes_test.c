@@ -2214,6 +2214,8 @@ int main(int argc, char** argv) {
         assert(fex_direct_launch_game(990080, "dxmt") && fex_direct_launch_game(990080, "vkd3d"));
         assert(fex_direct_launch_game(292030, "vkd3d") && !fex_direct_launch_game(292030, "dxmt"));
         assert(!fex_direct_launch_game(2322010, "dxmt") && !fex_direct_launch_game(1245620, NULL));
+        /* BeamNG.drive starts its ARM64 build directly on every lane. */
+        assert(fex_direct_launch_game(284160, "dxmt") && fex_direct_launch_game(284160, "vkd3d"));
         char* json = launch_mode_pid_result(42, 673130, "steam_handoff");
         char* launch_mode = NULL;
         long long number = 0;
