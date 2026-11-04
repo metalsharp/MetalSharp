@@ -20,7 +20,7 @@ ___
 <div align="center">
 
 
-### Github deleted all of my stars after I temporarily private the repo. Please help bring me back!
+### Github deleted all of my stars after I temporarily privated the repo. Please help bring me back!
 
 ---
 
