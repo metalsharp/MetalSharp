@@ -84,12 +84,12 @@ ___
 
 | Feature | Notes |
 |---|---|
-| **_Sharp Library_** | Import and run standalone Windows programs, installers, and launchers |
-| **_GOG Library_** | Download and play GOG Games |
-| **_Epic Library_** | Download and play Epic Games |
-| **_Ubisoft Connect_** | Download and play Ubisoft Connect Games |
-| **_Battle Net_** | Download and Play Battle.Net Games |
-| **_Rockstar_** | Download and Play Rockstar Games |
+| **_Sharp Library_** | Import and Run Standalone Windows Programs, Installers, and Launchers |
+| **_GOG Library_** | Download and Play GOG Games |
+| **_Epic Library_** | Download and Play Epic Games |
+| **_Ubisoft Connect_** | Download and Play Ubisoft Connect Games |
+| **_Battle.Net_** | Download and Play Battle.Net Games |
+| **_Rockstar Launcher_** | Download and Play Rockstar Games |
 | **_Runtime Bottles_** | Select your launch method, Enable / Disable Msync and MetalFX; Controller Input and x87 Acceleration on x86_64; Metal HUD, Frame Rate Limits and Ray Tracing on Arm64 FEX |
 | **_Route Routing_** | Automatic route selection based on game compatibility data and developer testing |
 | **_Steam Integration_** | Detects your Steam library, manages the Wine Steam session, and deploys a CEF runtime wrapper that survives Steam updates |
