@@ -126,6 +126,10 @@ pub(super) struct LiveState {
     pub deck_games: Vec<LibGame>,
     pub deck_running: HashSet<u64>,
     pub deck_busy: HashSet<u64>,
+    pub deck_progress: HashMap<u64, f64>,
+    /// Card and hero art the user picked for Sharp Library entries, by
+    /// artwork key: (card, hero) file paths.
+    pub custom_art: HashMap<String, (Option<String>, Option<String>)>,
     running_poll_in_flight: bool,
     pub selected_pipeline: String,
     pub pipeline_saving: bool,
@@ -233,6 +237,8 @@ impl Default for LiveState {
             deck_games: Vec::new(),
             deck_running: HashSet::new(),
             deck_busy: HashSet::new(),
+            deck_progress: HashMap::new(),
+            custom_art: HashMap::new(),
             running_poll_in_flight: false,
             selected_pipeline: "auto".into(),
             pipeline_saving: false,
@@ -363,6 +369,15 @@ impl MetalSharpApp {
             .get("windowSize")
             .and_then(|value| serde_json::from_value(value.clone()).ok())
             .unwrap_or_default();
+        if let Some(art) = value.get("customArt").and_then(Value::as_object) {
+            let path = |entry: &Value, key: &str| {
+                entry.get(key).and_then(Value::as_str).map(str::to_owned)
+            };
+            self.live.custom_art = art
+                .iter()
+                .map(|(key, entry)| (key.clone(), (path(entry, "card"), path(entry, "hero"))))
+                .collect();
+        }
         self.sidebar_open = value
             .get("sidebarOpen")
             .and_then(Value::as_bool)
@@ -394,6 +409,12 @@ impl MetalSharpApp {
             "libraryLayout": if self.library_grid { "grid" } else { "steamDeck" },
             "windowSize": self.window_size,
             "libraryPage": self.page.storage_id(),
+            "customArt": self
+                .live
+                .custom_art
+                .iter()
+                .map(|(key, (card, hero))| (key.clone(), json!({"card": card, "hero": hero})))
+                .collect::<serde_json::Map<String, Value>>(),
             "sidebarOpen": self.sidebar_open,
             "startupVideoSeen": self.startup_video_seen,
             "defaultRulesApplied": self.live.default_rules_applied,
@@ -1386,7 +1407,15 @@ impl MetalSharpApp {
             return Some(asset_path(if hero { hero_art } else { cover }));
         }
         if let Some(key) = &game.art_key {
-            return crate::artwork::cache(cx)?.read(cx).path(key);
+            let custom = self.live.custom_art.get(key).and_then(|(card, hero_art)| {
+                let card = card.as_deref().map(PathBuf::from).filter(|p| p.is_file());
+                let hero_art = hero_art
+                    .as_deref()
+                    .map(PathBuf::from)
+                    .filter(|p| p.is_file());
+                if hero { hero_art.or(card) } else { card }
+            });
+            return custom.or_else(|| crate::artwork::cache(cx)?.read(cx).path(key));
         }
         let source = game.page().storage_id();
         let kind = if hero { "hero" } else { "card" };
@@ -1418,6 +1447,7 @@ impl MetalSharpApp {
         let entries = sharp.read(cx).deck_games();
         let mut running = HashSet::new();
         let mut busy = HashSet::new();
+        let mut progress = HashMap::new();
         let games: Vec<LibGame> = entries
             .into_iter()
             .map(|entry| {
@@ -1428,6 +1458,9 @@ impl MetalSharpApp {
                 if entry.busy {
                     busy.insert(appid);
                 }
+                if let Some(percent) = entry.progress {
+                    progress.insert(appid, percent);
+                }
                 LibGame {
                     appid,
                     name: entry.name,
@@ -1435,20 +1468,70 @@ impl MetalSharpApp {
                     source: Some(entry.source.to_owned()),
                     external_id: Some(entry.id),
                     art_key: Some(entry.art_key),
+                    needs_install: !entry.installed,
                     ..Default::default()
                 }
             })
             .collect();
         let changed = games != self.live.deck_games;
-        if changed || running != self.live.deck_running || busy != self.live.deck_busy {
+        if changed
+            || running != self.live.deck_running
+            || busy != self.live.deck_busy
+            || progress != self.live.deck_progress
+        {
             self.live.deck_running = running;
             self.live.deck_busy = busy;
+            self.live.deck_progress = progress;
             if changed {
                 self.live.deck_games = games;
                 if self.page.sharp_source().is_some() {
                     self.rebuild_display_games(cx);
                 }
             }
+            cx.notify();
+        } else if self.page.sharp_source().is_some() {
+            // Setup steps (prefix, login, sync) show on these pages.
+            cx.notify();
+        }
+    }
+
+    /// Pick a card or hero image for a Sharp Library entry.
+    pub(super) fn pick_custom_art(&mut self, game: LibGame, hero: bool, cx: &mut Context<Self>) {
+        let Some(key) = game.art_key.clone() else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let Some(file) = rfd::AsyncFileDialog::new()
+                .set_title(format!(
+                    "Choose {} art for {}",
+                    if hero { "hero" } else { "card" },
+                    game.name
+                ))
+                .add_filter("Image", &["png", "jpg", "jpeg", "webp", "gif"])
+                .pick_file()
+                .await
+            else {
+                return;
+            };
+            let path = file.path().to_string_lossy().into_owned();
+            let _ = this.update(cx, move |this, cx| {
+                let entry = this.live.custom_art.entry(key).or_default();
+                if hero {
+                    entry.1 = Some(path);
+                } else {
+                    entry.0 = Some(path);
+                }
+                this.save_ui_state(cx);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(super) fn reset_custom_art(&mut self, game: &LibGame, cx: &mut Context<Self>) {
+        if let Some(key) = &game.art_key {
+            self.live.custom_art.remove(key);
+            self.save_ui_state(cx);
             cx.notify();
         }
     }
@@ -1527,7 +1610,14 @@ impl MetalSharpApp {
             return;
         }
         if let (Some(id), Some(sharp)) = (game.external_id.clone(), self.sharp_preview.clone()) {
-            if self.live.deck_busy.contains(&game.appid) {
+            if self.live.deck_busy.contains(&game.appid)
+                || self.live.deck_progress.contains_key(&game.appid)
+            {
+                return;
+            }
+            if game.needs_install {
+                let source = game.source.clone().unwrap_or_default();
+                sharp.update(cx, |sharp, cx| sharp.deck_install(&source, &id, cx));
                 return;
             }
             let running = self.is_running(game.appid);

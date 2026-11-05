@@ -1488,10 +1488,15 @@ static bool set_field(const char* home, const char* id, const char* key, const c
     return ok;
 }
 
+bool ms_sharp_is_msi(const char* path) {
+    size_t length = path ? strlen(path) : 0;
+    return length > 4 && strcasecmp(path + length - 4, ".msi") == 0;
+}
+
 static bool installer_like(const char* exe) {
     const char* base = strrchr(exe, '/');
     base = base ? base + 1 : exe;
-    return contains_ci(base, "setup") || contains_ci(base, "install");
+    return contains_ci(base, "setup") || contains_ci(base, "install") || ms_sharp_is_msi(base);
 }
 
 /* Stage the app's graphics route DLLs next to its exe, the way Steam games
@@ -2019,10 +2024,11 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 if (engine && strcmp(engine, "wine_bare") && strcmp(engine, "auto"))
                     ms_steam_apply_graphics_route(home, engine);
                 const char* launch_wrapper = getenv("METALSHARP_WINE_LAUNCH_WRAPPER");
-                char* launch_argv[] = {
-                    (char*)(launch_wrapper && access(launch_wrapper, X_OK) == 0 ? launch_wrapper : wine), exe_path,
-                    NULL};
-                execv(launch_argv[0], launch_argv);
+                char* runner = (char*)(launch_wrapper && access(launch_wrapper, X_OK) == 0 ? launch_wrapper : wine);
+                /* Windows Installer packages run through msiexec. */
+                char* msi_argv[] = {runner, "msiexec", "/i", exe_path, NULL};
+                char* launch_argv[] = {runner, exe_path, NULL};
+                execv(runner, ms_sharp_is_msi(exe_path) ? msi_argv : launch_argv);
                 _exit(127);
             }
             (void)setpgid(pid, pid);

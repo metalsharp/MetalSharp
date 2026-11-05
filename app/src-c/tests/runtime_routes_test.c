@@ -1297,6 +1297,8 @@ int main(int argc, char** argv) {
         const char* stop_body = "{\"id\":\"sharp-smoke\"}";
         char* response;
         int status = 0;
+        assert(ms_sharp_is_msi("/Users/a/Downloads/Tool-x64.MSI") && ms_sharp_is_msi("C:\\setup.msi"));
+        assert(!ms_sharp_is_msi("/games/Example.exe") && !ms_sharp_is_msi(".msi") && !ms_sharp_is_msi(NULL));
         fixture(home, "sharp-running/runtime/wine/bin/metalsharp-wine", "#!/bin/sh\nexec /bin/sleep 30\n");
         assert(chmod(wine_path, 0700) == 0);
         fixture(home, "sharp-running/games/Example.exe", "game");

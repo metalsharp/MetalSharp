@@ -89,6 +89,7 @@ impl gpui::AssetSource for PreviewIcons {
             ))),
             "icon-logs.svg" => Some(Cow::Borrowed(include_bytes!("../assets/icon-logs.svg"))),
             "icon-sidebar.svg" => Some(Cow::Borrowed(include_bytes!("../assets/icon-sidebar.svg"))),
+            "icon-more.svg" => Some(Cow::Borrowed(include_bytes!("../assets/icon-more.svg"))),
             "icon-rockstar.svg" => {
                 Some(Cow::Borrowed(include_bytes!("../assets/icon-rockstar.svg")))
             }
@@ -134,6 +135,7 @@ impl gpui::AssetSource for PreviewIcons {
             "icon-collection.svg".into(),
             "icon-logs.svg".into(),
             "icon-sidebar.svg".into(),
+            "icon-more.svg".into(),
             "icon-rockstar.svg".into(),
             "icon-battlenet.svg".into(),
             "icon-windows.svg".into(),

@@ -572,11 +572,19 @@ fn chrome_bar(theme: PreviewTheme, hairline_at_bottom: bool) -> gpui::Div {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+enum ArtMenuAnchor {
+    Hero,
+    Card,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum LauncherAction {
     Steam,
     Ubisoft,
     Rockstar,
     BattleNet,
+    /// Windows Programs: pick an .exe or .msi to install into the Sharp Library.
+    InstallProgram,
 }
 
 impl LauncherAction {
@@ -587,6 +595,7 @@ impl LauncherAction {
             Self::Ubisoft => "ubisoft",
             Self::Rockstar => "rockstar",
             Self::BattleNet => "battlenet",
+            Self::InstallProgram => "sharp-library",
         }
     }
     fn display_name(self) -> &'static str {
@@ -595,6 +604,7 @@ impl LauncherAction {
             Self::Ubisoft => "Ubisoft Connect",
             Self::Rockstar => "Rockstar Games Launcher",
             Self::BattleNet => "Battle.net",
+            Self::InstallProgram => "Windows program",
         }
     }
 }
@@ -655,6 +665,9 @@ pub struct MetalSharpApp {
     steamcmd_modal: Option<SteamcmdModal>,
     steamcmd_inputs: Option<[gpui::Entity<crate::search_input::SearchInput>; 3]>,
     game_settings_open: bool,
+    /// The [...] art menu of a Sharp Library entry, opened from the hero or
+    /// from the selected dock card.
+    art_menu: Option<ArtMenuAnchor>,
     hovered_card: Option<usize>,
     active_tab: LibraryTab,
     step: usize,
@@ -713,6 +726,7 @@ impl MetalSharpApp {
             steamcmd_modal: None,
             steamcmd_inputs: None,
             game_settings_open: false,
+            art_menu: None,
             hovered_card: None,
             active_tab: LibraryTab::Play,
             step: 2,
@@ -1934,6 +1948,12 @@ impl MetalSharpApp {
             }
             LibraryPage::Rockstar => Some(self.store_launcher(LauncherAction::Rockstar)),
             LibraryPage::BattleNet => Some(self.store_launcher(LauncherAction::BattleNet)),
+            LibraryPage::WindowsPrograms => Some((
+                LauncherAction::InstallProgram,
+                "Install Program",
+                "icon-download.svg",
+                false,
+            )),
             _ => None,
         }
     }
@@ -1983,6 +2003,11 @@ impl MetalSharpApp {
             LauncherAction::Ubisoft => self.toggle_ubisoft(cx),
             LauncherAction::Rockstar | LauncherAction::BattleNet => {
                 self.toggle_store_launcher(action, cx)
+            }
+            LauncherAction::InstallProgram => {
+                if let Some(sharp) = &self.sharp_preview {
+                    sharp.update(cx, |sharp, cx| sharp.deck_install_program(cx));
+                }
             }
         }
         cx.notify();
@@ -2646,7 +2671,32 @@ impl MetalSharpApp {
                 )
                 .child(label)
         };
-        let action = if let Some((action, label, icon, busy)) = self.page_launcher() {
+        let gate = self.page.sharp_source().and_then(|source| {
+            let gate = self.sharp_preview.as_ref()?.read(cx).deck_gate(source)?;
+            Some((source, gate))
+        });
+        let description = gate
+            .as_ref()
+            .map_or(description, |(_, gate)| gate.description);
+        let heading = gate
+            .as_ref()
+            .map_or("No installed games", |(_, gate)| gate.heading);
+        let action = if let Some((source, gate)) = gate {
+            let step = gate.step;
+            let busy = gate.busy;
+            Some(
+                button("library-empty-gate", gate.button, self.page.icon(), busy).on_click(
+                    cx.listener(move |this, _, _, cx| {
+                        if busy {
+                            return;
+                        }
+                        if let Some(sharp) = &this.sharp_preview {
+                            sharp.update(cx, |sharp, cx| sharp.run_gate(source, step, cx));
+                        }
+                    }),
+                ),
+            )
+        } else if let Some((action, label, icon, busy)) = self.page_launcher() {
             Some(
                 button("library-empty-launcher", label, icon, busy).on_click(cx.listener(
                     move |this, _, _, cx| {
@@ -2717,7 +2767,7 @@ impl MetalSharpApp {
                                     .text_size(px(39.0))
                                     .font_family("Georgia")
                                     .text_color(rgb(theme.hero_title()))
-                                    .child("No installed games"),
+                                    .child(heading),
                             )
                             .child(
                                 div()
@@ -2756,8 +2806,14 @@ impl MetalSharpApp {
         let theme = self.theme;
         let accent = theme.accent();
         let is_running = self.is_running(game.appid);
-        let launching =
-            self.live.launching == Some(game.appid) || self.live.deck_busy.contains(&game.appid);
+        let install_progress = self.live.deck_progress.get(&game.appid).copied();
+        let hero_art_menu = (self.art_menu == Some(ArtMenuAnchor::Hero))
+            .then(|| gpui::deferred(self.render_art_menu(&game, layout, cx)).with_priority(20));
+        let mut card_art_menu = (self.art_menu == Some(ArtMenuAnchor::Card))
+            .then(|| gpui::deferred(self.render_art_menu(&game, layout, cx)).with_priority(20));
+        let launching = self.live.launching == Some(game.appid)
+            || self.live.deck_busy.contains(&game.appid)
+            || install_progress.is_some();
         // Graphics, game settings and artwork apply to Steam and Ubisoft games;
         // Sharp Library entries keep theirs in Collection.
         let bottle_settings = game.external_id.is_none();
@@ -2912,15 +2968,27 @@ impl MetalSharpApp {
                                             .bg(rgb(0xffffff))
                                             .into_any_element()
                                     } else {
-                                        control_icon("icon-play.svg", layout.scaled(21.0), 0x101318)
-                                            .into_any_element()
+                                        control_icon(
+                                            if game.needs_install {
+                                                "icon-download.svg"
+                                            } else {
+                                                "icon-play.svg"
+                                            },
+                                            layout.scaled(21.0),
+                                            0x101318,
+                                        )
+                                        .into_any_element()
                                     })
-                                    .child(if launching {
-                                        "Launching"
+                                    .child(if let Some(percent) = install_progress {
+                                        format!("Installing {percent:.0}%")
+                                    } else if launching {
+                                        "Launching".to_owned()
                                     } else if is_running {
-                                        "Stop"
+                                        "Stop".to_owned()
+                                    } else if game.needs_install {
+                                        "Install".to_owned()
                                     } else {
-                                        "Play"
+                                        "Play".to_owned()
                                     }),
                             )
                             .child(
@@ -2929,6 +2997,38 @@ impl MetalSharpApp {
                                     .flex()
                                     .items_center()
                                     .gap(px(layout.scaled(9.0)))
+                                    .children(game.art_key.is_some().then(|| {
+                                        div()
+                                            .relative()
+                                            .flex_none()
+                                            .child(
+                                                div()
+                                                    .id("library-art-options")
+                                                    .size(px(layout.scaled(42.0)))
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_center()
+                                                    .rounded(px(layout.scaled(8.0)))
+                                                    .border_1()
+                                                    .border_color(rgba(0xe7eaec4d))
+                                                    .bg(rgba(0x0c0f10b8))
+                                                    .cursor_pointer()
+                                                    .on_click(cx.listener(|this, _, _, cx| {
+                                                        let open = this.art_menu
+                                                            != Some(ArtMenuAnchor::Hero);
+                                                        this.close_library_menus();
+                                                        this.art_menu =
+                                                            open.then_some(ArtMenuAnchor::Hero);
+                                                        cx.notify();
+                                                    }))
+                                                    .child(control_icon(
+                                                        "icon-more.svg",
+                                                        layout.scaled(20.0),
+                                                        0xf0f0ee,
+                                                    )),
+                                            )
+                                            .children(hero_art_menu)
+                                    }))
                                     .children((game.page() == LibraryPage::Steam).then(|| {
                                         div()
                                             .id("library-art-manager")
@@ -3107,6 +3207,39 @@ impl MetalSharpApp {
                     this.close_library_menus();
                     this.select_game(index, cx);
                     cx.notify();
+                }))
+                // [...] on the selected Sharp Library card: its own art.
+                .children((selected_card && card_game.art_key.is_some()).then(|| {
+                    div()
+                        .absolute()
+                        .top(px(layout.scaled(8.0)))
+                        .right(px(layout.scaled(8.0)))
+                        .child(
+                            div()
+                                .id("dock-card-art-options")
+                                .size(px(layout.scaled(30.0)))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(layout.scaled(7.0)))
+                                .border_1()
+                                .border_color(rgba(0xe7eaec4d))
+                                .bg(rgba(0x0c0f10d0))
+                                .cursor_pointer()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    let open = this.art_menu != Some(ArtMenuAnchor::Card);
+                                    this.close_library_menus();
+                                    this.art_menu = open.then_some(ArtMenuAnchor::Card);
+                                    cx.notify();
+                                }))
+                                .child(control_icon(
+                                    "icon-more.svg",
+                                    layout.scaled(17.0),
+                                    0xf0f0ee,
+                                )),
+                        )
+                        .children(card_art_menu.take())
                 }))
                 .child(
                     div()
@@ -3642,11 +3775,86 @@ impl MetalSharpApp {
         }
     }
 
+    /// Card and hero art choices for a Sharp Library entry, plus its
+    /// Collection settings.
+    fn render_art_menu(
+        &self,
+        game: &LibGame,
+        layout: LibraryLayout,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let theme = self.theme;
+        let text = theme.control_text();
+        let custom = game
+            .art_key
+            .as_ref()
+            .is_some_and(|key| self.live.custom_art.contains_key(key));
+        let item = |id: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .h(px(30.0))
+                .flex()
+                .items_center()
+                .px(px(layout.scaled(10.0)))
+                .rounded(px(5.0))
+                .text_size(px(layout.scaled(12.5)))
+                .text_color(rgb(text))
+                .cursor_pointer()
+                .hover(move |style| style.bg(rgb(theme.menu_hover())))
+                .child(label)
+        };
+        let (card_game, hero_game, reset_game) = (game.clone(), game.clone(), game.clone());
+        div()
+            .absolute()
+            .top(px(layout.scaled(48.0)))
+            .left(px(0.0))
+            .min_w(px(layout.scaled(190.0)))
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .rounded(px(layout.scaled(8.0)))
+            .border_1()
+            .border_color(rgba(theme.page_palette().control_border))
+            .bg(rgb(theme.menu_bg()))
+            .shadow_lg()
+            .p(px(5.0))
+            .occlude()
+            .child(item("art-menu-card", "Set card art…").on_click(cx.listener(
+                move |this, _, _, cx| {
+                    this.art_menu = None;
+                    this.pick_custom_art(card_game.clone(), false, cx);
+                },
+            )))
+            .child(item("art-menu-hero", "Set hero art…").on_click(cx.listener(
+                move |this, _, _, cx| {
+                    this.art_menu = None;
+                    this.pick_custom_art(hero_game.clone(), true, cx);
+                },
+            )))
+            .children(custom.then(|| {
+                item("art-menu-reset", "Use original art").on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        this.art_menu = None;
+                        this.reset_custom_art(&reset_game, cx);
+                    },
+                ))
+            }))
+            .child(
+                item("art-menu-collection", "Settings in Collection…").on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.art_menu = None;
+                        this.set_page_collection(true, cx);
+                    },
+                )),
+            )
+    }
+
     fn close_library_menus(&mut self) {
         self.theme_menu_open = false;
         self.steam_options_open = false;
         self.settings_open = false;
         self.game_settings_open = false;
+        self.art_menu = None;
         self.pipeline_menu_open = false;
         self.collection_menu = None;
     }

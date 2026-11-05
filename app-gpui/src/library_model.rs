@@ -100,6 +100,9 @@ pub struct LibGame {
     /// Artwork cache key resolved by the Sharp Library.
     #[serde(skip)]
     pub art_key: Option<String>,
+    /// An owned GOG or Epic game that is listed but not downloaded yet.
+    #[serde(skip)]
+    pub needs_install: bool,
 }
 
 impl LibGame {
