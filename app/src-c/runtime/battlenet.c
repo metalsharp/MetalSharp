@@ -100,12 +100,6 @@ static char* battlenet_launcher(const char* home) {
     return launcher ? launcher : battlenet_file(home, "Battle.net.exe");
 }
 
-/* The client, which takes --exec commands. */
-static char* battlenet_client(const char* home) {
-    char* client = battlenet_file(home, "Battle.net.exe");
-    return client ? client : battlenet_file(home, "Battle.net Launcher.exe");
-}
-
 static char* battlenet_cache_file(const char* home, const char* name) {
     char* dir = ms_store_path_join(home, BATTLENET_CACHE_DIR);
     char* path = dir ? ms_store_path_join(dir, name) : NULL;
@@ -622,9 +616,8 @@ char* ms_battlenet_launch_game_json(const char* home, const char* body, size_t b
     size_t count = battlenet_scan_games(home, &games);
     const ms_store_game* game;
     char *requested = NULL, *pipeline = NULL, *launcher = NULL, *executable = NULL, *wine = NULL, *prefix = NULL,
-         *client = NULL, *cwd = NULL, *running_lane = NULL;
+         *cwd = NULL, *running_lane = NULL;
     char failure[512] = "Could not launch the installed Battle.net game";
-    char exec_arg[160];
     int code = 400;
     pid_t pid = 0;
     unsigned appid;
@@ -698,31 +691,26 @@ char* ms_battlenet_launch_game_json(const char* home, const char* body, size_t b
     prefix = battlenet_prefix(home);
     if (!wine || !prefix)
         goto done;
+    /* Battle.net's Play runs the game's executable with "-uid <uid>" while the client is signed in
+     * (the game checks in with it); --exec=launch_uid only selects the game in current clients. */
+    cwd = strdup(executable);
+    if (!cwd || !strrchr(cwd, '/'))
+        goto done;
+    *strrchr(cwd, '/') = '\0';
     if (game->uid[0]) {
-        /* The running client takes the command and starts the game (after sign-in). */
-        client = battlenet_client(home);
-        cwd = client ? strdup(client) : NULL;
-        if (!client || !cwd)
-            goto done;
-        *strrchr(cwd, '/') = '\0';
-        snprintf(exec_arg, sizeof(exec_arg), "--exec=launch_uid %s", game->uid);
-        char* argv[] = {wine, client, exec_arg, NULL};
+        char* argv[] = {wine, executable, "-uid", (char*)game->uid, NULL};
         if (!ms_store_run_wine(home, prefix, cwd, argv, battlenet_apply_env, pipeline, false, NULL, &pid)) {
-            snprintf(failure, sizeof(failure), "Could not ask Battle.net to start %s", game->name);
+            snprintf(failure, sizeof(failure), "Could not start the MetalSharp Wine process for %s", game->name);
             goto done;
         }
     } else {
-        cwd = strdup(executable);
-        if (!cwd || !strrchr(cwd, '/'))
-            goto done;
-        *strrchr(cwd, '/') = '\0';
         char* argv[] = {wine, executable, NULL};
         if (!ms_store_run_wine(home, prefix, cwd, argv, battlenet_apply_env, pipeline, false, NULL, &pid)) {
             snprintf(failure, sizeof(failure), "Could not start the MetalSharp Wine process for %s", game->name);
             goto done;
         }
     }
-    /* The --exec request exits once the client has it: the game is its executable while that runs. */
+    /* The game may restart itself once (updates, anti-cheat): it is its executable while that runs. */
     ms_process_register_game_executable(appid, pid, executable);
     ms_process_register_pending_game(appid, pid, 180);
     {
@@ -743,7 +731,6 @@ done:
     free(executable);
     free(wine);
     free(prefix);
-    free(client);
     free(cwd);
     free(running_lane);
     return out;
