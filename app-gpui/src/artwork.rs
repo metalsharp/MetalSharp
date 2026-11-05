@@ -507,6 +507,10 @@ impl ArtCache {
     }
 }
 
+/// Generated wide heroes: `<stem>~<hash of the source art's path>.png`. The stem
+/// changes with how they are drawn, so older renders are swept.
+const WIDE_HERO_STEM: &str = "hero-wide2";
+
 /// Delete files from earlier sessions that the index no longer references
 /// (crashes, pre-index caches). Files newer than `started` belong to this
 /// session's in-flight fetches and are kept.
@@ -533,12 +537,15 @@ fn sweep_orphans(dir: &Path, referenced: &HashSet<PathBuf>, started: SystemTime)
         if modified.is_none_or(|time| time >= started) {
             continue;
         }
-        let tilt_of_live_card = name.contains("-tilt")
+        // Tilted cards and wide heroes drawn from art still in the index are kept: the
+        // UI may already be showing them (the sweep runs while the first pages draw).
+        let derived_from_live_art = (name.contains("-tilt")
+            || name.starts_with(&format!("{WIDE_HERO_STEM}~")))
             && name
                 .rsplit_once('~')
                 .and_then(|(_, rest)| rest.split_once('.'))
                 .is_some_and(|(hash, _)| tilt_bases.contains(hash));
-        if !tilt_of_live_card {
+        if !derived_from_live_art {
             let _ = std::fs::remove_file(path);
         }
     }
@@ -1251,11 +1258,12 @@ impl ArtCache {
             return HeroArt::AsIs;
         };
         let output = dir.join(format!(
-            "hero-wide~{:016x}.png",
+            "{WIDE_HERO_STEM}~{:016x}.png",
             fnv(base.to_string_lossy().as_bytes(), FNV_OFFSET)
         ));
         let key = format!("wide:{}", output.display());
-        if self.tilts.contains_key(&key) || output.is_file() {
+        // Checked on disk every time: a remembered path whose file has gone would leave the hero blank.
+        if output.is_file() {
             self.tilts.insert(key, output.clone());
             return HeroArt::Wide(Some(output));
         }
@@ -1285,8 +1293,9 @@ impl ArtCache {
     }
 }
 
-/// A 1920x820 hero from portrait art: the art scaled to cover the frame,
-/// blurred and darkened, with the art itself at full height right of centre.
+/// A 1920x820 hero from portrait art: the art scaled to cover the frame, lightly
+/// blurred and darkened, with the art itself at full height in the centre,
+/// a little wider than it is, fading into that backdrop on both sides.
 pub fn render_wide_hero(source: &Path, output: &Path) -> Option<()> {
     use image::imageops::{self, FilterType};
     let src = image::ImageReader::open(source)
@@ -1302,7 +1311,7 @@ pub fn render_wide_hero(source: &Path, output: &Path) -> Option<()> {
     }
     let (w, h) = (1920u32, 820u32);
     // Background: cover-fit at a small size, blurred, then scaled up.
-    let (bw, bh) = (w / 10, h / 10);
+    let (bw, bh) = (w / 6, h / 6);
     let scale = (bw as f32 / sw as f32).max(bh as f32 / sh as f32);
     let (cw, ch) = (
         ((sw as f32 * scale).ceil() as u32).max(bw),
@@ -1310,26 +1319,30 @@ pub fn render_wide_hero(source: &Path, output: &Path) -> Option<()> {
     );
     let covered = imageops::resize(&src, cw, ch, FilterType::Triangle);
     let small = imageops::crop_imm(&covered, (cw - bw) / 2, (ch - bh) / 2, bw, bh).to_image();
-    let blurred = imageops::blur(&small, 3.0);
+    let blurred = imageops::blur(&small, 2.0);
     let mut canvas = imageops::resize(&blurred, w, h, FilterType::Triangle);
-    for pixel in canvas.pixels_mut() {
+    // Darkened, and darker still toward the left and right edges, so the art
+    // fades into the dark page on both sides.
+    for (column, _, pixel) in canvas.enumerate_pixels_mut() {
+        let from_centre = (column as f32 - w as f32 / 2.0).abs() / (w as f32 / 2.0);
+        let shade = 0.24 * (1.0 - 0.6 * from_centre);
         for channel in &mut pixel.0[..3] {
-            *channel = (*channel as f32 * 0.42) as u8;
+            *channel = (*channel as f32 * shade) as u8;
         }
         pixel.0[3] = 255;
     }
-    // Foreground: the art at full height, right of centre, its left and
-    // right edges faded into the backdrop.
+    // Foreground: the art at full height in the centre, stretched a little
+    // wider, crossfading into the backdrop over the outer 35% of each side.
     let fh = h;
-    let fw = ((sw as f32 * fh as f32 / sh as f32).round() as u32).min(w);
+    let fw = ((sw as f32 * fh as f32 / sh as f32 * 1.12).round() as u32).min(w);
     let art = imageops::resize(&src, fw, fh, FilterType::Lanczos3);
-    let x = ((w as f32 * 0.72) as i64 - fw as i64 / 2).clamp(0, (w - fw) as i64) as u32;
-    let feather = (fw / 6).max(1);
+    let x = (w - fw) / 2;
+    let feather = (fw * 7 / 20).max(1);
     for column in 0..fw {
         let edge = column.min(fw - 1 - column);
         let t = (edge as f32 / feather as f32).min(1.0);
-        // Smoothstep, so the fade has no visible band.
-        let weight = t * t * (3.0 - 2.0 * t);
+        // Smootherstep, so the art comes out of the dark with no visible band.
+        let weight = t * t * t * (t * (6.0 * t - 15.0) + 10.0);
         for row in 0..fh {
             let over = art.get_pixel(column, row).0;
             let alpha = weight * over[3] as f32 / 255.0;
@@ -1360,6 +1373,35 @@ mod tests {
     use super::{ArtKind, Candidate, fingerprint, normalize};
 
     #[test]
+    fn sweep_keeps_wide_heroes_of_live_art() {
+        let dir = std::env::temp_dir().join(format!("ms-sweep-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let live = dir.join("cover-live.png");
+        let hash = |path: &std::path::Path| {
+            format!(
+                "{:016x}",
+                super::fnv(path.to_string_lossy().as_bytes(), super::FNV_OFFSET)
+            )
+        };
+        let kept = dir.join(format!("{}~{}.png", super::WIDE_HERO_STEM, hash(&live)));
+        let stale = dir.join(format!(
+            "{}~{}.png",
+            super::WIDE_HERO_STEM,
+            hash(&dir.join("gone"))
+        ));
+        let old_style = dir.join(format!("hero-wide~{}.png", hash(&live)));
+        for file in [&live, &kept, &stale, &old_style] {
+            std::fs::write(file, b"x").unwrap();
+        }
+        let started = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        let referenced = std::iter::once(live.clone()).collect();
+        super::sweep_orphans(&dir, &referenced, started);
+        assert!(live.exists() && kept.exists());
+        assert!(!stale.exists() && !old_style.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn portrait_art_becomes_a_wide_hero() {
         let dir = std::env::temp_dir().join(format!("ms-wide-hero-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1375,7 +1417,7 @@ mod tests {
         super::render_wide_hero(&source, &output).unwrap();
         let hero = image::open(&output).unwrap().to_rgba8();
         assert_eq!(hero.dimensions(), (1920, 820));
-        // The cover sits right of centre at full height; the left is the dimmed backdrop.
+        // The cover sits in the centre at full height; the edges are the dimmed backdrop.
         let brightness = |x: u32| {
             hero.get_pixel(x, 410).0[..3]
                 .iter()
@@ -1383,7 +1425,8 @@ mod tests {
                 .sum::<u32>()
         };
         if std::env::var_os("METALSHARP_WIDE_HERO_SOURCE").is_none() {
-            assert!(brightness(40) < brightness((1920.0 * 0.72) as u32));
+            assert!(brightness(40) < brightness(960));
+            assert!(brightness(1880) < brightness(960));
         }
         if let Some(keep) = std::env::var_os("METALSHARP_WIDE_HERO_OUT") {
             std::fs::copy(&output, keep).unwrap();
