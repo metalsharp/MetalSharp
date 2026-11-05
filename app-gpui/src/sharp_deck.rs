@@ -224,6 +224,13 @@ impl SharpPreview {
         cx.notify();
     }
 
+    /// Reload every source after a launcher was uninstalled.
+    pub fn reload(&mut self, cx: &mut Context<Self>) {
+        if self.live.is_some() {
+            self.load(cx);
+        }
+    }
+
     /// Install a Program: pick a Windows installer or program to run.
     pub fn deck_install_program(&mut self, cx: &mut Context<Self>) {
         self.install_exe(cx);

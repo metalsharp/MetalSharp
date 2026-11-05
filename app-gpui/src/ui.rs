@@ -1,4 +1,5 @@
 use crate::library_model::{self, LibGame, LibraryPage};
+use crate::sharp_preview::sharp_deck::GateStep;
 #[path = "library_layout.rs"]
 mod library_layout;
 use gpui::{
@@ -587,6 +588,8 @@ enum LauncherAction {
     BattleNet,
     /// Windows Programs: pick an .exe or .msi to install into the Sharp Library.
     InstallProgram,
+    /// GOG or Epic: the next setup step (Create Prefix, Login), then Sync.
+    SharpStore(&'static str),
 }
 
 impl LauncherAction {
@@ -597,7 +600,7 @@ impl LauncherAction {
             Self::Ubisoft => "ubisoft",
             Self::Rockstar => "rockstar",
             Self::BattleNet => "battlenet",
-            Self::InstallProgram => "sharp-library",
+            Self::InstallProgram | Self::SharpStore(_) => "sharp-library",
         }
     }
     fn display_name(self) -> &'static str {
@@ -607,6 +610,8 @@ impl LauncherAction {
             Self::Rockstar => "Rockstar Games Launcher",
             Self::BattleNet => "Battle.net",
             Self::InstallProgram => "Windows program",
+            Self::SharpStore("gog") => "GOG",
+            Self::SharpStore(_) => "Epic Games",
         }
     }
 }
@@ -676,6 +681,7 @@ pub struct MetalSharpApp {
     art_menu: Option<ArtMenuAnchor>,
     /// Drive choice shown before a launcher or GOG/Epic prefix is set up.
     drive_prompt: Option<drive_impl::DrivePrompt>,
+    uninstall_prompt: Option<drive_impl::UninstallPrompt>,
     hovered_card: Option<usize>,
     active_tab: LibraryTab,
     step: usize,
@@ -738,6 +744,7 @@ impl MetalSharpApp {
             game_settings_open: false,
             art_menu: None,
             drive_prompt: None,
+            uninstall_prompt: None,
             hovered_card: None,
             active_tab: LibraryTab::Play,
             step: 2,
@@ -1681,11 +1688,14 @@ impl MetalSharpApp {
             theme_menu = Some(gpui::deferred(menu.id("theme_menu").occlude()).with_priority(10));
         }
 
-        if self.steam_options_open && self.page == LibraryPage::Steam {
-            let (label, disabled) = if self.live.steam_fix_busy {
-                ("Fixing Steam...", true)
+        if self.steam_options_open && self.page_has_options() {
+            let steam = self.page == LibraryPage::Steam;
+            let (label, disabled) = if !steam {
+                (format!("Uninstall {}…", self.page_launcher_name()), false)
+            } else if self.live.steam_fix_busy {
+                ("Fixing Steam...".to_owned(), true)
             } else {
-                ("Fix Steam", false)
+                ("Fix Steam".to_owned(), false)
             };
             let menu = div()
                 .absolute()
@@ -1716,8 +1726,13 @@ impl MetalSharpApp {
                         .cursor_pointer()
                         .hover(|style| style.bg(rgb(theme.menu_hover())))
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.run_steam_fix(cx);
                             this.steam_options_open = false;
+                            if steam {
+                                this.run_steam_fix(cx);
+                            } else {
+                                let page = this.page;
+                                this.ask_uninstall(page, cx);
+                            }
                             cx.notify();
                         }))
                         .child(label),
@@ -1947,10 +1962,17 @@ impl MetalSharpApp {
                 self.render_drive_prompt(viewport, cx)
                     .map(|prompt| gpui::deferred(prompt).with_priority(150)),
             )
+            .children(
+                self.render_uninstall_prompt(viewport, cx)
+                    .map(|prompt| gpui::deferred(prompt).with_priority(150)),
+            )
     }
 
     /// The page's launcher button: (action, label, icon, busy).
-    fn page_launcher(&self) -> Option<(LauncherAction, &'static str, &'static str, bool)> {
+    fn page_launcher(
+        &self,
+        cx: &App,
+    ) -> Option<(LauncherAction, &'static str, &'static str, bool)> {
         match self.page {
             LibraryPage::Steam => {
                 let running = if self.live.enabled {
@@ -1991,6 +2013,27 @@ impl MetalSharpApp {
                 "icon-download.svg",
                 false,
             )),
+            LibraryPage::Gog | LibraryPage::Epic => {
+                let source = self.page.sharp_source()?;
+                let sharp = self.sharp_preview.as_ref()?;
+                let (label, busy) = match sharp.read(cx).deck_gate(source) {
+                    Some(gate) if gate.step != GateStep::Sync => (gate.button, gate.busy),
+                    gate => (
+                        if self.page == LibraryPage::Gog {
+                            "GOG Connected"
+                        } else {
+                            "Epic Connected"
+                        },
+                        gate.is_some_and(|gate| gate.busy),
+                    ),
+                };
+                Some((
+                    LauncherAction::SharpStore(source),
+                    label,
+                    self.page.icon(),
+                    busy,
+                ))
+            }
             _ => None,
         }
     }
@@ -2033,6 +2076,22 @@ impl MetalSharpApp {
         (launcher, label, icon, status.installing)
     }
 
+    /// Launcher pages with a ⚙ beside their button: Fix Steam, or uninstall.
+    fn page_has_options(&self) -> bool {
+        !matches!(self.page, LibraryPage::WindowsPrograms | LibraryPage::Logs)
+    }
+
+    fn page_launcher_name(&self) -> &'static str {
+        match self.page {
+            LibraryPage::Ubisoft => "Ubisoft Connect",
+            LibraryPage::BattleNet => "Battle.net",
+            LibraryPage::Rockstar => "Rockstar Games Launcher",
+            LibraryPage::Gog => "GOG",
+            LibraryPage::Epic => "Epic Games",
+            _ => self.page.label(),
+        }
+    }
+
     fn run_launcher_action(&mut self, action: LauncherAction, cx: &mut Context<Self>) {
         // Installing a launcher first asks which drive its games go on.
         let installing_launcher = match action {
@@ -2065,6 +2124,19 @@ impl MetalSharpApp {
             LauncherAction::InstallProgram => {
                 if let Some(sharp) = &self.sharp_preview {
                     sharp.update(cx, |sharp, cx| sharp.deck_install_program(cx));
+                }
+            }
+            LauncherAction::SharpStore(source) => {
+                let step = self
+                    .sharp_preview
+                    .as_ref()
+                    .and_then(|sharp| sharp.read(cx).deck_gate(source))
+                    .map_or(GateStep::Sync, |gate| gate.step);
+                if step == GateStep::Prefix {
+                    let page = self.page;
+                    self.ask_drive(page, drive_impl::DriveNext::Gate(source, step), cx);
+                } else if let Some(sharp) = &self.sharp_preview {
+                    sharp.update(cx, |sharp, cx| sharp.run_gate(source, step, cx));
                 }
             }
         }
@@ -2258,10 +2330,10 @@ impl MetalSharpApp {
         show_label: bool,
         cx: &mut Context<Self>,
     ) -> Option<gpui::Div> {
-        let (action, label, icon, busy) = self.page_launcher()?;
+        let (action, label, icon, busy) = self.page_launcher(cx)?;
         let border = rgba(0xe7eaec4d);
         let fill = rgba(0x0c0f10b8);
-        let is_steam = action == LauncherAction::Steam;
+        let is_steam = self.page_has_options();
         Some(
             div()
                 .relative()
@@ -2830,7 +2902,7 @@ impl MetalSharpApp {
                     }),
                 ),
             )
-        } else if let Some((action, label, icon, busy)) = self.page_launcher() {
+        } else if let Some((action, label, icon, busy)) = self.page_launcher(cx) {
             Some(
                 button("library-empty-launcher", label, icon, busy).on_click(cx.listener(
                     move |this, _, _, cx| {
