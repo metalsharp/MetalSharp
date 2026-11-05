@@ -1740,6 +1740,8 @@ impl MetalSharpApp {
                 .hover(|style| style.bg(rgba(0xffffff1f)))
         };
         let header = div()
+            .id("library-header")
+            .occlude()
             .absolute()
             .top(px(0.0))
             .left(px(0.0))
@@ -2218,8 +2220,11 @@ impl MetalSharpApp {
             pages = pages.child(item(page, index, cx));
         }
         // The panel keeps its full width and slides under a clipping frame.
+        // Clicks on the sidebar must not reach the page under it (it covers
+        // the hero's Play button in narrow windows).
         div()
             .id("library-sidebar")
+            .occlude()
             .relative()
             .flex_none()
             .w(px(width))
