@@ -3084,6 +3084,18 @@ impl MetalSharpApp {
             .flex()
             .items_center()
             .overflow_hidden()
+            // GOG's backgrounds are bright: dim all of it, under the scrims.
+            .when(game.page() == LibraryPage::Gog, |hero| {
+                hero.child(
+                    div()
+                        .absolute()
+                        .top(px(0.0))
+                        .right(px(0.0))
+                        .bottom(px(0.0))
+                        .left(px(0.0))
+                        .bg(rgba(0x06080973)),
+                )
+            })
             // Scrim only where the title and Play button sit; the rest of the
             // art shows at full brightness.
             .child(
@@ -3422,6 +3434,7 @@ impl MetalSharpApp {
             let hovered = self.hovered_card == Some(index);
             let running = self.is_running(card_game.appid);
             let launching = self.live.launching == Some(card_game.appid);
+            let gog_card = card_game.page() == LibraryPage::Gog;
             let card = div()
                 .id(("showcase-card", index))
                 .relative()
@@ -3558,9 +3571,20 @@ impl MetalSharpApp {
                                 .left(px(0.0))
                                 .bg(linear_gradient(
                                     180.0,
-                                    linear_color_stop(rgba(0x00000000), 0.0),
                                     linear_color_stop(
-                                        rgba(if angle == 0 { 0x00000066 } else { 0x00000000 }),
+                                        rgba(if angle == 0 && gog_card {
+                                            0x00000040
+                                        } else {
+                                            0x00000000
+                                        }),
+                                        0.0,
+                                    ),
+                                    linear_color_stop(
+                                        rgba(match (angle == 0, gog_card) {
+                                            (true, true) => 0x00000099,
+                                            (true, false) => 0x00000066,
+                                            (false, _) => 0x00000000,
+                                        }),
                                         1.0,
                                     ),
                                 )),

@@ -1444,7 +1444,14 @@ impl MetalSharpApp {
                     .filter(|p| p.is_file());
                 if hero { hero_art.or(card) } else { card }
             });
-            return custom.or_else(|| crate::artwork::cache(cx)?.read(cx).path(key));
+            let cache = crate::artwork::cache(cx);
+            let cache = || cache.as_ref().map(|cache| cache.read(cx));
+            return custom
+                .or_else(|| {
+                    hero.then(|| cache()?.path(&format!("{key}-hero")))
+                        .flatten()
+                })
+                .or_else(|| cache()?.path(key));
         }
         let source = game.page().storage_id();
         let kind = if hero { "hero" } else { "card" };

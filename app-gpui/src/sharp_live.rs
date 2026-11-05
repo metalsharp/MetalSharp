@@ -261,11 +261,23 @@ impl SharpPreview {
             ));
         }
         for game in &live.gog_games {
-            let url = s(game, "imageUrl");
-            if !url.is_empty() {
+            let id = s(game, "productId");
+            // Cards: GOG's portrait cover; imageUrl is the store page's faded backdrop, kept for
+            // libraries synced before coverUrl.
+            let card: Vec<C> = ["coverUrl", "imageUrl"]
+                .iter()
+                .map(|key| s(game, key))
+                .filter(|url| !url.is_empty())
+                .map(|url| C::Url(url.to_owned()))
+                .collect();
+            if !card.is_empty() {
+                requests.push((format!("sharp-gog-{id}"), card));
+            }
+            let hero = s(game, "heroUrl");
+            if !hero.is_empty() {
                 requests.push((
-                    format!("sharp-gog-{}", s(game, "productId")),
-                    vec![C::Url(url.to_owned())],
+                    format!("sharp-gog-{id}-hero"),
+                    vec![C::Url(hero.to_owned())],
                 ));
             }
         }

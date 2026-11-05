@@ -1321,15 +1321,44 @@ static char* game_json(const char* id, const char* title, const char* status) {
     return game_json_ex(id, title, status, "windows", NULL, NULL, 0, 0, NULL);
 }
 
-static char* gog_metadata_game_json(const char* raw_game, const ms_json* metadata) {
+/* GOG's games database art: game.<kind>.url_format with {formatter} and {ext} filled in (malloc'd). */
+static char* gamesdb_image_url(const ms_json* gamesdb, const char* kind) {
+    const ms_json* game = gamesdb ? ms_json_object_get(gamesdb, "game") : NULL;
+    const ms_json* image = game ? ms_json_object_get(game, kind) : NULL;
+    char *format = NULL, *url = NULL, *formatter, *ext;
+    if (!image || !ms_json_as_string(ms_json_object_get(image, "url_format"), &format) ||
+        strncmp(format, "https://", 8) || !(formatter = strstr(format, "{formatter}")) ||
+        !(ext = strstr(formatter, "{ext}"))) {
+        free(format);
+        return NULL;
+    }
+    url = malloc(strlen(format) + 4);
+    if (url) {
+        size_t head = (size_t)(formatter - format), middle = (size_t)(ext - formatter) - strlen("{formatter}");
+        memcpy(url, format, head);
+        memcpy(url + head, formatter + strlen("{formatter}"), middle);
+        strcpy(url + head + middle, "jpg");
+        strcat(url, ext + strlen("{ext}"));
+    }
+    free(format);
+    return url;
+}
+
+/* metadata: api.gog.com/products/<id>. gamesdb (may be NULL): gamesdb.gog.com's release, whose
+ * vertical cover (cards) and background (hero) are the full art; the product's own background is
+ * the store page's faded backdrop. */
+static char* gog_metadata_game_json(const char* raw_game, const ms_json* metadata, const ms_json* gamesdb) {
     char error[96];
     ms_json* game = ms_json_parse(raw_game ? raw_game : "{}", raw_game ? strlen(raw_game) : 2, error, sizeof(error));
     const ms_json* images = metadata ? ms_json_object_get(metadata, "images") : NULL;
-    char *background = NULL, *icon = NULL, *slug = NULL;
+    char *background = NULL, *icon = NULL, *slug = NULL, *cover = gamesdb_image_url(gamesdb, "vertical_cover"),
+         *hero = gamesdb_image_url(gamesdb, "background");
     ms_json_writer writer;
     char* result;
     if (!game || ms_json_type_of(game) != MS_JSON_OBJECT) {
         ms_json_free(game);
+        free(cover);
+        free(hero);
         return strdup(raw_game ? raw_game : "{}");
     }
     if (images && ms_json_type_of(images) == MS_JSON_OBJECT) {
@@ -1358,6 +1387,9 @@ static char* gog_metadata_game_json(const char* raw_game, const ms_json* metadat
     for (size_t i = 0; i < ms_json_object_length(game); i++) {
         const char* key = ms_json_object_key_at(game, i);
         const ms_json* value = ms_json_object_value_at(game, i);
+        /* New art replaces what an earlier sync saved: written after the loop. */
+        if ((!strcmp(key, "coverUrl") && cover) || (!strcmp(key, "heroUrl") && hero))
+            continue;
         ms_json_writer_key(&writer, key);
         if (!strcmp(key, "imageUrl") && background)
             ms_json_writer_string(&writer, background);
@@ -1371,11 +1403,21 @@ static char* gog_metadata_game_json(const char* raw_game, const ms_json* metadat
             free(encoded);
         }
     }
+    if (cover) {
+        ms_json_writer_key(&writer, "coverUrl");
+        ms_json_writer_string(&writer, cover);
+    }
+    if (hero) {
+        ms_json_writer_key(&writer, "heroUrl");
+        ms_json_writer_string(&writer, hero);
+    }
     ms_json_writer_object_end(&writer);
     result = ms_json_writer_take(&writer);
     free(background);
     free(icon);
     free(slug);
+    free(cover);
+    free(hero);
     ms_json_free(game);
     return result;
 }
@@ -1521,6 +1563,7 @@ static char* gog_sync_library(const char* home) {
             char* base = NULL;
             char* enriched = NULL;
             ms_json* metadata = NULL;
+            ms_json* gamesdb = NULL;
             snprintf(title, sizeof(title), "GOG %s", id);
             snprintf(url, sizeof(url), "https://api.gog.com/products/%s", id);
             metadata_raw = fetch_gog_url(home, url, false, metadata_error, sizeof(metadata_error));
@@ -1533,16 +1576,23 @@ static char* gog_sync_library(const char* home) {
                         snprintf(title, sizeof(title), "%s", metadata_title);
                 }
             }
+            snprintf(url, sizeof(url), "https://gamesdb.gog.com/platforms/gog/external_releases/%s", id);
+            metadata_raw = fetch_gog_url(home, url, false, metadata_error, sizeof(metadata_error));
+            if (metadata_raw) {
+                gamesdb = ms_json_parse(metadata_raw, strlen(metadata_raw), parse_error, sizeof(parse_error));
+                free(metadata_raw);
+            }
             if (previous)
                 base = ms_json_stringify(previous);
             else
                 base = game_json(id, title, "not_installed");
-            enriched = metadata ? gog_metadata_game_json(base, metadata) : NULL;
+            enriched = metadata ? gog_metadata_game_json(base, metadata, gamesdb) : NULL;
             ms_json_writer_raw(&writer, enriched ? enriched : (base ? base : "{}"));
             free(enriched);
             free(base);
             free(metadata_title);
             ms_json_free(metadata);
+            ms_json_free(gamesdb);
         }
     }
     ms_json_writer_array_end(&writer);
@@ -1608,6 +1658,17 @@ static bool append_game(const char* home, const char* raw) {
                 ms_json_writer_key(&w, key);
                 {
                     char* serialized_value = ms_json_stringify(preserved ? preserved : value);
+                    ms_json_writer_raw(&w, serialized_value ? serialized_value : "null");
+                    free(serialized_value);
+                }
+            }
+            /* Sync's art (gamesdb) stays when an install or launch rewrites the entry without it. */
+            for (size_t j = 0; j < 2; j++) {
+                const char* key = j ? "heroUrl" : "coverUrl";
+                const ms_json* kept = ms_json_object_get(old_game, key);
+                if (!ms_json_object_get(incoming, key) && kept && ms_json_type_of(kept) == MS_JSON_STRING) {
+                    char* serialized_value = ms_json_stringify(kept);
+                    ms_json_writer_key(&w, key);
                     ms_json_writer_raw(&w, serialized_value ? serialized_value : "null");
                     free(serialized_value);
                 }
