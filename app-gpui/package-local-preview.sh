@@ -147,6 +147,7 @@ cat > "$STEAM_HELPER/Info.plist" <<STEAMPLIST
   <key>NSDocumentsFolderUsageDescription</key><string>Windows games and launchers running in Wine keep their saves and settings in your Documents folder.</string>
   <key>NSRemovableVolumesUsageDescription</key><string>Wine reaches Steam libraries and games installed on external drives.</string>
   <key>NSNetworkVolumesUsageDescription</key><string>Wine reaches Steam libraries and games installed on network drives.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Windows games running in Wine use the microphone for voice chat.</string>
 </dict>
 </plist>
 STEAMPLIST
@@ -249,6 +250,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <key>NSDocumentsFolderUsageDescription</key><string>Windows games and launchers running in Wine keep their saves and settings in your Documents folder.</string>
   <key>NSRemovableVolumesUsageDescription</key><string>Wine reaches Steam libraries and games installed on external drives.</string>
   <key>NSNetworkVolumesUsageDescription</key><string>Wine reaches Steam libraries and games installed on network drives.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Windows games running in Wine use the microphone for voice chat.</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
