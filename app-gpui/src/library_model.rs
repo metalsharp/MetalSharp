@@ -129,11 +129,20 @@ impl LibGame {
     }
     /// Endpoint and body that save this game's chosen executable.
     pub fn save_executable_request(&self, path: &str) -> (String, Value) {
-        if self.page() == LibraryPage::Gog {
-            return (
-                "/sharp-library/gog/save-executable".into(),
-                serde_json::json!({"productId": self.external_id, "executablePath": path}),
-            );
+        match self.page() {
+            LibraryPage::Gog => {
+                return (
+                    "/sharp-library/gog/save-executable".into(),
+                    serde_json::json!({"productId": self.external_id, "executablePath": path}),
+                );
+            }
+            LibraryPage::Epic => {
+                return (
+                    "/sharp-library/epic/save-executable".into(),
+                    serde_json::json!({"appName": self.external_id, "executablePath": path}),
+                );
+            }
+            _ => {}
         }
         match self.launcher_route() {
             Some((route, key, id)) => (
@@ -403,8 +412,8 @@ fn game_pipeline_options_for(game: &LibGame, fex: bool) -> Vec<(String, String)>
         // The backend runs D3DMetal and GPTK on VKD3D-Proton and D3D9 on DXVK here: show each lane once.
         return crate::variant::fex_options(options);
     }
-    if game.page() == LibraryPage::Gog {
-        return crate::sharp_preview::sharp_deck::gog_engine_options();
+    if matches!(game.page(), LibraryPage::Gog | LibraryPage::Epic) {
+        return crate::sharp_preview::sharp_deck::sharp_engine_options();
     }
     if !game.is_launcher_game() {
         return PIPELINE_OPTIONS

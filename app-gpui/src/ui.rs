@@ -25,16 +25,8 @@ use live_impl::{LiveState, LogClass, MigrationViewState, SteamPending, UpdateDia
 use steamcmd_impl::{CollectionView, SteamcmdModal};
 
 const GAME_SETTINGS_WIDTH: f32 = 600.0;
-/// The narrowest the game settings panel gets (one setting per line) before it opens to the left.
-const GAME_SETTINGS_MIN_WIDTH: f32 = 300.0;
-
-/// Where the game settings panel opens beside the hero's gear, and how it lays out.
-#[derive(Clone, Copy)]
-struct SettingsPlacement {
-    width: f32,
-    two_columns: bool,
-    open_left: bool,
-}
+/// The game settings panel's width on the regular build (one setting per line).
+const GAME_SETTINGS_SINGLE_WIDTH: f32 = 380.0;
 const PAGE_BG: u32 = 0x080a0d;
 const PANEL_BG: u32 = 0x101316;
 const TEXT: u32 = 0xf2efe6;
@@ -1969,6 +1961,10 @@ impl MetalSharpApp {
                 gpui::deferred(self.render_streaming_overlay(viewport, cx)).with_priority(100)
             }))
             .children(
+                self.render_game_settings_overlay(viewport, cx)
+                    .map(|overlay| gpui::deferred(overlay).with_priority(140)),
+            )
+            .children(
                 self.render_drive_prompt(viewport, cx)
                     .map(|prompt| gpui::deferred(prompt).with_priority(150)),
             )
@@ -3043,7 +3039,8 @@ impl MetalSharpApp {
         // Graphics, game settings and artwork apply to Steam and the launchers' games, and to GOG's;
         // other Sharp Library entries keep theirs in Collection.
         let bottle_settings = game.external_id.is_none();
-        let game_controls = bottle_settings || game.page() == LibraryPage::Gog;
+        let game_controls =
+            bottle_settings || matches!(game.page(), LibraryPage::Gog | LibraryPage::Epic);
         let pipeline_label = library_model::game_pipeline_options(&game)
             .into_iter()
             .find(|(id, _)| *id == self.live.selected_pipeline)
@@ -3052,55 +3049,6 @@ impl MetalSharpApp {
         let pipeline_menu = self
             .pipeline_menu_open
             .then(|| gpui::deferred(self.render_pipeline_menu(&game, cx)).with_priority(20));
-        // The settings panel opens right of the action row's gear, as wide as the window leaves
-        // room for: one setting per line when the two-column FEX layout doesn't fit, and to the
-        // gear's left only when not even that does. The row's width is estimated from its pieces.
-        let row_width = {
-            let mut items: Vec<f32> = Vec::new();
-            if game.art_key.is_some() {
-                items.push(42.0);
-            }
-            if game.page() == LibraryPage::Steam {
-                items.push(46.0);
-            }
-            if game_controls && !game.has_native_build {
-                items.push(28.0 + 9.0 + 18.0 + 7.0 * pipeline_label.chars().count() as f32);
-            }
-            if game_controls {
-                items.push(42.0);
-            }
-            let group = items.iter().sum::<f32>() + 9.0 * items.len().saturating_sub(1) as f32;
-            layout.scaled(if narrow_hero { 150.0 } else { 210.0 } + 14.0 + group)
-        };
-        let content_left = ((f32::from(viewport.width) - layout.content_width) / 2.0).max(0.0);
-        let room_right = f32::from(viewport.width) - content_left - row_width - 10.0 - 16.0;
-        let full_width = if crate::variant::is_fex() {
-            GAME_SETTINGS_WIDTH
-        } else {
-            365.0
-        };
-        let settings_layout = if room_right >= full_width {
-            SettingsPlacement {
-                width: full_width,
-                two_columns: crate::variant::is_fex(),
-                open_left: false,
-            }
-        } else if room_right >= GAME_SETTINGS_MIN_WIDTH {
-            SettingsPlacement {
-                width: room_right,
-                two_columns: false,
-                open_left: false,
-            }
-        } else {
-            SettingsPlacement {
-                width: full_width.min(GAME_SETTINGS_MIN_WIDTH.max(365.0)),
-                two_columns: false,
-                open_left: true,
-            }
-        };
-        let game_settings_menu = self.game_settings_open.then(|| {
-            gpui::deferred(self.render_game_settings(&game, settings_layout, cx)).with_priority(20)
-        });
         let hero_art = self.hero_art_path(&game, cx);
         let play_game = game.clone();
         let badge = if game.has_native_build {
@@ -3374,36 +3322,32 @@ impl MetalSharpApp {
                                         },
                                     ))
                                     .children(game_controls.then(|| {
-                                        div()
-                                            .relative()
-                                            .flex_none()
-                                            .child(
-                                                div()
-                                                    .id("library-game-settings")
-                                                    .size(px(layout.scaled(42.0)))
-                                                    .flex()
-                                                    .items_center()
-                                                    .justify_center()
-                                                    .rounded(px(layout.scaled(8.0)))
-                                                    .border_1()
-                                                    .border_color(rgba(0xe7eaec4d))
-                                                    .bg(rgba(0x0c0f10b8))
-                                                    .text_size(px(layout.scaled(17.0)))
-                                                    .text_color(rgb(0xf0f0ee))
-                                                    .cursor_pointer()
-                                                    .on_click(cx.listener(|this, _, _, cx| {
-                                                        let open = !this.game_settings_open;
-                                                        this.close_library_menus();
-                                                        this.game_settings_open = open;
-                                                        cx.notify();
-                                                    }))
-                                                    .child(control_icon(
-                                                        "launch-settings.svg",
-                                                        layout.scaled(20.0),
-                                                        0xf0f0ee,
-                                                    )),
-                                            )
-                                            .children(game_settings_menu)
+                                        div().relative().flex_none().child(
+                                            div()
+                                                .id("library-game-settings")
+                                                .size(px(layout.scaled(42.0)))
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .rounded(px(layout.scaled(8.0)))
+                                                .border_1()
+                                                .border_color(rgba(0xe7eaec4d))
+                                                .bg(rgba(0x0c0f10b8))
+                                                .text_size(px(layout.scaled(17.0)))
+                                                .text_color(rgb(0xf0f0ee))
+                                                .cursor_pointer()
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    let open = !this.game_settings_open;
+                                                    this.close_library_menus();
+                                                    this.game_settings_open = open;
+                                                    cx.notify();
+                                                }))
+                                                .child(control_icon(
+                                                    "launch-settings.svg",
+                                                    layout.scaled(20.0),
+                                                    0xf0f0ee,
+                                                )),
+                                        )
                                     })),
                             ),
                     ),
@@ -4205,13 +4149,59 @@ impl MetalSharpApp {
         menu
     }
 
+    /// The selected game's settings, centered over the window: the × or a click around the panel
+    /// closes it.
+    fn render_game_settings_overlay(
+        &self,
+        viewport: gpui::Size<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Stateful<gpui::Div>> {
+        if !self.game_settings_open {
+            return None;
+        }
+        let game = self.games.get(self.selected_game)?.clone();
+        // FEX lays the settings out two per line when the window has room; otherwise one per line.
+        let room = f32::from(viewport.width) - 32.0;
+        let (width, two_columns) = if crate::variant::is_fex() && room >= GAME_SETTINGS_WIDTH {
+            (GAME_SETTINGS_WIDTH, true)
+        } else {
+            (GAME_SETTINGS_SINGLE_WIDTH.min(room.max(260.0)), false)
+        };
+        Some(
+            div()
+                .id("game-settings-overlay")
+                .absolute()
+                .top(px(0.0))
+                .left(px(0.0))
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .occlude()
+                .child(
+                    div()
+                        .id("game-settings-backdrop")
+                        .absolute()
+                        .top(px(0.0))
+                        .left(px(0.0))
+                        .size_full()
+                        .bg(rgba(0x000000a0))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.game_settings_open = false;
+                            cx.notify();
+                        })),
+                )
+                .child(self.render_game_settings(&game, width, two_columns, cx)),
+        )
+    }
+
     fn render_game_settings(
         &self,
         game: &LibGame,
-        placement: SettingsPlacement,
+        width: f32,
+        two_columns: bool,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        let open_left = placement.open_left;
         let muted = if self.theme == PreviewTheme::Light {
             0x000000
         } else {
@@ -4220,15 +4210,8 @@ impl MetalSharpApp {
         let mut menu = div()
             .id("game-settings-popover")
             .occlude()
-            .absolute()
-            // Beside the gear button with the panel's bottom level with the
-            // button's, so it rises over the hero art instead of covering the
-            // dock's cards: to the right, narrower in a small window, and to the
-            // left only when there is no room for it there.
-            .bottom(px(0.0))
-            .when(!open_left, |menu| menu.left(relative(1.0)).ml(px(10.0)))
-            .when(open_left, |menu| menu.right(relative(1.0)).mr(px(10.0)))
-            .w(px(placement.width))
+            .relative()
+            .w(px(width))
             .flex()
             .flex_col()
             .gap(px(12.0))
@@ -4291,8 +4274,7 @@ impl MetalSharpApp {
                 .cursor_pointer()
                 .child(text)
         };
-        // FEX lays the settings out two per line when the panel has room; otherwise one per line.
-        let two_columns = placement.two_columns;
+
         let row = |label: &'static str, options: gpui::Div| {
             div()
                 .when(two_columns, |cell| cell.flex_1().min_w_0())

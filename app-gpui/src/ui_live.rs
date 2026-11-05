@@ -2138,9 +2138,9 @@ impl MetalSharpApp {
                             }
                         }
                         toast::success(cx, format!("{}: launch executable saved", game.name));
-                        // GOG's entries come from the Sharp Library's list: reload it so the deck
-                        // keeps the new executable.
-                        if game.page() == LibraryPage::Gog {
+                        // GOG's and Epic's entries come from the Sharp Library's lists: reload them
+                        // so the deck keeps the new executable.
+                        if matches!(game.page(), LibraryPage::Gog | LibraryPage::Epic) {
                             if let Some(sharp) = this.sharp_preview.clone() {
                                 sharp.update(cx, |sharp, cx| sharp.reload(cx));
                             }
@@ -2169,8 +2169,13 @@ impl MetalSharpApp {
         if !self.live.enabled {
             return;
         }
-        // GOG keeps each game's engine in the Sharp Library (gpui-gog-engines.json).
-        if game.page() == LibraryPage::Gog {
+        // GOG and Epic keep each game's engine in the Sharp Library (GOG's engines file, Epic's
+        // bottle).
+        if let Some(source) = match game.page() {
+            LibraryPage::Gog => Some("gog"),
+            LibraryPage::Epic => Some("epic"),
+            _ => None,
+        } {
             let (Some(id), Some(sharp)) = (game.external_id.clone(), self.sharp_preview.clone())
             else {
                 return;
@@ -2185,7 +2190,7 @@ impl MetalSharpApp {
                 }
             }
             sharp.update(cx, |sharp, cx| {
-                sharp.deck_set_engine("gog", &id, pipeline.clone(), cx)
+                sharp.deck_set_engine(source, &id, pipeline.clone(), cx)
             });
             toast::success(
                 cx,

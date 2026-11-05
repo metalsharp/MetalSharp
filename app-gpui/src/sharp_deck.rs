@@ -19,14 +19,14 @@ pub struct DeckGame {
     pub progress: Option<f64>,
     /// Artwork cache key the Sharp Library already resolves for its cards.
     pub art_key: String,
-    /// The graphics engine chosen for it (GOG), for the hero's picker.
+    /// The graphics engine chosen for it (GOG, Epic), for the hero's picker.
     pub engine: Option<String>,
-    /// Its saved or detected launch executable (GOG), for the game settings panel.
+    /// Its saved or detected launch executable (GOG, Epic), for the game settings panel.
     pub executable: Option<String>,
 }
 
-/// GOG's graphics engines on this build, as the Collection view lists them.
-pub fn gog_engine_options() -> Vec<(String, String)> {
+/// GOG's and Epic's graphics engines on this build, as the Collection view lists them.
+pub fn sharp_engine_options() -> Vec<(String, String)> {
     super::sharp_live::engine_options()
 }
 
@@ -141,8 +141,12 @@ impl SharpPreview {
                 installed: flag(game, "installed"),
                 progress: live.epic_progress.get(id).copied(),
                 art_key: format!("sharp-epic-{id}"),
-                engine: None,
-                executable: None,
+                engine: Some(text(game, "pipeline"))
+                    .filter(|pipeline| !pipeline.is_empty())
+                    .map(str::to_owned),
+                executable: Some(text(game, "executable"))
+                    .filter(|path| !path.is_empty())
+                    .map(str::to_owned),
             });
         }
         games.retain(|game| !game.id.is_empty());
@@ -252,7 +256,8 @@ impl SharpPreview {
         cx.notify();
     }
 
-    /// The hero's graphics picker on a deck page (GOG): saves the engine like the Collection view.
+    /// The hero's graphics picker on a deck page (GOG, Epic): saves the engine like the
+    /// Collection view. An installed Epic game without its bottle yet gets one with the engine.
     pub fn deck_set_engine(
         &mut self,
         source: &str,
@@ -260,8 +265,22 @@ impl SharpPreview {
         engine: String,
         cx: &mut Context<Self>,
     ) {
-        if source == "gog" {
-            self.set_gog_engine(id.to_owned(), engine, cx);
+        match source {
+            "gog" => self.set_gog_engine(id.to_owned(), engine, cx),
+            "epic" => {
+                self.update_epic_bottle(id.to_owned(), "pipeline", engine, cx);
+                let pending = self.live.as_ref().and_then(|live| {
+                    live.epic_games
+                        .iter()
+                        .find(|g| text(g, "appName") == id)
+                        .filter(|g| flag(g, "installed") && !flag(g, "bottleInitialized"))
+                        .cloned()
+                });
+                if let Some(game) = pending {
+                    self.initialize_epic_bottle(game, cx);
+                }
+            }
+            _ => {}
         }
     }
 
