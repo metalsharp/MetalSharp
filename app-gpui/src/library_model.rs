@@ -181,6 +181,18 @@ impl LibGame {
     }
     /// The sidebar page this game is listed on. Steam copies of games that
     /// run through Ubisoft Connect or the Rockstar launcher stay on Steam.
+    /// A Steam copy of a Rockstar Games title: listed on the Rockstar page too, where it
+    /// stays a Steam game, so it launches through Steam with the Steam prefix's patches.
+    pub fn is_steam_rockstar(&self) -> bool {
+        self.page() == LibraryPage::Steam && ROCKSTAR_STEAM_APPIDS.contains(&self.appid)
+    }
+
+    /// Whether this game is listed on `page`.
+    pub fn on_page(&self, page: LibraryPage) -> bool {
+        self.page() == page
+            || (page == LibraryPage::Rockstar && self.installed && self.is_steam_rockstar())
+    }
+
     pub fn page(&self) -> LibraryPage {
         match self.source.as_deref() {
             Some("ubisoft") => LibraryPage::Ubisoft,
@@ -193,6 +205,27 @@ impl LibGame {
         }
     }
 }
+
+/// Rockstar Games titles on Steam.
+const ROCKSTAR_STEAM_APPIDS: [u64; 17] = [
+    12100,   // Grand Theft Auto III
+    12110,   // Grand Theft Auto: Vice City
+    12120,   // Grand Theft Auto: San Andreas
+    12140,   // Max Payne
+    12150,   // Max Payne 2: The Fall of Max Payne
+    12200,   // Bully: Scholarship Edition
+    12210,   // Grand Theft Auto IV: The Complete Edition
+    12220,   // Manhunt
+    110800,  // L.A. Noire
+    204100,  // Max Payne 3
+    271590,  // Grand Theft Auto V Legacy
+    1174180, // Red Dead Redemption 2
+    1546970, // Grand Theft Auto: Vice City – The Definitive Edition
+    1546990, // Grand Theft Auto III – The Definitive Edition
+    1547000, // Grand Theft Auto: San Andreas – The Definitive Edition
+    2668510, // Red Dead Redemption
+    3240220, // Grand Theft Auto V Enhanced
+];
 
 /// Sidebar pages, in sidebar order. Logs is pinned to the sidebar's bottom.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -547,6 +580,20 @@ mod tests {
 
     fn game(value: Value) -> LibGame {
         serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn steam_rockstar_titles_are_on_the_rockstar_page_too() {
+        let rdr2 =
+            game(json!({"appid": 1174180u64, "name": "Red Dead Redemption 2", "installed": true}));
+        assert!(rdr2.on_page(LibraryPage::Steam) && rdr2.on_page(LibraryPage::Rockstar));
+        assert_eq!(rdr2.page(), LibraryPage::Steam);
+        let owned = game(
+            json!({"appid": 271590u64, "name": "Grand Theft Auto V Legacy", "installed": false}),
+        );
+        assert!(!owned.on_page(LibraryPage::Rockstar));
+        let other = game(json!({"appid": 730u64, "name": "Counter-Strike 2", "installed": true}));
+        assert!(!other.on_page(LibraryPage::Rockstar));
     }
 
     #[test]

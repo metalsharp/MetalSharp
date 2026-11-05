@@ -1235,7 +1235,7 @@ impl MetalSharpApp {
             .library
             .iter()
             .chain(&self.live.deck_games)
-            .filter(|game| game.page() == page)
+            .filter(|game| game.on_page(page))
             .cloned()
             .collect();
         let games = library_model::live_games(&library, &self.live.play_history);
