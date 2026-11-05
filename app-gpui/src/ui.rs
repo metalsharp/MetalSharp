@@ -646,6 +646,8 @@ pub struct MetalSharpApp {
     sidebar_open: bool,
     /// Slide of the sidebar: when it started and whether it is opening.
     sidebar_slide: Option<(std::time::Instant, bool)>,
+    /// The window is narrow enough that the sidebar covers the page.
+    sidebar_is_overlay: bool,
     page_top_inset: f32,
     settings_open: bool,
     settings_preview: Option<gpui::Entity<crate::settings_preview::SettingsPreview>>,
@@ -711,6 +713,7 @@ impl MetalSharpApp {
             page: LibraryPage::Steam,
             sidebar_open: true,
             sidebar_slide: None,
+            sidebar_is_overlay: false,
             page_top_inset: 0.0,
             settings_open: false,
             settings_preview: None,
@@ -1578,7 +1581,15 @@ impl MetalSharpApp {
         // Narrow enough to end left of the header's launcher button.
         let sidebar_full = layout.scaled(184.0);
         let sidebar_width = sidebar_full * self.sidebar_slide_fraction();
-        let content_viewport = gpui::size(viewport.width - px(sidebar_width), viewport.height);
+        // In a narrow window the sidebar slides over the page instead of
+        // squeezing the hero and the dock's cards.
+        let sidebar_overlay = self.sidebar_overlays(viewport);
+        self.sidebar_is_overlay = sidebar_overlay;
+        let content_viewport = if sidebar_overlay {
+            viewport
+        } else {
+            gpui::size(viewport.width - px(sidebar_width), viewport.height)
+        };
         // Pages run up under the transparent header.
         let top_inset = layout.header_height;
         self.page_top_inset = top_inset;
@@ -1844,8 +1855,24 @@ impl MetalSharpApp {
                     )),
             );
 
-        let sidebar = (sidebar_width > 0.5)
-            .then(|| self.render_sidebar(layout, sidebar_width, sidebar_full, cx));
+        let sidebar = (sidebar_width > 0.5).then(|| {
+            let sidebar = self.render_sidebar(layout, sidebar_width, sidebar_full, cx);
+            if sidebar_overlay {
+                sidebar
+                    .absolute()
+                    .top(px(0.0))
+                    .left(px(0.0))
+                    .bottom(px(0.0))
+                    .shadow_lg()
+            } else {
+                sidebar
+            }
+        });
+        let (docked_sidebar, overlay_sidebar) = if sidebar_overlay {
+            (None, sidebar)
+        } else {
+            (sidebar, None)
+        };
 
         let body = match self.active_tab {
             LibraryTab::Play => self.render_library_play(content_viewport, cx),
@@ -1891,7 +1918,7 @@ impl MetalSharpApp {
                     .min_h_0()
                     .w_full()
                     .flex()
-                    .children(sidebar)
+                    .children(docked_sidebar)
                     .child(
                         div()
                             .relative()
@@ -1902,6 +1929,7 @@ impl MetalSharpApp {
                             .flex_col()
                             .child(body),
                     )
+                    .children(overlay_sidebar)
                     .child(header),
             )
             .child(footer)
@@ -2043,6 +2071,10 @@ impl MetalSharpApp {
 
     fn set_page(&mut self, page: LibraryPage, cx: &mut Context<Self>) {
         self.close_library_menus();
+        // Over the page, the sidebar gets out of the way once a page is picked.
+        if self.sidebar_is_overlay && self.sidebar_open {
+            self.toggle_sidebar(cx);
+        }
         if self.page != page {
             self.page = page;
             self.selected_game = 0;
@@ -2096,6 +2128,11 @@ impl MetalSharpApp {
         // Ease-out cubic: quick start, soft landing.
         let eased = 1.0 - (1.0 - t).powi(3);
         if opening { eased } else { 1.0 - eased }
+    }
+
+    /// Below this width the sidebar covers the page rather than narrowing it.
+    fn sidebar_overlays(&self, viewport: gpui::Size<gpui::Pixels>) -> bool {
+        f32::from(viewport.width) < 1180.0
     }
 
     fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
@@ -2731,6 +2768,7 @@ impl MetalSharpApp {
         let button = |id: &'static str, label: &'static str, icon: &'static str, busy: bool| {
             div()
                 .id(id)
+                .flex_none()
                 .mt(px(layout.scaled(8.0)))
                 .w(px(layout.scaled(264.0)))
                 .h(px(layout.scaled(48.0)))
@@ -2819,14 +2857,16 @@ impl MetalSharpApp {
             .flex()
             .flex_col()
             .child(
+                // Grows with its text instead of squeezing the button.
                 div()
                     .w_full()
-                    .h(px(hero_height))
+                    .min_h(px(hero_height))
                     .flex_none()
                     .flex()
                     .items_center()
                     .justify_center()
                     .pt(px(self.page_top_inset))
+                    .pb(px(24.0))
                     .bg(linear_gradient(
                         180.0,
                         linear_color_stop(rgb(self.theme.page_bg_raised()), 0.0),
@@ -2837,6 +2877,7 @@ impl MetalSharpApp {
                     } else {
                         div()
                             .max_w(px(560.0))
+                            .flex_none()
                             .flex()
                             .flex_col()
                             .items_center()
@@ -2898,6 +2939,9 @@ impl MetalSharpApp {
         let accent = theme.accent();
         let is_running = self.is_running(game.appid);
         let install_progress = self.live.deck_progress.get(&game.appid).copied();
+        // Narrow pages keep the action row on one line: a shorter Play and
+        // the graphics picker without its label.
+        let narrow_hero = layout.content_width < layout.scaled(860.0);
         let hero_art_menu = (self.art_menu == Some(ArtMenuAnchor::Hero))
             .then(|| gpui::deferred(self.render_art_menu(&game, layout, cx)).with_priority(20));
         let mut card_art_menu = (self.art_menu == Some(ArtMenuAnchor::Card))
@@ -2916,9 +2960,25 @@ impl MetalSharpApp {
         let pipeline_menu = self
             .pipeline_menu_open
             .then(|| gpui::deferred(self.render_pipeline_menu(&game, cx)).with_priority(20));
-        let game_settings_menu = self
-            .game_settings_open
-            .then(|| gpui::deferred(self.render_game_settings(&game, cx)).with_priority(20));
+        // The settings panel opens right of the action row's gear when it
+        // fits within the hero's content width, otherwise to its left.
+        let row_width = layout.scaled(
+            if layout.content_width < layout.scaled(860.0) {
+                150.0 + 120.0
+            } else {
+                210.0 + 220.0
+            } + 3.0 * (42.0 + 14.0),
+        );
+        let panel_width = if crate::variant::is_fex() {
+            GAME_SETTINGS_WIDTH
+        } else {
+            365.0
+        };
+        let settings_open_left = row_width + 10.0 + panel_width > layout.content_width;
+        let game_settings_menu = self.game_settings_open.then(|| {
+            gpui::deferred(self.render_game_settings(&game, settings_open_left, cx))
+                .with_priority(20)
+        });
         let hero_art = self.art_path(&game, true, cx);
         let play_game = game.clone();
         let badge = if game.has_native_build {
@@ -3024,12 +3084,13 @@ impl MetalSharpApp {
                             .mt(px(layout.scaled(22.0)))
                             .flex()
                             .items_center()
-                            .flex_wrap()
+                            .flex_nowrap()
                             .gap(px(layout.scaled(14.0)))
                             .child(
                                 div()
                                     .id("library-play-action")
-                                    .w(px(layout.scaled(210.0)))
+                                    .w(px(layout.scaled(if narrow_hero { 150.0 } else { 210.0 })))
+                                    .flex_none()
                                     .h(px(layout.scaled(48.0)))
                                     .flex()
                                     .items_center()
@@ -3173,7 +3234,9 @@ impl MetalSharpApp {
                                                             this.pipeline_menu_open = open;
                                                             cx.notify();
                                                         }))
-                                                        .child("Graphics")
+                                                        .children(
+                                                            (!narrow_hero).then_some("Graphics"),
+                                                        )
                                                         .child(pipeline_label.clone())
                                                         .child(if self.live.pipeline_saving {
                                                             div()
@@ -4014,6 +4077,7 @@ impl MetalSharpApp {
     fn render_game_settings(
         &self,
         game: &LibGame,
+        open_left: bool,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         let muted = if self.theme == PreviewTheme::Light {
@@ -4025,12 +4089,13 @@ impl MetalSharpApp {
             .id("game-settings-popover")
             .occlude()
             .absolute()
-            // Beside the gear button, to its right, with the panel's bottom
-            // level with the button's: it rises over the hero art instead of
-            // covering the dock's cards or running past a short window.
+            // Beside the gear button with the panel's bottom level with the
+            // button's, so it rises over the hero art instead of covering the
+            // dock's cards: to the right, or to the left when the window is
+            // too narrow for it there.
             .bottom(px(0.0))
-            .left(relative(1.0))
-            .ml(px(10.0))
+            .when(!open_left, |menu| menu.left(relative(1.0)).ml(px(10.0)))
+            .when(open_left, |menu| menu.right(relative(1.0)).mr(px(10.0)))
             .w(px(if crate::variant::is_fex() {
                 GAME_SETTINGS_WIDTH
             } else {
