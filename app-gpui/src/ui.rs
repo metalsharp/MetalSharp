@@ -3084,18 +3084,6 @@ impl MetalSharpApp {
             .flex()
             .items_center()
             .overflow_hidden()
-            // GOG's backgrounds are bright: dim all of it, under the scrims.
-            .when(game.page() == LibraryPage::Gog, |hero| {
-                hero.child(
-                    div()
-                        .absolute()
-                        .top(px(0.0))
-                        .right(px(0.0))
-                        .bottom(px(0.0))
-                        .left(px(0.0))
-                        .bg(rgba(0x06080973)),
-                )
-            })
             // Scrim only where the title and Play button sit; the rest of the
             // art shows at full brightness.
             .child(
