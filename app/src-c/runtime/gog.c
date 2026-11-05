@@ -1198,6 +1198,9 @@ char* ms_gog_status_json(const char* home) {
     return o;
 }
 static char* refresh_game_json(const char* home, const ms_json* game);
+static char* with_gamesdb_art(const char* home, const char* raw_game, const char* id);
+/* Games looked up in GOG's games database per listing, so a large library fills in over a few. */
+#define GAMESDB_LOOKUPS_PER_LISTING 12
 
 char* ms_gog_games_json(const char* home) {
     ms_json *a = load_games(home), *refreshed = NULL;
@@ -1209,8 +1212,21 @@ char* ms_gog_games_json(const char* home) {
         return err("failed to read GOG library");
     ms_json_writer_init(&refresh_writer);
     ms_json_writer_array_begin(&refresh_writer);
-    for (size_t i = 0; i < ms_json_array_length(a); i++) {
-        char* game = refresh_game_json(home, ms_json_array_get(a, i));
+    for (size_t i = 0, lookups = 0; i < ms_json_array_length(a); i++) {
+        const ms_json* entry = ms_json_array_get(a, i);
+        char* game = refresh_game_json(home, entry);
+        /* Card and hero art come from GOG's games database: a library synced before it was used
+         * gets it here, without waiting for the next sync. */
+        if (game && !ms_json_object_get(entry, "coverUrl") && lookups < GAMESDB_LOOKUPS_PER_LISTING) {
+            char* id = field(entry, "productId", "");
+            char* with_art = valid_product_id(id) ? with_gamesdb_art(home, game, id) : NULL;
+            lookups++;
+            if (with_art) {
+                free(game);
+                game = with_art;
+            }
+            free(id);
+        }
         ms_json_writer_raw(&refresh_writer, game ? game : "{}");
         free(game);
     }
@@ -1418,6 +1434,50 @@ static char* gog_metadata_game_json(const char* raw_game, const ms_json* metadat
     free(slug);
     free(cover);
     free(hero);
+    ms_json_free(game);
+    return result;
+}
+
+/* raw_game with coverUrl and heroUrl from GOG's games database ("" when it has none, so the game
+ * isn't looked up again). NULL when the database can't be reached: the next listing tries again. */
+static char* with_gamesdb_art(const char* home, const char* raw_game, const char* id) {
+    char url[160], error[160], parse_error[96];
+    char *raw, *cover = NULL, *hero = NULL, *result = NULL;
+    ms_json *gamesdb, *game;
+    ms_json_writer writer;
+    snprintf(url, sizeof(url), "https://gamesdb.gog.com/platforms/gog/external_releases/%s", id);
+    raw = fetch_gog_url(home, url, false, error, sizeof(error));
+    gamesdb = raw ? ms_json_parse(raw, strlen(raw), parse_error, sizeof(parse_error)) : NULL;
+    free(raw);
+    game = ms_json_parse(raw_game, strlen(raw_game), parse_error, sizeof(parse_error));
+    if (!gamesdb || !game || ms_json_type_of(game) != MS_JSON_OBJECT) {
+        ms_json_free(gamesdb);
+        ms_json_free(game);
+        return NULL;
+    }
+    cover = gamesdb_image_url(gamesdb, "vertical_cover");
+    hero = gamesdb_image_url(gamesdb, "background");
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    for (size_t i = 0; i < ms_json_object_length(game); i++) {
+        const char* key = ms_json_object_key_at(game, i);
+        char* value;
+        if (!strcmp(key, "coverUrl") || !strcmp(key, "heroUrl"))
+            continue;
+        value = ms_json_stringify(ms_json_object_value_at(game, i));
+        ms_json_writer_key(&writer, key);
+        ms_json_writer_raw(&writer, value ? value : "null");
+        free(value);
+    }
+    ms_json_writer_key(&writer, "coverUrl");
+    ms_json_writer_string(&writer, cover ? cover : "");
+    ms_json_writer_key(&writer, "heroUrl");
+    ms_json_writer_string(&writer, hero ? hero : "");
+    ms_json_writer_object_end(&writer);
+    result = ms_json_writer_take(&writer);
+    free(cover);
+    free(hero);
+    ms_json_free(gamesdb);
     ms_json_free(game);
     return result;
 }
