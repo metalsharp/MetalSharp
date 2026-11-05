@@ -148,13 +148,3 @@ Without their work, this project would not have been possible.
 Users who have contributed to MetalSharp in it's active development:
 
 [TimDarcet](https://github.com/TimDarcet) , [erenaspire7](https://github.com/erenaspire7) , [eth0-re](https://github.com/eth0-re) , [MohamedElGhandour](https://github.com/MohamedElGhandour), [renewrocha](https://github.com/renewrocha)
-
-## Star History
-
-<a href="https://star-history.com/#metalsharp/MetalSharp&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=metalsharp/MetalSharp&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=metalsharp/MetalSharp&type=Date" />
-    <img alt="Star history chart for metalsharp/MetalSharp" src="https://api.star-history.com/svg?repos=metalsharp/MetalSharp&type=Date" />
-  </picture>
-</a>
