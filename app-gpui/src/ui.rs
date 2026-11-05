@@ -642,6 +642,8 @@ pub struct MetalSharpApp {
     steam_options_open: bool,
     page: LibraryPage,
     sidebar_open: bool,
+    /// Slide of the sidebar: when it started and whether it is opening.
+    sidebar_slide: Option<(std::time::Instant, bool)>,
     page_top_inset: f32,
     settings_open: bool,
     settings_preview: Option<gpui::Entity<crate::settings_preview::SettingsPreview>>,
@@ -704,6 +706,7 @@ impl MetalSharpApp {
             steam_options_open: false,
             page: LibraryPage::Steam,
             sidebar_open: true,
+            sidebar_slide: None,
             page_top_inset: 0.0,
             settings_open: false,
             settings_preview: None,
@@ -1567,11 +1570,9 @@ impl MetalSharpApp {
         }
         let show_search = self.page != LibraryPage::Logs
             && matches!(self.active_tab, LibraryTab::Play | LibraryTab::Collection);
-        let sidebar_width = if self.sidebar_open {
-            layout.scaled(212.0)
-        } else {
-            0.0
-        };
+        // Narrow enough to end left of the header's launcher button.
+        let sidebar_full = layout.scaled(184.0);
+        let sidebar_width = sidebar_full * self.sidebar_slide_fraction();
         let content_viewport = gpui::size(viewport.width - px(sidebar_width), viewport.height);
         // Pages run up under the transparent header.
         let top_inset = layout.header_height;
@@ -1751,9 +1752,7 @@ impl MetalSharpApp {
                         plain_icon("library-sidebar-toggle")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.close_library_menus();
-                                this.sidebar_open = !this.sidebar_open;
-                                this.save_ui_state(cx);
-                                cx.notify();
+                                this.toggle_sidebar(cx);
                             }))
                             .child(control_icon(
                                 "icon-sidebar.svg",
@@ -1840,9 +1839,8 @@ impl MetalSharpApp {
                     )),
             );
 
-        let sidebar = self
-            .sidebar_open
-            .then(|| self.render_sidebar(layout, sidebar_width, cx));
+        let sidebar = (sidebar_width > 0.5)
+            .then(|| self.render_sidebar(layout, sidebar_width, sidebar_full, cx));
 
         let body = match self.active_tab {
             LibraryTab::Play => self.render_library_play(content_viewport, cx),
@@ -2051,10 +2049,56 @@ impl MetalSharpApp {
         sharp.update(cx, |sharp, cx| sharp.show_source(source, cx));
     }
 
+    const SIDEBAR_SLIDE: std::time::Duration = std::time::Duration::from_millis(200);
+
+    /// How far the sidebar is out, 0–1, eased; 1 when open and still.
+    fn sidebar_slide_fraction(&mut self) -> f32 {
+        let Some((started, opening)) = self.sidebar_slide else {
+            return if self.sidebar_open { 1.0 } else { 0.0 };
+        };
+        let t = (started.elapsed().as_secs_f32() / Self::SIDEBAR_SLIDE.as_secs_f32()).min(1.0);
+        if t >= 1.0 {
+            self.sidebar_slide = None;
+        }
+        // Ease-out cubic: quick start, soft landing.
+        let eased = 1.0 - (1.0 - t).powi(3);
+        if opening { eased } else { 1.0 - eased }
+    }
+
+    fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
+        let from = self.sidebar_slide_fraction();
+        self.sidebar_open = !self.sidebar_open;
+        // Reversing mid-slide starts from where the sidebar is.
+        let opening = self.sidebar_open;
+        let remaining = if opening { 1.0 - from } else { from };
+        let elapsed = Self::SIDEBAR_SLIDE.mul_f32((1.0 - remaining).clamp(0.0, 1.0));
+        self.sidebar_slide = Some((std::time::Instant::now() - elapsed, opening));
+        self.save_ui_state(cx);
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(8))
+                    .await;
+                let sliding = this
+                    .update(cx, |this, cx| {
+                        cx.notify();
+                        this.sidebar_slide.is_some()
+                    })
+                    .unwrap_or(false);
+                if !sliding {
+                    break;
+                }
+            }
+        })
+        .detach();
+        cx.notify();
+    }
+
     fn render_sidebar(
         &self,
         layout: LibraryLayout,
         width: f32,
+        full_width: f32,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         let theme = self.theme;
@@ -2103,20 +2147,31 @@ impl MetalSharpApp {
         for (index, page) in LibraryPage::LAUNCHERS.into_iter().enumerate() {
             pages = pages.child(item(page, index, cx));
         }
+        // The panel keeps its full width and slides under a clipping frame.
         div()
             .id("library-sidebar")
+            .relative()
             .flex_none()
             .w(px(width))
             .h_full()
-            .flex()
-            .flex_col()
-            .pt(px(layout.header_height + layout.scaled(8.0)))
-            .pb(px(layout.scaled(12.0)))
-            .px(px(layout.scaled(10.0)))
-            .bg(rgba((ink << 8) | 0xf0))
-            .child(pages)
-            .child(div().flex_1())
-            .child(item(LibraryPage::Logs, LibraryPage::LAUNCHERS.len(), cx))
+            .overflow_hidden()
+            .child(
+                div()
+                    .absolute()
+                    .top(px(0.0))
+                    .bottom(px(0.0))
+                    .left(px(width - full_width))
+                    .w(px(full_width))
+                    .flex()
+                    .flex_col()
+                    .pt(px(layout.header_height + layout.scaled(8.0)))
+                    .pb(px(layout.scaled(12.0)))
+                    .px(px(layout.scaled(10.0)))
+                    .bg(rgba((ink << 8) | 0xf0))
+                    .child(pages)
+                    .child(div().flex_1())
+                    .child(item(LibraryPage::Logs, LibraryPage::LAUNCHERS.len(), cx)),
+            )
     }
 
     /// The page's launcher button (and Steam's options), left of the search
@@ -2639,22 +2694,22 @@ impl MetalSharpApp {
             }
             LibraryPage::Logs => "",
         };
+        // Every page's install, prefix and launch button is the same size.
         let button = |id: &'static str, label: &'static str, icon: &'static str, busy: bool| {
             div()
                 .id(id)
-                .mt(px(8.0))
-                .min_w(px(204.0))
-                .h(px(48.0))
-                .px(px(18.0))
+                .mt(px(layout.scaled(8.0)))
+                .w(px(layout.scaled(264.0)))
+                .h(px(layout.scaled(48.0)))
                 .flex()
                 .items_center()
                 .justify_center()
-                .gap(px(10.0))
-                .rounded(px(8.0))
+                .gap(px(layout.scaled(10.0)))
+                .rounded(px(layout.scaled(8.0)))
                 .border_1()
                 .border_color(rgb(theme.border()))
                 .bg(rgb(theme.control_bg()))
-                .text_size(px(15.0))
+                .text_size(px(layout.scaled(15.0)))
                 .font_weight(FontWeight::BOLD)
                 .text_color(rgb(theme.control_text()))
                 .when(busy, |d| d.opacity(0.7))
@@ -2666,7 +2721,7 @@ impl MetalSharpApp {
                     gpui::svg()
                         .path(icon)
                         .flex_none()
-                        .size(px(20.0))
+                        .size(px(layout.scaled(20.0)))
                         .text_color(rgb(theme.control_text())),
                 )
                 .child(label)
@@ -3934,16 +3989,17 @@ impl MetalSharpApp {
             .id("game-settings-popover")
             .occlude()
             .absolute()
-            // FEX: beside the gear button, opening up and to the left over the hero art: opening
-            // downward covered the dock's cards and ran past the bottom of a short window.
-            .when(crate::variant::is_fex(), |menu| {
-                menu.bottom(px(0.0))
-                    .right(px(50.0))
-                    .w(px(GAME_SETTINGS_WIDTH))
-            })
-            .when(!crate::variant::is_fex(), |menu| {
-                menu.top(px(50.0)).right(px(0.0)).w(px(365.0))
-            })
+            // Beside the gear button, to its right, with the panel's bottom
+            // level with the button's: it rises over the hero art instead of
+            // covering the dock's cards or running past a short window.
+            .bottom(px(0.0))
+            .left(relative(1.0))
+            .ml(px(10.0))
+            .w(px(if crate::variant::is_fex() {
+                GAME_SETTINGS_WIDTH
+            } else {
+                365.0
+            }))
             .flex()
             .flex_col()
             .gap(px(12.0))
