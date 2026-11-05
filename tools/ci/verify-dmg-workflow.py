@@ -249,6 +249,13 @@ def check_workflows() -> None:
     ]:
         if key not in entitlements:
             fail(f"release entitlements missing {key}")
+    # Wine's capture runs under MetalSharp's TCC identity (the app and the
+    # MetalSharp Steam helper). Without a microphone usage string macOS denies
+    # input silently and never prompts, so in-game voice chat records silence.
+    if "com.apple.security.device.audio-input" not in entitlements:
+        fail("release entitlements missing com.apple.security.device.audio-input")
+    if packaging.count("<key>NSMicrophoneUsageDescription</key>") < 2:
+        fail("GPUI packaging must declare NSMicrophoneUsageDescription in MetalSharp.app and MetalSharp Steam.app")
     dmg_builder = read("tools/dmg/package-gpui-dmg.sh")
     for required in ["com.metalsharp.app", "MetalSharp-$VERSION-arm64.dmg", "/Applications", "hdiutil create", "hdiutil verify"]:
         if required not in dmg_builder:
