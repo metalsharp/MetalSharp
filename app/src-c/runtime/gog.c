@@ -392,6 +392,21 @@ static char* fetch_gog_owned(const char* home, char* error, size_t error_size) {
     return fetch_gog_url(home, "https://embed.gog.com/user/data/games", true, error, error_size);
 }
 
+/* tools/gogdl is MetalSharp's wrapper for tools/gogdl-venv/bin/gogdl. A failed install (pip refused
+ * the Python) can leave the wrapper without its gogdl: that is not gogdl. */
+static bool gogdl_wrapper_broken(const char* home, const char* wrapper) {
+    char text[1024], target[PATH_MAX];
+    size_t n;
+    FILE* file = fopen(wrapper, "rb");
+    if (!file)
+        return false;
+    n = fread(text, 1, sizeof(text) - 1, file);
+    fclose(file);
+    text[n] = '\0';
+    snprintf(target, sizeof(target), "%s/tools/gogdl-venv/bin/gogdl", home);
+    return strstr(text, target) && access(target, X_OK) != 0;
+}
+
 static char* gogdl_path(const char* home) {
     const char* explicit_path = getenv("METALSHARP_GOGDL_BIN");
     const char* path_env = getenv("PATH");
@@ -400,7 +415,8 @@ static char* gogdl_path(const char* home) {
         return strdup(explicit_path);
     char* candidates[] = {join(home, "tools/gogdl"), join(home, "runtime/gogdl")};
     for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
-        bool found = candidates[i] && access(candidates[i], X_OK) == 0;
+        bool found = candidates[i] && access(candidates[i], X_OK) == 0 &&
+                     !(i == 0 && gogdl_wrapper_broken(home, candidates[i]));
         if (found) {
             for (size_t j = i + 1; j < sizeof(candidates) / sizeof(candidates[0]); j++)
                 free(candidates[j]);
@@ -489,6 +505,37 @@ static const char* bootstrap_tool(const char* name, char* path, size_t path_size
     return NULL;
 }
 
+/* Whether python runs and is 3.10 or newer (heroic-gogdl's requires-python). */
+static bool python_new_enough(const char* python) {
+    char ignored[128];
+    const char* argv[] = {python, "-c", "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)", NULL};
+    return access(python, X_OK) == 0 && run_bootstrap_argv(argv, "python", ignored, sizeof(ignored));
+}
+
+/* A python3 for gogdl: Homebrew's and /usr/local's first, then PATH; macOS's /usr/bin/python3 is 3.9. */
+static bool find_gogdl_python(char* path, size_t path_size) {
+    static const char* const names[] = {"python3", "python3.15", "python3.14", "python3.13",
+                                        "python3.12", "python3.11", "python3.10"};
+    const char* env_path = getenv("PATH");
+    size_t dirs_size = 64 + (env_path ? strlen(env_path) : 0);
+    char* dirs = malloc(dirs_size);
+    char* save = NULL;
+    bool found = false;
+    if (!dirs)
+        return false;
+    snprintf(dirs, dirs_size, "/opt/homebrew/bin:/usr/local/bin:%s:/usr/bin", env_path ? env_path : "");
+    for (char* dir = strtok_r(dirs, ":", &save); dir && !found; dir = strtok_r(NULL, ":", &save)) {
+        if (!*dir)
+            continue;
+        for (size_t i = 0; i < sizeof(names) / sizeof(names[0]) && !found; i++) {
+            snprintf(path, path_size, "%s/%s", dir, names[i]);
+            found = python_new_enough(path);
+        }
+    }
+    free(dirs);
+    return found;
+}
+
 static bool write_gogdl_wrapper(const char* home, char* error, size_t error_size) {
     char* wrapper = join(home, "tools/gogdl");
     char* target = join(home, "tools/gogdl-venv/bin/gogdl");
@@ -518,22 +565,25 @@ static bool write_gogdl_wrapper(const char* home, char* error, size_t error_size
 }
 
 static bool ensure_gogdl_available(const char* home, char* error, size_t error_size) {
-    char venv[PATH_MAX], venv_python[PATH_MAX], source[PATH_MAX], git_dir[PATH_MAX];
+    char venv[PATH_MAX], venv_python[PATH_MAX], venv_gogdl[PATH_MAX], source[PATH_MAX], git_dir[PATH_MAX];
     if (gogdl_available(home)) {
         deploy_gog_oauth_helper(home);
         return true;
     }
     snprintf(venv, sizeof(venv), "%s/tools/gogdl-venv", home);
     snprintf(venv_python, sizeof(venv_python), "%s/bin/python", venv);
-    if (access(venv_python, X_OK) == 0) {
+    snprintf(venv_gogdl, sizeof(venv_gogdl), "%s/bin/gogdl", venv);
+    if (access(venv_gogdl, X_OK) == 0) {
         if (!write_gogdl_wrapper(home, error, error_size) || !gogdl_available(home))
             return false;
         deploy_gog_oauth_helper(home);
         return true;
     }
     char python[PATH_MAX], git[PATH_MAX];
-    if (!bootstrap_tool("python3", python, sizeof(python))) {
-        snprintf(error, error_size, "python3 is required to prepare GOG support");
+    if (!find_gogdl_python(python, sizeof(python))) {
+        snprintf(error, error_size,
+                 "GOG support needs Python 3.10 or newer (the one built into macOS is 3.9). Install it with "
+                 "Homebrew (brew install python), then try again");
         return false;
     }
     if (!bootstrap_tool("git", git, sizeof(git))) {
@@ -545,6 +595,11 @@ static bool ensure_gogdl_available(const char* home, char* error, size_t error_s
     free(tools);
     if (!tools_ok) {
         snprintf(error, error_size, "failed to create GOG tools dir");
+        return false;
+    }
+    /* An environment left by an earlier try with an older Python can't take gogdl: start it again. */
+    if (access(venv_python, X_OK) == 0 && !python_new_enough(venv_python) && !remove_tree(venv)) {
+        snprintf(error, error_size, "failed to reset the GOG support environment");
         return false;
     }
     if (access(venv_python, X_OK) != 0) {

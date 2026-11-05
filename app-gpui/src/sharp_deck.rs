@@ -157,6 +157,15 @@ impl SharpPreview {
                         busy: live.gog_loading.contains("setup"),
                         step: GateStep::Prefix,
                     })
+                } else if !flag(status, "gogdlAvailable") {
+                    // A prefix without gogdl (its install failed): setup installs it, keeping the prefix.
+                    Some(DeckGate {
+                        heading: "Finish GOG setup",
+                        description: "GOG support didn't finish installing. MetalSharp will try again.",
+                        button: "Finish Setup",
+                        busy: live.gog_loading.contains("setup"),
+                        step: GateStep::Prefix,
+                    })
                 } else if !flag(status, "authenticated") {
                     Some(DeckGate {
                         heading: "Log in to GOG",

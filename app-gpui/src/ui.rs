@@ -2132,7 +2132,9 @@ impl MetalSharpApp {
                     .as_ref()
                     .and_then(|sharp| sharp.read(cx).deck_gate(source))
                     .map_or(GateStep::Sync, |gate| gate.step);
-                if step == GateStep::Prefix {
+                if step == GateStep::Prefix
+                    && !self.live.library_locations.contains(self.page.storage_id())
+                {
                     let page = self.page;
                     self.ask_drive(page, drive_impl::DriveNext::Gate(source, step), cx);
                 } else if let Some(sharp) = &self.sharp_preview {
@@ -2893,7 +2895,9 @@ impl MetalSharpApp {
                         if busy {
                             return;
                         }
-                        if step == crate::sharp_preview::sharp_deck::GateStep::Prefix {
+                        if step == crate::sharp_preview::sharp_deck::GateStep::Prefix
+                            && !this.live.library_locations.contains(this.page.storage_id())
+                        {
                             let page = this.page;
                             this.ask_drive(page, drive_impl::DriveNext::Gate(source, step), cx);
                         } else if let Some(sharp) = &this.sharp_preview {
