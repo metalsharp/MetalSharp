@@ -5,6 +5,7 @@
 #include "metalsharp_backend/library_locations.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/store_launcher.h"
 #include "metalsharp_backend/wine_runtime.h"
 #include <ctype.h>
 #include <dirent.h>
@@ -1726,51 +1727,13 @@ static char* gog_progress_json(const char* home, const char* id) {
     return result ? result : err("game not found");
 }
 
+/* wineserver -k on the GOG prefix. With no game running there is no server, and -k exits 1: the shared
+ * helper counts that as stopped once the prefix has no server. */
 static bool stop_gog_wineserver(const char* home) {
-    char *server = join(home, "runtime/wine/bin/wineserver"), *prefix = join(home, "bottles/gog-prefix/prefix");
-    struct timespec delay = {0, 100000000};
-    struct stat prefix_stat;
-    pid_t pid;
-    int status = 0;
-    if (!prefix || stat(prefix, &prefix_stat) != 0 || !S_ISDIR(prefix_stat.st_mode)) {
-        free(server);
-        free(prefix);
-        return true;
-    }
-    if (!server || access(server, X_OK) != 0) {
-        free(server);
-        free(prefix);
-        return false;
-    }
-    pid = fork();
-    if (pid == 0) {
-        char* args[] = {server, "-k", NULL};
-        setenv("WINEPREFIX", prefix, 1);
-        setenv("WINEDEBUG", "-all", 1);
-        execv(server, args);
-        _exit(127);
-    }
-    if (pid < 0) {
-        free(server);
-        free(prefix);
-        return false;
-    }
-    for (unsigned attempt = 0; attempt < 100; attempt++) {
-        pid_t waited = waitpid(pid, &status, WNOHANG);
-        if (waited == pid) {
-            free(server);
-            free(prefix);
-            return WIFEXITED(status) && WEXITSTATUS(status) == 0;
-        }
-        if (waited < 0 && errno != EINTR)
-            break;
-        (void)nanosleep(&delay, NULL);
-    }
-    (void)kill(pid, SIGTERM);
-    (void)waitpid(pid, &status, 0);
-    free(server);
+    char* prefix = join(home, "bottles/gog-prefix/prefix");
+    bool stopped = prefix && ms_store_stop_prefix(home, prefix);
     free(prefix);
-    return false;
+    return stopped;
 }
 
 static char* gog_stop_json(const char* home, const char* id) {
