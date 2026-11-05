@@ -50,6 +50,12 @@ pub enum Candidate {
         name: String,
         hero: bool,
     },
+    /// The library art of the Steam store's release with this exact title (a
+    /// launcher game also sold on Steam): its 600x900 cover, or its library hero.
+    SteamStoreByName {
+        name: String,
+        hero: bool,
+    },
 }
 
 /// Remote art is rechecked after a week; misses are retried after a day.
@@ -663,6 +669,19 @@ fn fetch_first(job: &Job) -> Option<Fetched> {
                     .and_then(|url| download(agent, &url, None)),
                 false,
             ),
+            Candidate::SteamStoreByName { name, hero } => (
+                steam_store_appid(agent, name).and_then(|appid| {
+                    let assets: &[&str] = if *hero {
+                        &["library_hero"]
+                    } else {
+                        &["library_600x900_2x", "library_600x900"]
+                    };
+                    assets
+                        .iter()
+                        .find_map(|asset| download(agent, &steam_cdn(appid, asset), None))
+                }),
+                false,
+            ),
         };
         let Some(bytes) = bytes else { continue };
         let hash = fnv(&bytes, FNV_OFFSET);
@@ -945,6 +964,32 @@ fn sanitize(key: &str) -> String {
             }
         })
         .collect()
+}
+
+/// The Steam store app whose title matches `name` (ignoring case, punctuation and marks
+/// such as ® and ™), from the store's keyless search.
+fn steam_store_appid(agent: &ureq::Agent, name: &str) -> Option<u64> {
+    let wanted = normalize_name(name);
+    if wanted.is_empty() {
+        return None;
+    }
+    let query: String = url::form_urlencoded::byte_serialize(name.trim().as_bytes()).collect();
+    let url = format!(
+        "https://store.steampowered.com/api/storesearch/?term={}&cc=us&l=en",
+        query.replace('+', "%20")
+    );
+    let payload: Value = serde_json::from_slice(&download(agent, &url, None)?).ok()?;
+    payload
+        .get("items")?
+        .as_array()?
+        .iter()
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("app"))
+        .find(|item| {
+            item.get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|title| normalize_name(title) == wanted)
+        })
+        .and_then(|item| item.get("id").and_then(Value::as_u64))
 }
 
 fn store_details(agent: &ureq::Agent, appid: u64, hero: bool) -> Option<String> {

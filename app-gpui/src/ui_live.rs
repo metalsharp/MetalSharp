@@ -1319,14 +1319,24 @@ impl MetalSharpApp {
                 .clone()
                 .filter(|path| !path.is_empty())
                 .map(C::LocalFile);
-            let mut card: Vec<C> = launcher_art.clone().into_iter().collect();
+            // Ubisoft keeps no cover art: the same title's Steam store release has a proper
+            // cover and hero, ahead of Ubisoft's page art and the game's EXE icon.
+            let steam_store = |hero: bool| {
+                (game.page() == LibraryPage::Ubisoft).then(|| C::SteamStoreByName {
+                    name: game.name.clone(),
+                    hero,
+                })
+            };
+            let mut card: Vec<C> = steam_store(false).into_iter().collect();
+            card.extend(launcher_art.clone());
             card.extend(urls.clone());
             card.push(C::SteamGridDb {
                 name: game.name.clone(),
                 hero: false,
             });
             card.extend(embedded.clone());
-            let mut hero = urls;
+            let mut hero: Vec<C> = steam_store(true).into_iter().collect();
+            hero.extend(urls);
             hero.push(C::SteamGridDb {
                 name: game.name.clone(),
                 hero: true,
