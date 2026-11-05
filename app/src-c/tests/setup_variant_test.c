@@ -14,6 +14,10 @@ char* ms_ubisoft_stop_json(const char* home, int* status) {
     (void)home, (void)status;
     return NULL;
 }
+char* ms_battlenet_stop_json(const char* home, int* status) {
+    (void)home, (void)status;
+    return NULL;
+}
 bool ms_steam_usability_ensure(const char* home) {
     (void)home;
     return true;

@@ -1054,6 +1054,36 @@ void ms_steam_apply_graphics_route(const char* home, const char* pipeline) {
         unsetenv("WINEDLLOVERRIDES");
 }
 
+static const rockstar_launcher_game* rockstar_launcher_game_for_client(const char* client_executable) {
+    const char* base = client_executable ? strrchr(client_executable, '/') : NULL;
+    base = base ? base + 1 : client_executable;
+    for (size_t i = 0; base && i < sizeof(ROCKSTAR_LAUNCHER_GAMES) / sizeof(ROCKSTAR_LAUNCHER_GAMES[0]); i++)
+        if (!strcasecmp(base, ROCKSTAR_LAUNCHER_GAMES[i].client))
+            return &ROCKSTAR_LAUNCHER_GAMES[i];
+    return NULL;
+}
+
+void ms_steam_apply_rockstar_launcher_env(const char* home, const char* pipeline, const char* client_executable) {
+    const char* canonical = canonical_pipeline(pipeline);
+    const rockstar_launcher_game* game = rockstar_launcher_game_for_client(client_executable);
+    if (!home)
+        return;
+    if (!canonical || !strcmp(canonical, "auto"))
+        canonical = d3dmetal_lane();
+    ms_steam_apply_graphics_route(home, canonical);
+    /* MetalSharp Wine's launcher policy puts Launcher.exe and SocialClubHelper.exe on Mullion with
+     * its bundled WFDXCompat; the route chooses only the game's lane (launch.env). */
+    if (ms_wine_is_fex())
+        return;
+    /* D3DMetal: set_route_paths already set WFDXCompat's launcher companion, as for the Steam
+     * copies' Launcher.exe. Another route: WineForge's launcher policy moves only the launcher
+     * and SocialClubHelper.exe onto D3DMetal with WFDXCompat. */
+    if (strcmp(canonical, "d3dmetal"))
+        set_rockstar_launcher_policy_env(home);
+    else if (game && game->agility_frontend)
+        set_wfdxcompat_agility_env(home);
+}
+
 static bool append_launch_arg(char** argv, size_t* count, size_t max, const char* arg) {
     if (*count + 1 >= max)
         return false;
@@ -7506,6 +7536,15 @@ static bool prepare_rockstar_game(const char* home, const rockstar_launcher_game
     if (ok && game->dx12_settings && !strcmp(pipeline, d3dmetal_lane()) && !ensure_rdr2_dx12_settings(home))
         ms_log_event(home, "Red Dead Redemption 2: could not switch system.xml to DX12 for D3DMetal.");
     return ok;
+}
+
+void ms_steam_prepare_rockstar_client(const char* home, const char* pipeline, const char* client_executable) {
+    const rockstar_launcher_game* game = rockstar_launcher_game_for_client(client_executable);
+    const char* canonical = canonical_pipeline(pipeline);
+    if (!home || ms_wine_is_fex() || !game || !game->dx12_settings || !canonical || strcmp(canonical, "d3dmetal"))
+        return;
+    if (!ensure_rdr2_dx12_settings(home))
+        ms_log_event(home, "Red Dead Redemption 2: could not switch system.xml to DX12 for D3DMetal.");
 }
 
 /* The Rockstar Games Launcher is installed by Steam on the game's first run. Until it is, a direct

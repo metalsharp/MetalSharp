@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- **Rockstar Games Launcher on its own** — MetalSharp installs the Rockstar Games Launcher into the Steam prefix when it isn't there (Rockstar's installer, run interactively), starts it without Steam, and lists the games it installed. Steam copies of Rockstar titles stay in the Steam library and launch as before. The launcher runs on D3DMetal with WFDXCompat on the x86_64 build and on Mullion on the FEX build. Stop ends only the launcher, its helpers and its games, never Steam. Games get a launch route per game, a saved executable choice and running/Stop tracking. Routes: `/rockstar/status`, `/rockstar/launch`, `/rockstar/stop`, `/rockstar/library`, `/rockstar/launch-game`, `/rockstar/save-pipeline`, `/rockstar/save-executable`.
+- **Battle.net** — Battle.net is back, in its own MetalSharp Wine prefix (`prefix-battlenet`) like Ubisoft Connect, on Connect's lane (D3DMetal on x86_64, Mullion on FEX). MetalSharp installs it from Blizzard's installer and lists installed Blizzard and Activision games, which launch through Battle.net (`--exec="launch_uid <uid>"`) with a launch route per game. Migration keeps the prefix and rebuilds it like the Ubisoft prefix. Routes: `/battlenet/status`, `/battlenet/launch`, `/battlenet/stop`, `/battlenet/library`, `/battlenet/launch-game`, `/battlenet/save-pipeline`, `/battlenet/save-executable`.
+
 ### Removed
 
 - **Console emulators** — PCSX2, RPCS3, shadPS4 and SharpEmu are gone from the Sharp Library, with their backend routes. On the first start after the update, the backend deletes their data folder, `~/.metalsharp/emulators` (runtimes, firmware, saves and any games stored there). Symlinks in it are removed without touching what they point to. Installers, GOG, Epic and GameJolt are unchanged.

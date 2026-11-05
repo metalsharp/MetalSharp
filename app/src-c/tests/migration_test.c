@@ -6,6 +6,7 @@
 
 static unsigned steam_stop_calls = 0;
 static unsigned ubisoft_stop_calls = 0;
+static unsigned battlenet_stop_calls = 0;
 
 char* ms_setup_install_all_json(const char* home, int* status) {
     (void)home;
@@ -24,6 +25,14 @@ char* ms_steam_stop_json(const char* home, int* status) {
 char* ms_ubisoft_stop_json(const char* home, int* status) {
     assert(home != NULL);
     ubisoft_stop_calls++;
+    if (status)
+        *status = 200;
+    return strdup("{\"ok\":true,\"running\":false}");
+}
+
+char* ms_battlenet_stop_json(const char* home, int* status) {
+    assert(home != NULL);
+    battlenet_stop_calls++;
     if (status)
         *status = 200;
     return strdup("{\"ok\":true,\"running\":false}");
@@ -200,6 +209,7 @@ int main(void) {
     assert(stop_managed_wine_processes(home));
     assert(steam_stop_calls == 1);
     assert(ubisoft_stop_calls == 1);
+    assert(battlenet_stop_calls == 1);
 
     /* Content verification was removed from migration entirely: hash drift,
      * signature format changes, and version strings must never fail a
@@ -366,16 +376,16 @@ int main(void) {
     assert(symlink("/", path) == 0);
     setenv("FAIL_GOG_WINEBOOT", "1", 1);
     {
-        bool gog_ok = true, ubisoft_ok = false;
-        assert(!rebuild_preserved_wine_prefixes(home, &gog_ok, &ubisoft_ok));
-        assert(!gog_ok && ubisoft_ok);
+        bool gog_ok = true, ubisoft_ok = false, battlenet_ok = false;
+        assert(!rebuild_preserved_wine_prefixes(home, &gog_ok, &ubisoft_ok, &battlenet_ok));
+        assert(!gog_ok && ubisoft_ok && battlenet_ok);
     }
     unsetenv("FAIL_GOG_WINEBOOT");
     snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/migration-wineboot-args", home);
     assert(file_exists(path));
     snprintf(path, sizeof(path), "%s/prefix-ubisoft/migration-wineboot-args", home);
     assert(file_exists(path));
-    assert(rebuild_preserved_wine_prefixes(home, &(bool){false}, &(bool){false}));
+    assert(rebuild_preserved_wine_prefixes(home, &(bool){false}, &(bool){false}, &(bool){false}));
     snprintf(path, sizeof(path), "%s/prefix-ubisoft/migration-wineboot-args", home);
     {
         FILE* args = fopen(path, "rb");

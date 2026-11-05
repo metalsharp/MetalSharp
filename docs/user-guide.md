@@ -25,11 +25,27 @@ Click **Play** on the Library page. MetalSharp picks a graphics route automatica
 
 ## Other Stores and Programs
 
-The **Sharp Library** holds Windows apps, launchers, installers, and non-Steam games. It has tabs for Epic, GOG, and Game Jolt. For Ubisoft Connect, see the [Ubisoft Connect guide](ubisoft-connect.md).
+The **Sharp Library** holds Windows apps, launchers, installers, and non-Steam games. It has tabs for Epic, GOG, and Game Jolt. For Ubisoft Connect, see the [Ubisoft Connect guide](ubisoft-connect.md). The Rockstar Games Launcher and Battle.net are covered below.
 
 - **Install Windows Program** takes an `.exe` or `.msi`. MetalSharp imports it directly, or runs the installer in its own bottle and picks up the installed app.
 - Rename an app with the pencil next to its title, and change its cover with **Change Image** (JPEG, PNG, or WebP).
 - **Tools → Open Folder** opens the app's bottle in Finder. Install runtime components through the bottle tools; don't copy them in by hand.
+
+### Rockstar Games Launcher
+
+The Rockstar Games Launcher lives in the Steam prefix (`~/.metalsharp/prefix-steam`), where Steam also installs it the first time you play a Steam copy of a Rockstar game. Set up Steam in MetalSharp first. MetalSharp doesn't start Steam for the launcher.
+
+1. **Install.** Launch the Rockstar Games Launcher from MetalSharp. If it isn't installed, MetalSharp downloads Rockstar's installer and runs it. Click through the installer and keep the default install location. MetalSharp starts the launcher when it finishes.
+2. **Start and stop.** The launcher runs on D3DMetal with WFDXCompat on the x86_64 build, and on Mullion on the Arm64 FEX build. Stop ends only the launcher, its helpers (Social Club, Rockstar Service) and the games it installed. Steam and your Steam games keep running.
+3. **Play.** Games the launcher installs show up in the library. Steam copies stay in your Steam library. Pick a launch route and press **Play**. MetalSharp starts the launcher if it isn't running, then the game. On the x86_64 build, a launcher already running on another game's route restarts on this one's, because games inherit the launcher's environment.
+
+### Battle.net
+
+Battle.net runs in its own prefix (`~/.metalsharp/prefix-battlenet`) on the same lane as Ubisoft Connect: D3DMetal on the x86_64 build, Mullion on the Arm64 FEX build.
+
+1. **Install.** Launch Battle.net from MetalSharp. If it isn't installed, MetalSharp sets up the prefix, downloads Blizzard's installer and runs it. Keep the default install location. External drives show up in Battle.net as drive `Y:`, as in Ubisoft Connect.
+2. **Start and stop.** Stop shuts down the whole Battle.net prefix, including its games.
+3. **Play.** Installed Blizzard and Activision games show up in the library. Pick a launch route and press **Play**. MetalSharp starts Battle.net if it isn't running and asks it to start the game, so sign in first. On the x86_64 build, a Battle.net already running on another route restarts on the game's route.
 
 ## Game Settings
 

@@ -63,6 +63,15 @@ void ms_steam_stage_route_on_discovery(const char*, unsigned);
 /* For a Rockstar title on D3DMetal or VKD3D found installed: stage its launcher route and RDR2's
  * DX12 settings once, in the background, before its first launch. */
 void ms_steam_prepare_rockstar_on_discovery(const char*, unsigned);
+/* The environment of a Rockstar Games Launcher MetalSharp starts itself (its standalone library):
+ * the route, and on the x86_64 runtime WFDXCompat's launcher companion as for the Steam copies'
+ * Launcher.exe (D3DMetal), WineForge's launcher policy on another route, and WFDXCompat's Agility
+ * frontend for a client that needs it (GTA5_Enhanced.exe). The launcher hands this environment to
+ * the games it starts. On MetalSharp Wine only the route: its launcher policy runs the launcher on
+ * Mullion. client_executable may be NULL (the launcher alone). */
+void ms_steam_apply_rockstar_launcher_env(const char* home, const char* pipeline, const char* client_executable);
+/* Per-title settings a Rockstar client needs on its route (RDR2's system.xml on D3DMetal). */
+void ms_steam_prepare_rockstar_client(const char* home, const char* pipeline, const char* client_executable);
 bool ms_steam_ensure_game_audio_fix(const char*, unsigned);
 /* Create the default manifest for a Steam app when a route is saved before launch. */
 bool ms_steam_ensure_bottle_manifest(const char*, unsigned, const char*);

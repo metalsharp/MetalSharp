@@ -8,6 +8,8 @@
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/ubisoft.h"
+#include "metalsharp_backend/rockstar.h"
+#include "metalsharp_backend/battlenet.h"
 #include "metalsharp_backend/wine_runtime.h"
 #include <ctype.h>
 #include <dirent.h>
@@ -634,6 +636,8 @@ char* ms_process_running_json(const char* home) {
     pid_t marvel_rivals_pid = ms_steam_marvel_rivals_process_pid(home);
     pid_t baldurs_gate_3_pid = ms_steam_baldurs_gate_3_process_pid(home);
     ms_ubisoft_register_running_games(home);
+    ms_rockstar_register_running_games(home);
+    ms_battlenet_register_running_games(home);
     if (eve_pid > 0)
         ms_process_register_game(8500, eve_pid);
     if (marvel_rivals_pid > 0)

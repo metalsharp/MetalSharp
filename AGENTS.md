@@ -55,6 +55,7 @@ Important runtime paths:
 - Wine: `~/.metalsharp/runtime/wine/` (on the FEX build a facade over `~/.metalsharp/runtime/MetalSharp-Wine.app`, which stays read-only and is never re-signed)
 - Steam prefix: `~/.metalsharp/prefix-steam/`
 - Ubisoft Connect prefix: `~/.metalsharp/prefix-ubisoft/`
+- Battle.net prefix: `~/.metalsharp/prefix-battlenet/` (the Rockstar Games Launcher uses the Steam prefix)
 - Bottles: `~/.metalsharp/bottles/<bottle_id>/`
 - Logs: `~/.metalsharp/logs/`
 - IPC sockets: `~/.metalsharp/run/` (`0700`, owner-only Unix sockets)
@@ -62,7 +63,7 @@ Important runtime paths:
 
 ## Backend API
 
-The backend serves HTTP only on the owner-only Unix socket `$METALSHARP_HOME/run/backend.sock` (no TCP port); query it with `curl --unix-socket`. The router is `app/src-c/runtime/backend.c`. Domain implementations live beside it, including `steam_actions.c`, `bottles.c`, `setup.c`, `migration.c`, `epic.c`, `gog.c`, and `gamejolt.c`.
+The backend serves HTTP only on the owner-only Unix socket `$METALSHARP_HOME/run/backend.sock` (no TCP port); query it with `curl --unix-socket`. The router is `app/src-c/runtime/backend.c`. Domain implementations live beside it, including `steam_actions.c`, `bottles.c`, `setup.c`, `migration.c`, `epic.c`, `gog.c`, `gamejolt.c`, `ubisoft.c`, `rockstar.c` (the Rockstar Games Launcher in the Steam prefix), `battlenet.c` (Battle.net in its own prefix), and `store_launcher.c` (what the Rockstar and Battle.net integrations share).
 
 Representative endpoints:
 
@@ -70,6 +71,7 @@ Representative endpoints:
 - `GET /steam/library`
 - `GET /ubisoft/library`
 - `POST /ubisoft/launch` / `POST /ubisoft/stop`
+- `GET /rockstar/status`, `GET /rockstar/library`, `POST /rockstar/launch`, `POST /rockstar/launch-game` (and the same under `/battlenet/`)
 - `POST /steam/launch-game`
 - `POST /steam/stop`
 - `GET /bottles`

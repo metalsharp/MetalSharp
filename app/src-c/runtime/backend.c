@@ -38,6 +38,8 @@
 #include "metalsharp_backend/streaming.h"
 #include "metalsharp_backend/thread.h"
 #include "metalsharp_backend/ubisoft.h"
+#include "metalsharp_backend/rockstar.h"
+#include "metalsharp_backend/battlenet.h"
 #include "metalsharp_backend/updater.h"
 #include "metalsharp_backend/wine_runtime.h"
 
@@ -1001,6 +1003,34 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/ubisoft/library") == 0) {
         body = ms_ubisoft_library_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/rockstar/status") == 0) {
+        body = ms_rockstar_status_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/rockstar/library") == 0) {
+        body = ms_rockstar_library_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/battlenet/status") == 0) {
+        body = ms_battlenet_status_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/battlenet/library") == 0) {
+        body = ms_battlenet_library_json(context->metalsharp_home);
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);
@@ -2095,6 +2125,92 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         int status = 500;
         body = ms_ubisoft_save_pipeline_json(context->metalsharp_home, (const char*)request->body, request->body_length,
                                              &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/rockstar/launch") == 0) {
+        int status = 500;
+        body = ms_rockstar_launch_json(context->metalsharp_home, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/rockstar/stop") == 0) {
+        int status = 500;
+        body = ms_rockstar_stop_json(context->metalsharp_home, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/rockstar/launch-game") == 0) {
+        int status = 500;
+        body = ms_rockstar_launch_game_json(context->metalsharp_home, (const char*)request->body,
+                                            request->body_length, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/rockstar/save-executable") == 0) {
+        int status = 500;
+        body = ms_rockstar_save_executable_json(context->metalsharp_home, (const char*)request->body,
+                                                request->body_length, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/rockstar/save-pipeline") == 0) {
+        int status = 500;
+        body = ms_rockstar_save_pipeline_json(context->metalsharp_home, (const char*)request->body,
+                                              request->body_length, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/battlenet/launch") == 0) {
+        int status = 500;
+        body = ms_battlenet_launch_json(context->metalsharp_home, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/battlenet/stop") == 0) {
+        int status = 500;
+        body = ms_battlenet_stop_json(context->metalsharp_home, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/battlenet/launch-game") == 0) {
+        int status = 500;
+        body = ms_battlenet_launch_game_json(context->metalsharp_home, (const char*)request->body,
+                                             request->body_length, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/battlenet/save-executable") == 0) {
+        int status = 500;
+        body = ms_battlenet_save_executable_json(context->metalsharp_home, (const char*)request->body,
+                                                 request->body_length, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/battlenet/save-pipeline") == 0) {
+        int status = 500;
+        body = ms_battlenet_save_pipeline_json(context->metalsharp_home, (const char*)request->body,
+                                               request->body_length, &status);
         if (body == NULL)
             return false;
         set_json_response(response, status, body);

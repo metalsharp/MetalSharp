@@ -5,6 +5,7 @@
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/ubisoft.h"
+#include "metalsharp_backend/battlenet.h"
 #include "metalsharp_backend/wine_runtime.h"
 #include <CommonCrypto/CommonDigest.h>
 #include <dirent.h>
@@ -29,10 +30,10 @@
 #define MIGRATION_SCHEMA  7
 
 static const char* const migration_payload_denies[] = {
-    "steamapps",    "common",         "downloading", "shadercache", "compatdata",    "prefix",
-    "prefix-steam", "prefix-ubisoft", "drive_c",     "dosdevices",  "Program Files", "Program Files (x86)",
-    "Steam",        "runtime",        "downloads",   "updates",     "updater-tools", "tmp",
-    "Temp",         "cache",          "logs",        "crashes"};
+    "steamapps",    "common",         "downloading",      "shadercache", "compatdata",    "prefix",
+    "prefix-steam", "prefix-ubisoft", "prefix-battlenet", "drive_c",     "dosdevices",    "Program Files",
+    "Program Files (x86)", "Steam",   "runtime",          "downloads",   "updates",       "updater-tools",
+    "tmp",          "Temp",           "cache",            "logs",        "crashes"};
 static const char* const migration_setting_names[] = {
     "setup.json",    "steam_config.json",   "bottle.json",      "library.json",   "apps.json",
     "routes.json",   "settings.json",       "preferences.json", "user.reg",       "userdef.reg",
@@ -57,6 +58,7 @@ typedef struct {
     migration_link* steam_links;
     migration_link* gptk_links;
     migration_link* ubisoft_links;
+    migration_link* battlenet_links;
     /* The fex build converts it in setup; the 0.80.0 copy must not go back over it. */
     bool steam_prefix_x86_64;
 } preserved_data;
@@ -694,7 +696,7 @@ static ms_migration_path migration_path_for_home(const char* home) {
 static bool preserve_user_data(const char* home, preserved_data* out) {
     char template_path[PATH_MAX];
     char *cache = NULL, *prefix = NULL, *gptk = NULL, *games = NULL, *library = NULL, *bottles = NULL,
-         *sharp_prefix = NULL, *epic = NULL, *launcher_games = NULL, *ubisoft = NULL, *source = NULL,
+         *sharp_prefix = NULL, *epic = NULL, *launcher_games = NULL, *ubisoft = NULL, *battlenet = NULL, *source = NULL,
          *destination = NULL;
     DIR* dir = NULL;
     struct dirent* entry;
@@ -733,6 +735,7 @@ static bool preserve_user_data(const char* home, preserved_data* out) {
     prefix = path_join(home, "prefix-steam");
     gptk = path_join(home, "prefix-gptk");
     ubisoft = path_join(home, "prefix-ubisoft");
+    battlenet = path_join(home, "prefix-battlenet");
     games = path_join(home, "games");
     library = path_join(home, "sharp-library");
     sharp_prefix = path_join(home, "sharp-prefix");
@@ -760,6 +763,14 @@ static bool preserve_user_data(const char* home, preserved_data* out) {
         out->ubisoft_links = collect_links(ubisoft);
         destination = path_join(out->temp, "prefix-ubisoft");
         if (!copy_tree_filtered(ubisoft, destination, 0))
+            goto fail;
+        free(destination);
+        destination = NULL;
+    }
+    if (battlenet) {
+        out->battlenet_links = collect_links(battlenet);
+        destination = path_join(out->temp, "prefix-battlenet");
+        if (!copy_tree_filtered(battlenet, destination, 0))
             goto fail;
         free(destination);
         destination = NULL;
@@ -867,6 +878,7 @@ static bool preserve_user_data(const char* home, preserved_data* out) {
     free(prefix);
     free(gptk);
     free(ubisoft);
+    free(battlenet);
     free(games);
     free(library);
     free(sharp_prefix);
@@ -882,6 +894,7 @@ fail:
     free(prefix);
     free(gptk);
     free(ubisoft);
+    free(battlenet);
     free(games);
     free(library);
     free(sharp_prefix);
@@ -893,6 +906,7 @@ fail:
     free_links(out->steam_links);
     free_links(out->gptk_links);
     free_links(out->ubisoft_links);
+    free_links(out->battlenet_links);
     remove_tree_local(out->temp);
     free(out->temp);
     memset(out, 0, sizeof(*out));
@@ -907,6 +921,7 @@ static void free_preserved_data(preserved_data* data) {
     free_links(data->steam_links);
     free_links(data->gptk_links);
     free_links(data->ubisoft_links);
+    free_links(data->battlenet_links);
     remove_tree_local(data->temp);
     free(data->temp);
     memset(data, 0, sizeof(*data));
@@ -1063,6 +1078,16 @@ static void restore_preserved_data(const char* home, const preserved_data* data)
     }
     free(src);
     free(dst);
+    src = path_join(data->temp, "prefix-battlenet");
+    dst = path_join(home, "prefix-battlenet");
+    if (src && dst && directory_local(src)) {
+        remove_tree_local(dst);
+        (void)mkdir(dst, 0700);
+        (void)copy_tree_filtered(src, dst, 0);
+        restore_links(dst, data->battlenet_links);
+    }
+    free(src);
+    free(dst);
     src = path_join(data->temp, "prefix-gptk");
     dst = path_join(home, "prefix-gptk");
     if (src && dst && directory_local(src)) {
@@ -1169,9 +1194,10 @@ static void write_migration_report(const char* home, bool preserved, bool restor
     FILE* f;
     ms_json_writer writer;
     char* payload;
-    const char* categories[] = {"setup.json",     "steam_config", "cache",          "prefix-steam",
-                                "prefix-ubisoft", "prefix-gptk",  "games",          "sharp-library",
-                                "sharp-prefix",   "epic",         "launcher-games", "bottles"};
+    const char* categories[] = {"setup.json",     "steam_config",     "cache",       "prefix-steam",
+                                "prefix-ubisoft", "prefix-battlenet", "prefix-gptk", "games",
+                                "sharp-library",  "sharp-prefix",     "epic",        "launcher-games",
+                                "bottles"};
     const char* reason = "migration preservation/restoration pass";
     if (logs)
         (void)mkdir(logs, 0700);
@@ -1387,12 +1413,23 @@ static bool rebuild_ubisoft_prefix_after_migration(const char* home) {
     return ok;
 }
 
-static bool rebuild_preserved_wine_prefixes(const char* home, bool* gog_ok, bool* ubisoft_ok) {
+static bool rebuild_battlenet_prefix_after_migration(const char* home) {
+    char* prefix = path_join(home, "prefix-battlenet");
+    bool ok = true;
+    if (prefix && directory_local(prefix))
+        ok = migration_prepare_prefix_drive_mappings(prefix) && run_migration_wineboot(home, prefix) &&
+             migration_prefix_drive_mappings_valid(prefix);
+    free(prefix);
+    return ok;
+}
+
+static bool rebuild_preserved_wine_prefixes(const char* home, bool* gog_ok, bool* ubisoft_ok, bool* battlenet_ok) {
     /* Do not short-circuit: even if one legacy prefix is damaged, initialize
-     * the other preserved prefix before reporting either failure. */
+     * the other preserved prefixes before reporting any failure. */
     *gog_ok = rebuild_gog_prefix_after_migration(home);
     *ubisoft_ok = rebuild_ubisoft_prefix_after_migration(home);
-    return *gog_ok && *ubisoft_ok;
+    *battlenet_ok = rebuild_battlenet_prefix_after_migration(home);
+    return *gog_ok && *ubisoft_ok && *battlenet_ok;
 }
 
 static bool stop_managed_wine_processes(const char* home) {
@@ -1403,6 +1440,11 @@ static bool stop_managed_wine_processes(const char* home) {
     if (!stopped)
         return false;
     result = ms_ubisoft_stop_json(home, &status);
+    stopped = result != NULL && status == 200;
+    free(result);
+    if (!stopped)
+        return false;
+    result = ms_battlenet_stop_json(home, &status);
     stopped = result != NULL && status == 200;
     free(result);
     return stopped;
@@ -1858,7 +1900,7 @@ static void* migration_worker(void* opaque) {
                 free_preserved_data(&preserved);
             }
             write_migration_report(job->home, true, true);
-            bool gog_prefix_ok = true, ubisoft_prefix_ok = true;
+            bool gog_prefix_ok = true, ubisoft_prefix_ok = true, battlenet_prefix_ok = true;
             if (job->path == MS_MIGRATION_PATH_REGULAR_TO_FEX) {
                 char convert_error[512] = "";
                 (void)write_migration_progress(job->home, "running", 6,
@@ -1886,8 +1928,10 @@ static void* migration_worker(void* opaque) {
                     return NULL;
                 }
                 (void)write_migration_progress(job->home, "running", 6,
-                                               "Rebuilding preserved GOG and Ubisoft Wine prefixes...", NULL);
-                (void)rebuild_preserved_wine_prefixes(job->home, &gog_prefix_ok, &ubisoft_prefix_ok);
+                                               "Rebuilding preserved GOG, Ubisoft and Battle.net Wine prefixes...",
+                                               NULL);
+                (void)rebuild_preserved_wine_prefixes(job->home, &gog_prefix_ok, &ubisoft_prefix_ok,
+                                                      &battlenet_prefix_ok);
             }
             if (!gog_prefix_ok) {
                 (void)write_migration_progress(job->home, "error", 6,
@@ -1903,6 +1947,16 @@ static void* migration_worker(void* opaque) {
                 (void)write_migration_progress(job->home, "error", 6,
                                                "Could not initialize the preserved Ubisoft Connect Wine prefix",
                                                "ubisoft_prefix_wineboot_failed");
+                unlink(job->lock_path);
+                free(job->home);
+                free(job->lock_path);
+                free(job);
+                return NULL;
+            }
+            if (!battlenet_prefix_ok) {
+                (void)write_migration_progress(job->home, "error", 6,
+                                               "Could not initialize the preserved Battle.net Wine prefix",
+                                               "battlenet_prefix_wineboot_failed");
                 unlink(job->lock_path);
                 free(job->home);
                 free(job->lock_path);
