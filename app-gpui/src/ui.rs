@@ -575,6 +575,28 @@ fn chrome_bar(theme: PreviewTheme, hairline_at_bottom: bool) -> gpui::Div {
 enum LauncherAction {
     Steam,
     Ubisoft,
+    Rockstar,
+    BattleNet,
+}
+
+impl LauncherAction {
+    /// Backend route prefix of the Rockstar and Battle.net launchers.
+    fn route(self) -> &'static str {
+        match self {
+            Self::Steam => "steam",
+            Self::Ubisoft => "ubisoft",
+            Self::Rockstar => "rockstar",
+            Self::BattleNet => "battlenet",
+        }
+    }
+    fn display_name(self) -> &'static str {
+        match self {
+            Self::Steam => "Steam",
+            Self::Ubisoft => "Ubisoft Connect",
+            Self::Rockstar => "Rockstar Games Launcher",
+            Self::BattleNet => "Battle.net",
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1915,8 +1937,48 @@ impl MetalSharpApp {
                 };
                 Some((LauncherAction::Ubisoft, label, "icon-ubisoft.svg", busy))
             }
+            LibraryPage::Rockstar => Some(self.store_launcher(LauncherAction::Rockstar)),
+            LibraryPage::BattleNet => Some(self.store_launcher(LauncherAction::BattleNet)),
             _ => None,
         }
+    }
+
+    fn store_launcher(
+        &self,
+        launcher: LauncherAction,
+    ) -> (LauncherAction, &'static str, &'static str, bool) {
+        let (status, icon, labels) = match launcher {
+            LauncherAction::Rockstar => (
+                self.live.rockstar,
+                "icon-rockstar.svg",
+                [
+                    "Installing Rockstar Launcher…",
+                    "Stop Rockstar Launcher",
+                    "Launch Rockstar Launcher",
+                    "Install Rockstar Launcher",
+                ],
+            ),
+            _ => (
+                self.live.battlenet,
+                "icon-battlenet.svg",
+                [
+                    "Installing Battle.net…",
+                    "Stop Battle.net",
+                    "Launch Battle.net",
+                    "Install Battle.net",
+                ],
+            ),
+        };
+        let label = if status.installing {
+            labels[0]
+        } else if status.running {
+            labels[1]
+        } else if status.installed {
+            labels[2]
+        } else {
+            labels[3]
+        };
+        (launcher, label, icon, status.installing)
     }
 
     fn run_launcher_action(&mut self, action: LauncherAction, cx: &mut Context<Self>) {
@@ -1924,6 +1986,9 @@ impl MetalSharpApp {
         match action {
             LauncherAction::Steam => self.toggle_steam(false, cx),
             LauncherAction::Ubisoft => self.toggle_ubisoft(cx),
+            LauncherAction::Rockstar | LauncherAction::BattleNet => {
+                self.toggle_store_launcher(action, cx)
+            }
         }
         cx.notify();
     }
@@ -2898,7 +2963,7 @@ impl MetalSharpApp {
                                     .flex()
                                     .items_center()
                                     .gap(px(layout.scaled(9.0)))
-                                    .children((bottle_settings && !game.is_ubisoft()).then(|| {
+                                    .children((game.page() == LibraryPage::Steam).then(|| {
                                         div()
                                             .id("library-art-manager")
                                             .h(px(layout.scaled(42.0)))
@@ -3386,13 +3451,13 @@ impl MetalSharpApp {
                 if query.is_empty() {
                     return Some(index);
                 }
-                let developer = if game.is_ubisoft() {
-                    "Ubisoft"
-                } else {
+                let developer = if game.page() == LibraryPage::Steam {
                     "MetalSharp library"
+                } else {
+                    game.page().label()
                 };
-                let tag = if game.is_ubisoft() {
-                    "Ubisoft".to_owned()
+                let tag = if game.page() != LibraryPage::Steam {
+                    game.page().label().to_owned()
                 } else {
                     crate::variant::is_fex()
                         .then(|| crate::variant::fex_pipeline_label(game.launch_method()))
@@ -3893,7 +3958,7 @@ impl MetalSharpApp {
             );
         }
         // Goldberg stands in for a Steam app; a non-Steam shortcut has none.
-        if !game.is_ubisoft() && !game.is_shortcut() {
+        if game.page() == LibraryPage::Steam && !game.is_shortcut() {
             let active = self.live.steam_emu_active;
             let enabled = game.installed && !self.live.steam_emu_busy;
             cells.push(row(
@@ -3995,7 +4060,7 @@ impl MetalSharpApp {
             .live
             .library
             .iter()
-            .filter(|g| !g.installed && !g.is_ubisoft() && g.appid != 0)
+            .filter(|g| !g.installed && g.page() == LibraryPage::Steam && g.appid != 0)
             .count();
         let tab = |id: &'static str, label: String, selected: bool| {
             div()
@@ -4090,8 +4155,8 @@ impl MetalSharpApp {
                 .then(|| gpui::deferred(self.render_collection_menu(&game, cx)).with_priority(30));
             let play_game = game.clone();
             let key = game.key();
-            let badge = if game.is_ubisoft() {
-                Some("Ubisoft")
+            let badge = if game.page() != LibraryPage::Steam {
+                Some(game.page().label())
             } else if game.has_native_build {
                 Some("Native macOS")
             } else {

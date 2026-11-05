@@ -78,6 +78,10 @@ pub struct LibGame {
     #[serde(default, deserialize_with = "lenient_string")]
     pub ubisoft_id: Option<String>,
     #[serde(default, deserialize_with = "lenient_string")]
+    pub rockstar_id: Option<String>,
+    #[serde(default, deserialize_with = "lenient_string")]
+    pub battlenet_id: Option<String>,
+    #[serde(default, deserialize_with = "lenient_string")]
     pub game_dir: Option<String>,
     #[serde(default, deserialize_with = "lenient_string")]
     pub last_played_at: Option<String>,
@@ -99,8 +103,36 @@ pub struct LibGame {
 }
 
 impl LibGame {
-    pub fn is_ubisoft(&self) -> bool {
-        self.source.as_deref() == Some("ubisoft")
+    /// A game from a launcher MetalSharp runs itself (Ubisoft Connect, the
+    /// Rockstar Games Launcher, Battle.net): the backend lists its graphics
+    /// options and launches it through `/<launcher>/launch-game`.
+    pub fn is_launcher_game(&self) -> bool {
+        matches!(
+            self.page(),
+            LibraryPage::Ubisoft | LibraryPage::Rockstar | LibraryPage::BattleNet
+        )
+    }
+    /// The launcher's route prefix and this game's id field and value.
+    fn launcher_route(&self) -> Option<(&'static str, &'static str, &Option<String>)> {
+        match self.page() {
+            LibraryPage::Ubisoft => Some(("ubisoft", "ubisoft_id", &self.ubisoft_id)),
+            LibraryPage::Rockstar => Some(("rockstar", "rockstar_id", &self.rockstar_id)),
+            LibraryPage::BattleNet => Some(("battlenet", "battlenet_id", &self.battlenet_id)),
+            _ => None,
+        }
+    }
+    /// Endpoint and body that save this game's chosen executable.
+    pub fn save_executable_request(&self, path: &str) -> (String, Value) {
+        match self.launcher_route() {
+            Some((route, key, id)) => (
+                format!("/{route}/save-executable"),
+                serde_json::json!({key: id, "executablePath": path}),
+            ),
+            None => (
+                "/steam/save-executable".into(),
+                serde_json::json!({"appid": self.appid, "executablePath": path}),
+            ),
+        }
     }
     /// A non-Steam game the user added to Wine Steam (shortcuts.vdf).
     pub fn is_shortcut(&self) -> bool {
@@ -343,7 +375,7 @@ pub fn game_pipeline_options(game: &LibGame) -> Vec<(String, String)> {
 
 fn game_pipeline_options_for(game: &LibGame, fex: bool) -> Vec<(String, String)> {
     if fex {
-        let options: Vec<(String, String)> = if game.is_ubisoft() {
+        let options: Vec<(String, String)> = if game.is_launcher_game() {
             game.available_pipelines
                 .clone()
                 .unwrap_or_default()
@@ -359,7 +391,7 @@ fn game_pipeline_options_for(game: &LibGame, fex: bool) -> Vec<(String, String)>
         // The backend runs D3DMetal and GPTK on VKD3D-Proton and D3D9 on DXVK here: show each lane once.
         return crate::variant::fex_options(options);
     }
-    if !game.is_ubisoft() {
+    if !game.is_launcher_game() {
         return PIPELINE_OPTIONS
             .iter()
             .map(|(id, label)| ((*id).to_owned(), (*label).to_owned()))
@@ -424,13 +456,13 @@ pub fn is_wine_steam_route(launch_method: &str) -> bool {
 }
 
 /// LibraryView `launchGame` endpoint + body selection.
-pub fn launch_request(game: &LibGame) -> (&'static str, Value) {
+pub fn launch_request(game: &LibGame) -> (String, Value) {
     let launch_method = if game.launch_method().is_empty() {
         "auto".to_owned()
     } else {
         game.launch_method().to_owned()
     };
-    if game.is_ubisoft() {
+    if let Some((route, key, id)) = game.launcher_route() {
         let pipeline = if !game.preferred_pipeline().is_empty() {
             Value::String(game.preferred_pipeline().to_owned())
         } else if !game.launch_method().is_empty() {
@@ -439,8 +471,8 @@ pub fn launch_request(game: &LibGame) -> (&'static str, Value) {
             Value::Null
         };
         return (
-            "/ubisoft/launch-game",
-            serde_json::json!({"appid": game.appid, "ubisoft_id": game.ubisoft_id, "pipeline": pipeline}),
+            format!("/{route}/launch-game"),
+            serde_json::json!({"appid": game.appid, key: id, "pipeline": pipeline}),
         );
     }
     let endpoint = if game.has_native_build {
@@ -451,22 +483,22 @@ pub fn launch_request(game: &LibGame) -> (&'static str, Value) {
         "/game/launch-auto"
     };
     (
-        endpoint,
+        endpoint.to_owned(),
         serde_json::json!({"appid": game.appid, "launchMethod": launch_method}),
     )
 }
 
 /// LibraryView `savePipeline` / `saveCollectionPipeline` route selection.
-pub fn pipeline_save_request(game: &LibGame, pipeline: &str) -> (&'static str, Value, u64) {
-    if game.is_ubisoft() {
+pub fn pipeline_save_request(game: &LibGame, pipeline: &str) -> (String, Value, u64) {
+    if let Some((route, key, id)) = game.launcher_route() {
         (
-            "/ubisoft/save-pipeline",
-            serde_json::json!({"ubisoft_id": game.ubisoft_id, "pipeline": pipeline}),
+            format!("/{route}/save-pipeline"),
+            serde_json::json!({key: id, "pipeline": pipeline}),
             30_000,
         )
     } else if pipeline == "d3dmetal" {
         (
-            "/d3dmetal/bottles/save",
+            "/d3dmetal/bottles/save".into(),
             serde_json::json!({
                 "appid": game.appid,
                 "bottleId": game.bottle_id(),
@@ -477,7 +509,7 @@ pub fn pipeline_save_request(game: &LibGame, pipeline: &str) -> (&'static str, V
         )
     } else {
         (
-            "/bottles/edit",
+            "/bottles/edit".into(),
             serde_json::json!({"id": game.bottle_id(), "name": game.name, "preferredPipeline": pipeline}),
             30_000,
         )
@@ -500,7 +532,7 @@ mod tests {
             "source": "steam_shortcut", "gameid": "13052842659859660800",
             "launch_method": "steam", "cover_url": null
         }));
-        assert!(shortcut.is_shortcut() && !shortcut.is_ubisoft());
+        assert!(shortcut.is_shortcut() && shortcut.page() == LibraryPage::Steam);
         assert_eq!(shortcut.key(), (LibraryPage::Steam, 3039101758));
         let (endpoint, body) = launch_request(&shortcut);
         assert_eq!(endpoint, "/steam/launch-game");
@@ -538,6 +570,38 @@ mod tests {
         );
         assert_ne!(merged[1].key(), merged[4].key());
         assert_eq!(merged[3].ubisoft_id.as_deref(), Some("5"));
+    }
+
+    #[test]
+    fn rockstar_and_battlenet_games_use_their_launcher_routes() {
+        let rockstar = game(json!({"appid": 1073741825u64, "source": "rockstar",
+            "rockstar_id": "gta5", "preferred_pipeline": "d3dmetal"}));
+        assert!(rockstar.is_launcher_game());
+        assert_eq!(
+            launch_request(&rockstar),
+            (
+                "/rockstar/launch-game".to_owned(),
+                json!({"appid": 1073741825u64, "rockstar_id": "gta5", "pipeline": "d3dmetal"})
+            )
+        );
+        let battlenet = game(json!({"appid": 536870913u64, "source": "battlenet",
+            "battlenet_id": "prometheus"}));
+        let (path, body, _) = pipeline_save_request(&battlenet, "dxmt");
+        assert_eq!(path, "/battlenet/save-pipeline");
+        assert_eq!(
+            body,
+            json!({"battlenet_id": "prometheus", "pipeline": "dxmt"})
+        );
+        assert_eq!(
+            battlenet.save_executable_request("/x/Overwatch.exe").0,
+            "/battlenet/save-executable"
+        );
+        let steam = game(json!({"appid": 400}));
+        assert!(!steam.is_launcher_game());
+        assert_eq!(
+            steam.save_executable_request("/x").0,
+            "/steam/save-executable"
+        );
     }
 
     #[test]
@@ -586,7 +650,7 @@ mod tests {
         assert_eq!(library.len(), 2);
         let owned = &library[1];
         assert_eq!(owned.appid, 620);
-        assert!(!owned.installed && !owned.is_ubisoft());
+        assert!(!owned.installed && owned.page() == LibraryPage::Steam);
         assert_eq!(owned.state.as_deref(), Some("not_installed"));
         assert_eq!(
             owned.cover_url,
@@ -618,7 +682,7 @@ mod tests {
         assert_eq!(
             launch_request(&g),
             (
-                "/game/launch-auto",
+                "/game/launch-auto".to_owned(),
                 json!({"appid":10,"launchMethod":"auto"})
             )
         );
@@ -630,7 +694,7 @@ mod tests {
         assert_eq!(
             launch_request(&g),
             (
-                "/ubisoft/launch-game",
+                "/ubisoft/launch-game".to_owned(),
                 json!({"appid":10,"ubisoft_id":"77","pipeline":"dxmt"})
             )
         );

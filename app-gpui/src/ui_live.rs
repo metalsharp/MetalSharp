@@ -102,8 +102,8 @@ pub(super) struct LiveState {
     pub ubisoft_installed: bool,
     pub ubisoft_running: bool,
     pub ubisoft_installing: bool,
-    /// Ubisoft Connect was started with Launch Ubisoft, so the header's
-    /// primary button is Stop Ubisoft until Connect stops or is seen closed.
+    pub rockstar: LauncherStatus,
+    pub battlenet: LauncherStatus,
     pub library: Vec<LibGame>,
     pub library_loaded: bool,
     pub installed_count: usize,
@@ -166,7 +166,22 @@ pub(super) struct LiveState {
     pub setup: SetupFlow,
 }
 
+/// Install and run state of a launcher MetalSharp starts itself.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct LauncherStatus {
+    pub installed: bool,
+    pub running: bool,
+    pub installing: bool,
+}
+
 impl LiveState {
+    pub(super) fn launcher_status_mut(&mut self, launcher: LauncherAction) -> &mut LauncherStatus {
+        match launcher {
+            LauncherAction::Rockstar => &mut self.rockstar,
+            _ => &mut self.battlenet,
+        }
+    }
+
     /// Apply an Ubisoft Connect status poll.
     fn apply_ubisoft_status(&mut self, installed: bool, running: bool, installing: bool) {
         self.ubisoft_installed = installed;
@@ -197,6 +212,8 @@ impl Default for LiveState {
             ubisoft_installed: false,
             ubisoft_running: false,
             ubisoft_installing: false,
+            rockstar: LauncherStatus::default(),
+            battlenet: LauncherStatus::default(),
             library: Vec::new(),
             library_loaded: false,
             installed_count: 0,
@@ -898,6 +915,103 @@ impl MetalSharpApp {
                 }
             },
         );
+        for launcher in [LauncherAction::Rockstar, LauncherAction::BattleNet] {
+            live::call(
+                cx,
+                "GET",
+                format!("/{}/status", launcher.route()),
+                None,
+                live::DEFAULT_TIMEOUT,
+                move |this, status, cx| {
+                    if let Some(status) = status {
+                        let flag =
+                            |key: &str| status.get(key).and_then(Value::as_bool) == Some(true);
+                        let next = LauncherStatus {
+                            installed: flag("installed"),
+                            running: flag("running"),
+                            installing: flag("installing"),
+                        };
+                        let slot = this.live.launcher_status_mut(launcher);
+                        let finished_install = slot.installing && !next.installing;
+                        if *slot != next {
+                            *slot = next;
+                            if finished_install {
+                                this.load_library(false, cx);
+                            }
+                            cx.notify();
+                        }
+                    }
+                },
+            );
+        }
+    }
+
+    /// Start or stop the Rockstar Games Launcher or Battle.net, installing it
+    /// first when it is missing.
+    pub(super) fn toggle_store_launcher(
+        &mut self,
+        launcher: LauncherAction,
+        cx: &mut Context<Self>,
+    ) {
+        let status = *self.live.launcher_status_mut(launcher);
+        if status.installing {
+            return;
+        }
+        let name = launcher.display_name();
+        let route = launcher.route();
+        if status.running {
+            live::call(
+                cx,
+                "POST",
+                format!("/{route}/stop"),
+                None,
+                live::DEFAULT_TIMEOUT,
+                move |this, result, cx| {
+                    let ok = result.as_ref().is_some_and(is_ok);
+                    if ok {
+                        this.live.launcher_status_mut(launcher).running = false;
+                        toast::success(cx, format!("{name} stopped"));
+                    } else {
+                        toast::error(
+                            cx,
+                            error_text(result.as_ref())
+                                .unwrap_or_else(|| format!("Could not stop {name}")),
+                        );
+                    }
+                    cx.notify();
+                },
+            );
+            return;
+        }
+        live::call(
+            cx,
+            "POST",
+            format!("/{route}/launch"),
+            None,
+            live::DEFAULT_TIMEOUT,
+            move |this, result, cx| {
+                let ok = result.as_ref().is_some_and(is_ok);
+                let installing = result
+                    .as_ref()
+                    .and_then(|r| r.get("installing"))
+                    .and_then(Value::as_bool)
+                    == Some(true);
+                if ok && installing {
+                    this.live.launcher_status_mut(launcher).installing = true;
+                    toast::info(cx, format!("Downloading and installing {name}…"));
+                } else if ok {
+                    this.live.launcher_status_mut(launcher).running = true;
+                    toast::success(cx, format!("Starting {name}…"));
+                } else {
+                    toast::error(
+                        cx,
+                        error_text(result.as_ref())
+                            .unwrap_or_else(|| format!("Could not start {name}")),
+                    );
+                }
+                cx.notify();
+            },
+        );
     }
 
     fn watch_steamapps(&mut self, cx: &mut Context<Self>) {
@@ -941,7 +1055,7 @@ impl MetalSharpApp {
         cx.spawn(async move |this, cx| {
             let mut refresh = force;
             loop {
-                let (steam, ubisoft) = {
+                let (steam, ubisoft, launchers) = {
                     let live = live.clone();
                     cx.background_executor()
                         .spawn(async move {
@@ -950,18 +1064,25 @@ impl MetalSharpApp {
                             } else {
                                 "/steam/library"
                             };
-                            let (a, b) = std::thread::scope(|scope| {
-                                let s = scope
-                                    .spawn(|| live.request("GET", steam_path, None, MS(120_000)));
-                                let u = scope.spawn(|| {
-                                    live.request("GET", "/ubisoft/library", None, MS(120_000))
-                                });
-                                (s.join().ok(), u.join().ok())
-                            });
-                            (
-                                a.and_then(Result::ok).map(live::unwrap_data),
-                                b.and_then(Result::ok).map(live::unwrap_data),
-                            )
+                            let get = |path: &str| {
+                                live.request("GET", path, None, MS(120_000))
+                                    .ok()
+                                    .map(live::unwrap_data)
+                            };
+                            std::thread::scope(|scope| {
+                                let s = scope.spawn(|| get(steam_path));
+                                let u = scope.spawn(|| get("/ubisoft/library"));
+                                let r = scope.spawn(|| get("/rockstar/library"));
+                                let b = scope.spawn(|| get("/battlenet/library"));
+                                let join = |handle: std::thread::ScopedJoinHandle<'_, _>| {
+                                    handle.join().ok().flatten()
+                                };
+                                (
+                                    join(s),
+                                    join(u),
+                                    [("rockstar", join(r)), ("battlenet", join(b))],
+                                )
+                            })
                         })
                         .await
                 };
@@ -978,7 +1099,16 @@ impl MetalSharpApp {
                         if let Some(steam_games) = library_model::parse_library(steam.as_ref()) {
                             let ubisoft_games =
                                 library_model::parse_library(ubisoft.as_ref()).unwrap_or_default();
-                            let games = library_model::merge_libraries(steam_games, ubisoft_games);
+                            let mut games =
+                                library_model::merge_libraries(steam_games, ubisoft_games);
+                            for (source, list) in &launchers {
+                                let list =
+                                    library_model::parse_library(list.as_ref()).unwrap_or_default();
+                                games.extend(list.into_iter().map(|mut game| {
+                                    game.source = Some((*source).to_owned());
+                                    game
+                                }));
+                            }
                             this.live.installed_count =
                                 games.iter().filter(|g| g.installed).count();
                             this.live.library = games;
@@ -1027,7 +1157,9 @@ impl MetalSharpApp {
             .live
             .library
             .iter()
-            .filter(|g| !g.is_ubisoft() && g.installed && g.preferred_pipeline() == "vkd3d")
+            .filter(|g| {
+                g.page() == LibraryPage::Steam && g.installed && g.preferred_pipeline() == "vkd3d"
+            })
             .filter_map(|g| {
                 let recommended = g
                     .available_pipelines
@@ -1103,7 +1235,10 @@ impl MetalSharpApp {
             self.request_art(&game, cx);
         }
         // Ubisoft icon extraction retry (LibraryView: 1.5 s × 12).
-        let pending = self.games.iter().any(|g| g.is_ubisoft() && g.icon_pending);
+        let pending = self
+            .games
+            .iter()
+            .any(|g| g.is_launcher_game() && g.icon_pending);
         if !pending {
             self.live.icon_refresh_attempts = 0;
         } else if !self.live.icon_refresh_scheduled && self.live.icon_refresh_attempts < 12 {
@@ -1142,7 +1277,7 @@ impl MetalSharpApp {
         use crate::artwork::{Candidate as C, steam_cdn, store_background};
         let appid = game.appid;
         let embedded = game.embedded_icon_path.clone().map(C::LocalFile);
-        let (card, hero): (Vec<C>, Vec<C>) = if game.is_ubisoft() {
+        let (card, hero): (Vec<C>, Vec<C>) = if game.is_launcher_game() {
             let urls: Vec<C> = [
                 game.ubisoft_artwork_url.clone(),
                 game.cover_url.clone(),
@@ -1218,12 +1353,8 @@ impl MetalSharpApp {
             ];
             (card, hero)
         };
-        let source = if game.is_ubisoft() {
-            "ubisoft"
-        } else {
-            "steam"
-        };
-        let ubisoft_icon_ready = game.is_ubisoft() && game.embedded_icon_path.is_some();
+        let source = game.page().storage_id();
+        let ubisoft_icon_ready = game.is_launcher_game() && game.embedded_icon_path.is_some();
         cache.update(cx, |cache, cx| {
             if ubisoft_icon_ready {
                 // The extracted EXE icon arrived after an earlier miss: retry.
@@ -1245,11 +1376,7 @@ impl MetalSharpApp {
         angle: i32,
         cx: &mut Context<Self>,
     ) -> Option<PathBuf> {
-        let source = if game.is_ubisoft() {
-            "ubisoft"
-        } else {
-            "steam"
-        };
+        let source = game.page().storage_id();
         let key = format!("{source}-{}-card", game.appid);
         crate::artwork::cache(cx)?.update(cx, |cache, cx| cache.tilted(&key, angle, cx))
     }
@@ -1261,11 +1388,7 @@ impl MetalSharpApp {
         if let Some(key) = &game.art_key {
             return crate::artwork::cache(cx)?.read(cx).path(key);
         }
-        let source = if game.is_ubisoft() {
-            "ubisoft"
-        } else {
-            "steam"
-        };
+        let source = game.page().storage_id();
         let kind = if hero { "hero" } else { "card" };
         let cache = crate::artwork::cache(cx)?;
         let cache = cache.read(cx);
@@ -1845,17 +1968,7 @@ impl MetalSharpApp {
             };
             let selected = file.path().to_string_lossy().into_owned();
             let _ = this.update(cx, move |_, cx| {
-                let (endpoint, body) = if game.is_ubisoft() {
-                    (
-                        "/ubisoft/save-executable",
-                        json!({"ubisoft_id": game.ubisoft_id, "executablePath": selected}),
-                    )
-                } else {
-                    (
-                        "/steam/save-executable",
-                        json!({"appid": game.appid, "executablePath": selected}),
-                    )
-                };
+                let (endpoint, body) = game.save_executable_request(&selected);
                 live::call(
                     cx,
                     "POST",
