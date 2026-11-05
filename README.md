@@ -26,7 +26,8 @@ ___
 
 MetalSharp is a Free Wine 11.17 x86_64 (MacOS 15+) / Wine 11.20 with FEX (MacOS 26.4+) Custom-Built Runtime That Runs Windows Applications / Games on Apple Silicon, Built Inside a GPUI Application. MetalSharp Aims to Make The Process of Launching Your Games Easy Without Extra Needed Configuration Steps. 
 
-<img width="1090" height="819" alt="Screenshot 2026-10-27 at 9 42 50 PM" src="https://github.com/user-attachments/assets/7e5f78e9-d406-4d07-bfde-e1f1d3339f77" />
+<img width="1143" height="845" alt="MetalSharp Library" src="https://github.com/user-attachments/assets/520cc3e4-4b74-4d40-b402-10fece051cd1" />
+
 
 
 
@@ -52,7 +53,7 @@ brew install --cask metalsharp/tap/metalsharp
 Homebrew installs MetalSharp.app in `/Applications`. Updates are handled in-app with the included updater. 
 
 
-For Direct Access to What is Installed During Setup, See Here: [Dependency Bundles](https://github.com/metalsharp/MetalSharp/releases/tag/bundles).
+For Direct Access to What is Installed During Setup, See Here: [Dependency Bundles (x86_64)](https://github.com/metalsharp/MetalSharp/releases/tag/bundles), [MetalSharp-Wine With FEX](https://github.com/metalsharp/MetalSharp-Wine)
 
 If an In-App update fails, please use [Fix Broken Updater](https://github.com/metalsharp/MetalSharp/blob/main/docs/Fix%20a%20Broken%20Update.md)
 
