@@ -1,7 +1,7 @@
 # MetalSharp Architecture
 **Updated:** 2026-10-28
 
-How MetalSharp launches games, what it installs, and where state lives. Build instructions are in [development.md](development.md) and [building-wine.md](building-wine.md); emulator providers are in [emulators.md](emulators.md).
+How MetalSharp launches games, what it installs, and where state lives. Build instructions are in [development.md](development.md) and [building-wine.md](building-wine.md).
 
 MetalSharp 1.0.0 comes in two builds from the same source. The backend picks its build at compile time (`make VARIANT=fex` defines `MS_BACKEND_VARIANT`), and the app follows the backend's `variant` in `GET /status`:
 
@@ -198,7 +198,7 @@ The installer classifier detects known launchers before generic .NET/WebView/MSI
 
 | Store | How it works | Backend routes |
 |---|---|---|
-| Ubisoft Connect | Installer from `https://ubi.li/4vxt9` into `prefix-ubisoft` with D3DMetal + Steam's CEF args; a writable external volume maps to `Y:`. Games are found from the prefix registry; artwork falls back Ubisoft -> SteamGridDB -> extracted icon. Per-game routes; Mono/FNA and Steam Emu hidden. | `GET /ubisoft/status`, `/ubisoft/library`; `POST /ubisoft/launch`, `/stop`, `/launch-game`, `/save-pipeline` |
+| Ubisoft Connect | Installer from `https://ubi.li/4vxt9` into `prefix-ubisoft` with D3DMetal + Steam's CEF args; the Ubisoft library location (`library_locations.c`) maps to `Y:`, or without one the writable external volume with the most free space. Games are found from the prefix registry; artwork falls back Ubisoft -> SteamGridDB -> extracted icon. Per-game routes; Mono/FNA and Steam Emu hidden. | `GET /ubisoft/status`, `/ubisoft/library`; `POST /ubisoft/launch`, `/stop`, `/launch-game`, `/save-pipeline` |
 | Epic | [Legendary](https://github.com/legendary-gl/legendary) 0.21.0 (arm64, size/hash-verified) out of process. Each title needs **Initialize Bottle**; mouse mode **No Recenter** (default) or **Mouse Auto**. Optional TheGamesDB key supplies missing artwork. | `GET /sharp-library/epic/{status,games,running,thegamesdb-api-key}`; `POST` `install-tool`, `auth`, `thegamesdb-api-key`, `logout`, `sync`, `install`, `progress`, `cancel`, `initialize`, `play`, `stop`, `stop-all`, `uninstall` |
 | GOG | Shared `bottles/gog-prefix`; Stop runs `wineserver -k` on it, so it stops every GOG game. | |
 | Game Jolt | Isolated process groups; routes D3DMetal, VKD3D, DXMT, DXMT (32), D3D9. | |

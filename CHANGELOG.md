@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Rockstar Games Launcher on its own** — MetalSharp installs the Rockstar Games Launcher into the Steam prefix when it isn't there (Rockstar's installer, run interactively), starts it without Steam, and lists the games it installed. Steam copies of Rockstar titles stay in the Steam library and launch as before. The launcher runs on D3DMetal with WFDXCompat on the x86_64 build and on Mullion on the FEX build. Stop ends only the launcher, its helpers and its games, never Steam. Games get a launch route per game, a saved executable choice and running/Stop tracking. Routes: `/rockstar/status`, `/rockstar/launch`, `/rockstar/stop`, `/rockstar/library`, `/rockstar/launch-game`, `/rockstar/save-pipeline`, `/rockstar/save-executable`.
+- **Battle.net** — Battle.net is back, in its own MetalSharp Wine prefix (`prefix-battlenet`) like Ubisoft Connect, on Connect's lane (D3DMetal on x86_64, Mullion on FEX). MetalSharp installs it from Blizzard's installer and lists installed Blizzard and Activision games, which MetalSharp starts the way Battle.net's Play does: with Battle.net signed in, the game's executable runs with `-uid <uid>` with a launch route per game. Migration keeps the prefix and rebuilds it like the Ubisoft prefix. Routes: `/battlenet/status`, `/battlenet/launch`, `/battlenet/stop`, `/battlenet/library`, `/battlenet/launch-game`, `/battlenet/save-pipeline`, `/battlenet/save-executable`.
+
+- **Where games go** — Ubisoft Connect, Battle.net, the Rockstar Games Launcher, GOG and Epic each install games into one MetalSharp folder on the drive you pick: `~/Games` on this Mac or the top of an external drive (`MetalSharp Ubisoft Games`, `MetalSharp Battle.net Games`, `MetalSharp Rockstar Games`, `MetalSharp GOG Games`, `MetalSharp Epic Games`). GOG and Epic installs go into the folder when no install path is given, and ask for a location (409, `needs_location`) when none is set. The other three see the folder as a drive letter in their prefix (Ubisoft `Y:`, Battle.net `Y:`, Rockstar `R:` in the Steam prefix), mapped again each time the launcher starts. A drive letter the user mapped elsewhere is kept. The choice is saved in `~/.metalsharp/config/library-locations.json`. Existing installs stay where they are. Routes: `GET /library-locations`, `POST /library-locations/set`.
+- **Uninstall a launcher** — `POST /launchers/uninstall` (`{"launcher":"ubisoft"|"battlenet"|"rockstar"|"gog"|"epic","delete_games":bool}`) stops the launcher and its games (409 if they won't stop, and nothing is removed), then removes what MetalSharp keeps for it: the Ubisoft or Battle.net prefix; only the Rockstar Games Launcher's own folders and its `R:` mapping in the Steam prefix, never Steam or Steam copies of Rockstar games (its registry entries stay); GOG's prefix, keeping the sign-in; Epic's game bottles, Legendary's data, sign-in and tool. Each launcher's cache, per-game bottles and saved executable choices go too. With `delete_games`, its `MetalSharp <Name> Games` folder is deleted (links not followed) and its saved location forgotten, but only if the folder is still the launcher's own real folder in `~/Games` or at the top of a connected drive. Otherwise the request is refused with 409. Without it, the folder and its saved location stay, and the response's `kept_games_folder` names it.
+
+### Removed
+
+- **Console emulators** — PCSX2, RPCS3, shadPS4 and SharpEmu are gone from the Sharp Library, with their backend routes. On the first start after the update, the backend deletes their data folder, `~/.metalsharp/emulators` (runtimes, firmware, saves and any games stored there). Symlinks in it are removed without touching what they point to. Installers, GOG, Epic and GameJolt are unchanged.
+
 ## v1.0.0 — 2026-10-28
 
 MetalSharp 1.0.0 comes in two builds from one release. Both share the app and its updater:

@@ -47,7 +47,6 @@ How the two builds relate:
      - clean up the x86_64 build's DXMT, D3DMetal and VKD3D copies.
 4. **Rosetta on FEX.** Setup no longer installs it, and the macOS 27 Rosetta reinstall is off. A few features still need Rosetta even on FEX:
    - FNA games, which use the x86 Mono except Stardew;
-   - the macOS emulators (PCSX2, RPCS3, shadPS4);
    - macOS steamcmd;
    - GPTK (m13).
 

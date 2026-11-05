@@ -1031,7 +1031,6 @@ impl SharpPreview {
             && !live.embed_obscured
             && self.state.source == SharpSource::GameJolt
             && live.confirm.is_none()
-            && live.emu_confirm.is_none()
             && live.engine_menu.is_none()
             && !self.state.picker
             && !self.state.launch_settings_open

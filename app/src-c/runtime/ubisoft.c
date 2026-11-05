@@ -7,9 +7,11 @@
 #include "metalsharp_backend/game_executable.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/library_locations.h"
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/steam.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/store_launcher.h"
 #include "metalsharp_backend/wine_runtime.h"
 #include <ctype.h>
 #include <dirent.h>
@@ -384,44 +386,6 @@ static bool run_child_wait(const char* executable, char* const argv[], const cha
     return waited == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
-static char* find_external_volume(void) {
-    DIR* directory = opendir("/Volumes");
-    struct dirent* entry;
-    char* best = NULL;
-    uint64_t best_free = 0;
-    if (!directory)
-        return NULL;
-    while ((entry = readdir(directory)) != NULL) {
-        char *candidate, resolved[PATH_MAX];
-        struct statfs volume;
-        uint64_t available;
-        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..") || !strcasecmp(entry->d_name, "Recovery") ||
-            !strcasecmp(entry->d_name, "Macintosh HD") || entry->d_name[0] == '.')
-            continue;
-        candidate = path_join("/Volumes", entry->d_name);
-        if (!candidate)
-            continue;
-        if (realpath(candidate, resolved) && statfs(resolved, &volume) == 0 &&
-            !strncmp(volume.f_mntonname, "/Volumes/", 9) && strcmp(volume.f_mntonname, "/Volumes/Recovery") &&
-            !(volume.f_flags & MNT_RDONLY) && access(resolved, W_OK | X_OK) == 0) {
-            uint64_t block_size = volume.f_bsize > 0 ? (uint64_t)volume.f_bsize : 0;
-            uint64_t blocks = volume.f_bavail > 0 ? (uint64_t)volume.f_bavail : 0;
-            available = block_size && blocks > UINT64_MAX / block_size ? UINT64_MAX : blocks * block_size;
-            if (!best || available > best_free) {
-                char* replacement = strdup(resolved);
-                if (replacement) {
-                    free(best);
-                    best = replacement;
-                    best_free = available;
-                }
-            }
-        }
-        free(candidate);
-    }
-    closedir(directory);
-    return best;
-}
-
 static bool ensure_ubisoft_drive_mapping(const char* prefix, const char* volume) {
     char *dosdevices = path_join(prefix, "dosdevices"), *drive = NULL;
     struct stat st;
@@ -485,7 +449,9 @@ static bool initialize_prefix(const char* home, char* error, size_t error_size) 
             return false;
         }
     }
-    char* external_volume = find_external_volume();
+    /* A library location chosen for Ubisoft games becomes Y:; without one, the external volume
+     * with the most free space does, as before. */
+    char* external_volume = ms_library_location_apply(home, "ubisoft") ? NULL : ms_library_best_external_volume();
     if (external_volume && !ensure_ubisoft_drive_mapping(prefix, external_volume)) {
         snprintf(error, error_size, "Could not map the external volume to Ubisoft Connect's Y: drive");
         free(external_volume);
@@ -551,6 +517,27 @@ static const char* connect_lane(void) {
     return ms_wine_is_fex() ? "dxmt" : "d3dmetal";
 }
 
+static void connect_apply_env(const char* home, const void* context) {
+    ms_steam_apply_graphics_route(home, (const char*)context);
+}
+
+/* MetalSharp Wine (the fex build) starts Connect the way it starts the Battle.net client: upc.exe
+ * with no switches, from its own folder, on its lane and nothing else. */
+static pid_t spawn_launcher_direct(const char* home, const char* wine, const char* prefix, const char* launcher,
+                                   const char* pipeline) {
+    char* dir = strdup(launcher);
+    char* slash = dir ? strrchr(dir, '/') : NULL;
+    char* argv[] = {(char*)wine, (char*)launcher, NULL};
+    pid_t pid = 0;
+    if (slash)
+        *slash = '\0';
+    if (!dir ||
+        !ms_store_run_wine(home, prefix, slash ? dir : NULL, argv, connect_apply_env, pipeline, false, NULL, &pid))
+        pid = -1;
+    free(dir);
+    return pid;
+}
+
 static bool spawn_launcher(const char* home, const char* launcher, const char* pipeline, unsigned game_appid) {
     char* wine = ubisoft_wine(home);
     char* prefix = ubisoft_prefix(home);
@@ -563,27 +550,32 @@ static bool spawn_launcher(const char* home, const char* launcher, const char* p
         free(pidfile);
         return false;
     }
-    seed_connect_gpu(home, wine, prefix);
-    pid = fork();
-    if (pid == 0) {
-        char* args[2 + sizeof(UBISOFT_CONNECT_ARGS) / sizeof(UBISOFT_CONNECT_ARGS[0]) + 1];
-        size_t argc = 0;
-        args[argc++] = wine;
-        args[argc++] = (char*)launcher;
-        /* The x86_64 runtime's CEF needs these; MetalSharp Wine's launcher policy gives Connect what
-         * it needs (--in-process-gpu), and -cef-single-process stalled it at startup there. */
-        for (size_t i = 0; !ms_wine_is_fex() && i < sizeof(UBISOFT_CONNECT_ARGS) / sizeof(UBISOFT_CONNECT_ARGS[0]); i++)
-            args[argc++] = (char*)UBISOFT_CONNECT_ARGS[i];
-        args[argc] = NULL;
-        (void)setpgid(0, 0);
-        (void)chdir(prefix);
-        setenv("WINEPREFIX", prefix, 1);
-        setenv("WINEDEBUG", "-all", 1);
-        setenv("MS_FWD_COMPAT_GL_CTX", "1", 1);
-        ms_steam_apply_launch_preferences(home);
-        ms_steam_apply_graphics_route(home, pipeline ? pipeline : connect_lane());
-        execv(wine, args);
-        _exit(127);
+    if (ms_wine_is_fex()) {
+        pid = spawn_launcher_direct(home, wine, prefix, launcher, pipeline ? pipeline : connect_lane());
+    } else {
+        seed_connect_gpu(home, wine, prefix);
+        pid = fork();
+        if (pid == 0) {
+            char* args[2 + sizeof(UBISOFT_CONNECT_ARGS) / sizeof(UBISOFT_CONNECT_ARGS[0]) + 1];
+            size_t argc = 0;
+            args[argc++] = wine;
+            args[argc++] = (char*)launcher;
+            /* The x86_64 runtime's CEF needs these. */
+            for (size_t i = 0; i < sizeof(UBISOFT_CONNECT_ARGS) / sizeof(UBISOFT_CONNECT_ARGS[0]); i++)
+                args[argc++] = (char*)UBISOFT_CONNECT_ARGS[i];
+            args[argc] = NULL;
+            (void)setpgid(0, 0);
+            (void)chdir(prefix);
+            setenv("WINEPREFIX", prefix, 1);
+            setenv("WINEDEBUG", "-all", 1);
+            setenv("MS_FWD_COMPAT_GL_CTX", "1", 1);
+            ms_steam_apply_launch_preferences(home);
+            ms_steam_apply_graphics_route(home, pipeline ? pipeline : connect_lane());
+            execv(wine, args);
+            _exit(127);
+        }
+        if (pid > 0)
+            (void)setpgid(pid, pid);
     }
     if (pid < 0) {
         free(wine);
@@ -591,7 +583,6 @@ static bool spawn_launcher(const char* home, const char* launcher, const char* p
         free(pidfile);
         return false;
     }
-    (void)setpgid(pid, pid);
     file = fopen(pidfile, "wb");
     if (file) {
         fprintf(file, "%ld\n", (long)pid);

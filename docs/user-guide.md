@@ -25,11 +25,57 @@ Click **Play** on the Library page. MetalSharp picks a graphics route automatica
 
 ## Other Stores and Programs
 
-The **Sharp Library** holds Windows apps, launchers, installers, and non-Steam games. It has tabs for Epic, GOG, Game Jolt, and [emulators](emulators.md). For Ubisoft Connect, see the [Ubisoft Connect guide](ubisoft-connect.md).
+The **Sharp Library** holds Windows apps, launchers, installers, and non-Steam games. It has tabs for Epic, GOG, and Game Jolt. For Ubisoft Connect, see the [Ubisoft Connect guide](ubisoft-connect.md). The Rockstar Games Launcher and Battle.net are covered below.
 
 - **Install Windows Program** takes an `.exe` or `.msi`. MetalSharp imports it directly, or runs the installer in its own bottle and picks up the installed app.
 - Rename an app with the pencil next to its title, and change its cover with **Change Image** (JPEG, PNG, or WebP).
 - **Tools → Open Folder** opens the app's bottle in Finder. Install runtime components through the bottle tools; don't copy them in by hand.
+
+### Where Games Go
+
+When you install Ubisoft Connect, Battle.net or the Rockstar Games Launcher, or set up GOG or Epic, MetalSharp asks whether games go on this Mac or on an external drive. Each launcher gets its own folder there:
+
+| Launcher | Folder | In the launcher |
+| --- | --- | --- |
+| Ubisoft Connect | `MetalSharp Ubisoft Games` | drive `Y:` |
+| Battle.net | `MetalSharp Battle.net Games` | drive `Y:` |
+| Rockstar Games Launcher | `MetalSharp Rockstar Games` | drive `R:` |
+| GOG | `MetalSharp GOG Games` | each game in its own folder |
+| Epic | `MetalSharp Epic Games` | each game in its own folder |
+
+On this Mac the folders are in `~/Games`. On an external drive they're at the top of the drive, for example `/Volumes/MyDrive/MetalSharp GOG Games`. Network shares, disk images, Time Machine disks and read-only drives aren't offered.
+
+- **GOG and Epic** install straight into their folder.
+- **Ubisoft Connect, Battle.net and Rockstar** install games themselves. In the launcher's install or download settings, choose its drive (`Y:` or `R:`) as the install location. MetalSharp doesn't change the launcher's own settings. If you already mapped that letter to a folder of your own, MetalSharp leaves it alone and uses the first free letter from `X:` down instead.
+- **Unplugged drive.** If the drive isn't connected, games on it won't start, and GOG and Epic installs ask where games go. Plug it back in and start the launcher again. MetalSharp maps the drive letter each time a launcher starts.
+- **Changing the location** only affects new installs. Games already installed somewhere else stay there and keep working. Nothing is moved.
+
+### Rockstar Games Launcher
+
+The Rockstar Games Launcher lives in the Steam prefix (`~/.metalsharp/prefix-steam`), where Steam also installs it the first time you play a Steam copy of a Rockstar game. Set up Steam in MetalSharp first. MetalSharp doesn't start Steam for the launcher.
+
+1. **Install.** Launch the Rockstar Games Launcher from MetalSharp. If it isn't installed, MetalSharp downloads Rockstar's installer and runs it. Click through the installer and keep the default install location for the launcher itself. MetalSharp starts the launcher when it finishes. To install games into the folder you chose, pick drive `R:` in the launcher (see [Where Games Go](#where-games-go)).
+2. **Start and stop.** The launcher runs on D3DMetal with WFDXCompat on the x86_64 build, and on Mullion on the Arm64 FEX build. Stop ends only the launcher, its helpers (Social Club, Rockstar Service) and the games it installed. Steam and your Steam games keep running.
+3. **Play.** Games the launcher installs show up in the library. Steam copies stay in your Steam library. Pick a launch route and press **Play**. MetalSharp starts the launcher if it isn't running, then the game. On the x86_64 build, a launcher already running on another game's route restarts on this one's, because games inherit the launcher's environment.
+
+### Battle.net
+
+Battle.net runs in its own prefix (`~/.metalsharp/prefix-battlenet`) on the same lane as Ubisoft Connect: D3DMetal on the x86_64 build, Mullion on the Arm64 FEX build.
+
+1. **Install.** Launch Battle.net from MetalSharp. If it isn't installed, MetalSharp sets up the prefix, downloads Blizzard's installer and runs it. To install games into the folder you chose, pick drive `Y:` in Battle.net's download settings (see [Where Games Go](#where-games-go)).
+2. **Start and stop.** Stop shuts down the whole Battle.net prefix, including its games.
+3. **Play.** Installed Blizzard and Activision games show up in the library. Pick a launch route and press **Play**. MetalSharp starts Battle.net if it isn't running and asks it to start the game, so sign in first. On the x86_64 build, a Battle.net already running on another route restarts on the game's route.
+
+### Uninstalling a launcher
+
+Uninstalling a launcher stops it and its games first. If something won't stop, nothing is removed. Quit it and try again.
+
+- **Ubisoft Connect and Battle.net** lose their whole prefix, cache, per-game settings and saved executable choices.
+- **Rockstar Games Launcher** loses only its own folders in the Steam prefix (the launcher, Social Club and its ProgramData folder), its cache, per-game settings and the `R:` drive MetalSharp mapped. Steam, your Steam games and Rockstar games installed through Steam are not touched. The launcher's registry entries in the Steam prefix stay; they're harmless.
+- **GOG** loses its prefix and saved executable choices. You stay signed in.
+- **Epic** loses its game bottles, Legendary and its sign-in, so the page starts over at setup.
+
+Your games folder (see [Where Games Go](#where-games-go)) is kept unless you choose to delete it, and a reinstall uses it again. MetalSharp deletes it only if it's still the launcher's own `MetalSharp <Name> Games` folder in `~/Games` or at the top of a connected drive, and not a link. Games installed anywhere else are never deleted.
 
 ## Game Settings
 

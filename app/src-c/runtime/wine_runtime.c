@@ -835,7 +835,7 @@ bool ms_wine_fex_convert_prefix(const char* home, const char* prefix, char* erro
 /* Calls visit for each MetalSharp prefix under home; stops at none. */
 static unsigned each_prefix(const char* home, bool (*visit)(const char* home, const char* prefix, void* context),
                             void* context) {
-    static const char* const fixed[] = {"prefix-steam", "prefix-ubisoft", "sharp-prefix"};
+    static const char* const fixed[] = {"prefix-steam", "prefix-ubisoft", "prefix-battlenet", "sharp-prefix"};
     char path[PATH_MAX];
     unsigned failed = 0;
     DIR* bottles;

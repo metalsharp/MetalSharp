@@ -50,6 +50,12 @@ pub enum Candidate {
         name: String,
         hero: bool,
     },
+    /// The library art of the Steam store's release with this exact title (a
+    /// launcher game also sold on Steam): its 600x900 cover, or its library hero.
+    SteamStoreByName {
+        name: String,
+        hero: bool,
+    },
 }
 
 /// Remote art is rechecked after a week; misses are retried after a day.
@@ -131,6 +137,8 @@ pub struct ArtCache {
     /// Last ready tilted variant per `<card>-tilt<angle>` key.
     tilts: HashMap<String, PathBuf>,
     tilt_pending: HashSet<PathBuf>,
+    /// Width / height of hero images, read once per file.
+    aspects: HashMap<PathBuf, f32>,
     index: Index,
     dir: Option<PathBuf>,
     save_pending: bool,
@@ -147,6 +155,7 @@ pub fn install(cx: &mut App) -> Entity<ArtCache> {
         next_job: 0,
         tilts: HashMap::new(),
         tilt_pending: HashSet::new(),
+        aspects: HashMap::new(),
         index: Index::default(),
         dir: None,
         save_pending: false,
@@ -504,6 +513,10 @@ impl ArtCache {
     }
 }
 
+/// Generated wide heroes: `<stem>~<hash of the source art's path>.png`. The stem
+/// changes with how they are drawn, so older renders are swept.
+const WIDE_HERO_STEM: &str = "hero-wide2";
+
 /// Delete files from earlier sessions that the index no longer references
 /// (crashes, pre-index caches). Files newer than `started` belong to this
 /// session's in-flight fetches and are kept.
@@ -530,12 +543,15 @@ fn sweep_orphans(dir: &Path, referenced: &HashSet<PathBuf>, started: SystemTime)
         if modified.is_none_or(|time| time >= started) {
             continue;
         }
-        let tilt_of_live_card = name.contains("-tilt")
+        // Tilted cards and wide heroes drawn from art still in the index are kept: the
+        // UI may already be showing them (the sweep runs while the first pages draw).
+        let derived_from_live_art = (name.contains("-tilt")
+            || name.starts_with(&format!("{WIDE_HERO_STEM}~")))
             && name
                 .rsplit_once('~')
                 .and_then(|(_, rest)| rest.split_once('.'))
                 .is_some_and(|(hash, _)| tilt_bases.contains(hash));
-        if !tilt_of_live_card {
+        if !derived_from_live_art {
             let _ = std::fs::remove_file(path);
         }
     }
@@ -651,6 +667,19 @@ fn fetch_first(job: &Job) -> Option<Fetched> {
             Candidate::SteamGridDb { name, hero } => (
                 steamgriddb(agent, &job.live.home(), name, *hero)
                     .and_then(|url| download(agent, &url, None)),
+                false,
+            ),
+            Candidate::SteamStoreByName { name, hero } => (
+                steam_store_appid(agent, name).and_then(|appid| {
+                    let assets: &[&str] = if *hero {
+                        &["library_hero"]
+                    } else {
+                        &["library_600x900_2x", "library_600x900"]
+                    };
+                    assets
+                        .iter()
+                        .find_map(|asset| download(agent, &steam_cdn(appid, asset), None))
+                }),
                 false,
             ),
         };
@@ -937,6 +966,32 @@ fn sanitize(key: &str) -> String {
         .collect()
 }
 
+/// The Steam store app whose title matches `name` (ignoring case, punctuation and marks
+/// such as ® and ™), from the store's keyless search.
+fn steam_store_appid(agent: &ureq::Agent, name: &str) -> Option<u64> {
+    let wanted = normalize_name(name);
+    if wanted.is_empty() {
+        return None;
+    }
+    let query: String = url::form_urlencoded::byte_serialize(name.trim().as_bytes()).collect();
+    let url = format!(
+        "https://store.steampowered.com/api/storesearch/?term={}&cc=us&l=en",
+        query.replace('+', "%20")
+    );
+    let payload: Value = serde_json::from_slice(&download(agent, &url, None)?).ok()?;
+    payload
+        .get("items")?
+        .as_array()?
+        .iter()
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("app"))
+        .find(|item| {
+            item.get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|title| normalize_name(title) == wanted)
+        })
+        .and_then(|item| item.get("id").and_then(Value::as_u64))
+}
+
 fn store_details(agent: &ureq::Agent, appid: u64, hero: bool) -> Option<String> {
     let url = format!("https://store.steampowered.com/api/appdetails?appids={appid}&l=english");
     let bytes = download(agent, &url, None)?;
@@ -1219,6 +1274,132 @@ impl ArtCache {
     }
 }
 
+/// How a hero image is shown: wide art as it is; portrait art (a launcher's
+/// cover) through a generated wide version, which may still be rendering.
+pub enum HeroArt {
+    AsIs,
+    Wide(Option<PathBuf>),
+}
+
+impl ArtCache {
+    /// The hero view is wide: a portrait cover stretched across it is
+    /// enlarged far past its resolution. Such art gets a wide version —
+    /// the cover blurred and darkened behind the cover itself at full
+    /// height — rendered in the background and kept beside the tilts.
+    pub fn wide_hero(&mut self, base: &Path, cx: &mut Context<Self>) -> HeroArt {
+        let aspect = *self.aspects.entry(base.to_path_buf()).or_insert_with(|| {
+            // By content: launcher caches store images without extensions.
+            image::ImageReader::open(base)
+                .and_then(|reader| reader.with_guessed_format())
+                .ok()
+                .and_then(|reader| reader.into_dimensions().ok())
+                .map(|(w, h)| w as f32 / h.max(1) as f32)
+                .unwrap_or(2.0)
+        });
+        if aspect >= 1.3 {
+            return HeroArt::AsIs;
+        }
+        let Some(dir) = self.dir.clone() else {
+            return HeroArt::AsIs;
+        };
+        let output = dir.join(format!(
+            "{WIDE_HERO_STEM}~{:016x}.png",
+            fnv(base.to_string_lossy().as_bytes(), FNV_OFFSET)
+        ));
+        let key = format!("wide:{}", output.display());
+        // Checked on disk every time: a remembered path whose file has gone would leave the hero blank.
+        if output.is_file() {
+            self.tilts.insert(key, output.clone());
+            return HeroArt::Wide(Some(output));
+        }
+        if self.tilt_pending.insert(output.clone()) {
+            let base = base.to_path_buf();
+            cx.spawn(async move |this, cx| {
+                let rendered = output.clone();
+                let ok = cx
+                    .background_executor()
+                    .spawn(async move {
+                        std::fs::create_dir_all(&dir).ok()?;
+                        render_wide_hero(&base, &rendered)
+                    })
+                    .await
+                    .is_some();
+                let _ = this.update(cx, |cache, cx| {
+                    cache.tilt_pending.remove(&output);
+                    if ok {
+                        cache.tilts.insert(key, output);
+                        cx.notify();
+                    }
+                });
+            })
+            .detach();
+        }
+        HeroArt::Wide(None)
+    }
+}
+
+/// A 1920x820 hero from portrait art: the art scaled to cover the frame, lightly
+/// blurred and darkened, with the art itself at full height in the centre,
+/// a little wider than it is, fading into that backdrop on both sides.
+pub fn render_wide_hero(source: &Path, output: &Path) -> Option<()> {
+    use image::imageops::{self, FilterType};
+    let src = image::ImageReader::open(source)
+        .ok()?
+        .with_guessed_format()
+        .ok()?
+        .decode()
+        .ok()?
+        .to_rgba8();
+    let (sw, sh) = src.dimensions();
+    if sw == 0 || sh == 0 {
+        return None;
+    }
+    let (w, h) = (1920u32, 820u32);
+    // Background: cover-fit at a small size, blurred, then scaled up.
+    let (bw, bh) = (w / 6, h / 6);
+    let scale = (bw as f32 / sw as f32).max(bh as f32 / sh as f32);
+    let (cw, ch) = (
+        ((sw as f32 * scale).ceil() as u32).max(bw),
+        ((sh as f32 * scale).ceil() as u32).max(bh),
+    );
+    let covered = imageops::resize(&src, cw, ch, FilterType::Triangle);
+    let small = imageops::crop_imm(&covered, (cw - bw) / 2, (ch - bh) / 2, bw, bh).to_image();
+    let blurred = imageops::blur(&small, 2.0);
+    let mut canvas = imageops::resize(&blurred, w, h, FilterType::Triangle);
+    // Darkened, and darker still toward the left and right edges, so the art
+    // fades into the dark page on both sides.
+    for (column, _, pixel) in canvas.enumerate_pixels_mut() {
+        let from_centre = (column as f32 - w as f32 / 2.0).abs() / (w as f32 / 2.0);
+        let shade = 0.24 * (1.0 - 0.6 * from_centre);
+        for channel in &mut pixel.0[..3] {
+            *channel = (*channel as f32 * shade) as u8;
+        }
+        pixel.0[3] = 255;
+    }
+    // Foreground: the art at full height in the centre, stretched a little
+    // wider, crossfading into the backdrop over the outer 35% of each side.
+    let fh = h;
+    let fw = ((sw as f32 * fh as f32 / sh as f32 * 1.12).round() as u32).min(w);
+    let art = imageops::resize(&src, fw, fh, FilterType::Lanczos3);
+    let x = (w - fw) / 2;
+    let feather = (fw * 7 / 20).max(1);
+    for column in 0..fw {
+        let edge = column.min(fw - 1 - column);
+        let t = (edge as f32 / feather as f32).min(1.0);
+        // Smootherstep, so the art comes out of the dark with no visible band.
+        let weight = t * t * t * (t * (6.0 * t - 15.0) + 10.0);
+        for row in 0..fh {
+            let over = art.get_pixel(column, row).0;
+            let alpha = weight * over[3] as f32 / 255.0;
+            let under = canvas.get_pixel_mut(x + column, row);
+            for i in 0..3 {
+                under.0[i] = (over[i] as f32 * alpha + under.0[i] as f32 * (1.0 - alpha)) as u8;
+            }
+        }
+    }
+    canvas.save(output).ok()
+}
+
 fn remove_other_tilts(dir: &Path, stem: &str, keep: &Path) {
     let prefix = format!("{stem}~");
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -1235,6 +1416,68 @@ fn remove_other_tilts(dir: &Path, stem: &str, keep: &Path) {
 #[cfg(test)]
 mod tests {
     use super::{ArtKind, Candidate, fingerprint, normalize};
+
+    #[test]
+    fn sweep_keeps_wide_heroes_of_live_art() {
+        let dir = std::env::temp_dir().join(format!("ms-sweep-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let live = dir.join("cover-live.png");
+        let hash = |path: &std::path::Path| {
+            format!(
+                "{:016x}",
+                super::fnv(path.to_string_lossy().as_bytes(), super::FNV_OFFSET)
+            )
+        };
+        let kept = dir.join(format!("{}~{}.png", super::WIDE_HERO_STEM, hash(&live)));
+        let stale = dir.join(format!(
+            "{}~{}.png",
+            super::WIDE_HERO_STEM,
+            hash(&dir.join("gone"))
+        ));
+        let old_style = dir.join(format!("hero-wide~{}.png", hash(&live)));
+        for file in [&live, &kept, &stale, &old_style] {
+            std::fs::write(file, b"x").unwrap();
+        }
+        let started = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        let referenced = std::iter::once(live.clone()).collect();
+        super::sweep_orphans(&dir, &referenced, started);
+        assert!(live.exists() && kept.exists());
+        assert!(!stale.exists() && !old_style.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn portrait_art_becomes_a_wide_hero() {
+        let dir = std::env::temp_dir().join(format!("ms-wide-hero-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("cover.png");
+        let output = dir.join("hero.png");
+        image::RgbaImage::from_pixel(600, 800, image::Rgba([200, 60, 40, 255]))
+            .save(&source)
+            .unwrap();
+        // METALSHARP_WIDE_HERO_SOURCE renders a real cover for a visual check.
+        let source = std::env::var_os("METALSHARP_WIDE_HERO_SOURCE")
+            .map(std::path::PathBuf::from)
+            .unwrap_or(source);
+        super::render_wide_hero(&source, &output).unwrap();
+        let hero = image::open(&output).unwrap().to_rgba8();
+        assert_eq!(hero.dimensions(), (1920, 820));
+        // The cover sits in the centre at full height; the edges are the dimmed backdrop.
+        let brightness = |x: u32| {
+            hero.get_pixel(x, 410).0[..3]
+                .iter()
+                .map(|c| *c as u32)
+                .sum::<u32>()
+        };
+        if std::env::var_os("METALSHARP_WIDE_HERO_SOURCE").is_none() {
+            assert!(brightness(40) < brightness(960));
+            assert!(brightness(1880) < brightness(960));
+        }
+        if let Some(keep) = std::env::var_os("METALSHARP_WIDE_HERO_OUT") {
+            std::fs::copy(&output, keep).unwrap();
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     use std::io::Cursor;
 
     fn png(width: u32, height: u32, alpha: u8) -> Vec<u8> {

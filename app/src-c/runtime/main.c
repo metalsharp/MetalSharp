@@ -125,6 +125,7 @@ int main(void) {
         if (!ms_setup_wine_sdl_ensure(context.metalsharp_home))
             fprintf(stderr, "warning: could not link SDL2 into the MetalSharp Wine runtime for controllers\n");
     }
+    ms_setup_remove_console_emulators_async(context.metalsharp_home);
     fprintf(stderr, "metalsharp-backend listening on %s\n", socket_path);
     fprintf(stderr, "MetalSharp v%s backend started on %s\n", context.version, socket_path);
     {

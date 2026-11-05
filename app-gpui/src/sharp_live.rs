@@ -34,6 +34,59 @@ pub(super) fn engine_options() -> Vec<(String, String)> {
     }
 }
 
+/// A Sharp Library app's engine choices: this build's engines and OpenGL (Wine's own Direct3D,
+/// no graphics route), which is what an app saved as "auto" runs on.
+pub(super) fn app_engine_options() -> Vec<(String, String)> {
+    let mut options = engine_options();
+    if !options.iter().any(|(id, _)| id == "wine_bare") {
+        options.push(("wine_bare".to_owned(), "OpenGL".to_owned()));
+    }
+    options
+}
+
+/// An app's engine for the pickers: one saved as "auto" (or none) launches with no graphics
+/// route, the same as OpenGL.
+pub(super) fn app_engine(app: &Value) -> String {
+    match s(app, "engine") {
+        "" | "auto" => "wine_bare".to_owned(),
+        other => other.to_owned(),
+    }
+}
+
+/// A Game Jolt game's engine choices: the pipelines its entry lists, or this build's
+/// Direct3D engines.
+pub(super) fn gamejolt_engine_options(game: &Value) -> Vec<(String, String)> {
+    game.get("available_pipelines")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .map(|p| (s(p, "id").to_owned(), s(p, "name").to_owned()))
+                .filter(|(id, _)| !id.is_empty())
+                .collect()
+        })
+        .filter(|list: &Vec<(String, String)>| !list.is_empty())
+        .map(|list| {
+            if crate::variant::is_fex() {
+                crate::variant::fex_options(list)
+            } else {
+                list
+            }
+        })
+        .unwrap_or_else(|| {
+            if crate::variant::is_fex() {
+                return engine_options()
+                    .into_iter()
+                    .filter(|(id, _)| id != "fna_arm64")
+                    .collect();
+            }
+            ["d3dmetal", "vkd3d", "dxmt", "dxmt_32", "d3d9"]
+                .iter()
+                .filter_map(|id| ENGINE_OPTIONS.iter().find(|(i, _)| i == id))
+                .map(|(i, l)| ((*i).to_owned(), (*l).to_owned()))
+                .collect()
+        })
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum SharpConfirm {
     UninstallApp(String, String),
@@ -67,8 +120,6 @@ pub(super) struct SharpLive {
     pub engine_menu: Option<String>,
     pub confirm: Option<SharpConfirm>,
     pub oauth: Option<std::sync::mpsc::Receiver<crate::mini_browser::MiniBrowserResult>>,
-    pub emu: [super::sharp_emu_live::EmuState; 4],
-    pub emu_confirm: Option<super::sharp_emu_live::EmuConfirm>,
     pub bottles: Vec<Value>,
     pub d3d_states: HashMap<String, Value>,
     pub d3d_actions: HashMap<String, Vec<Value>>,
@@ -174,18 +225,6 @@ impl SharpPreview {
                         this.refresh_gamejolt_running(cx);
                         this.refresh_sharp_running(cx);
                     }
-                    if tick % 6 == 0 {
-                        let source = this.state.source;
-                        let installed = super::sharp_emu_live::emu_index(source).is_some_and(|i| {
-                            this.live.as_ref().unwrap().emu[i]
-                                .status
-                                .as_ref()
-                                .is_some_and(|s| b(s, "installed"))
-                        });
-                        if installed {
-                            this.emu_refresh(source, false, cx);
-                        }
-                    }
                     if tick % 4 == 0 {
                         let live = this.live.as_ref().unwrap();
                         let gog = this.state.source == SharpSource::Gog
@@ -256,14 +295,6 @@ impl SharpPreview {
         self.refresh_gog(cx);
         self.load_gamejolt(cx, true);
         self.refresh_epic(false, cx);
-        self.emu_refresh(SharpSource::Rpcs3, false, cx);
-        self.emu_refresh(SharpSource::ShadPs4, false, cx);
-        if matches!(
-            self.state.source,
-            SharpSource::Pcsx2 | SharpSource::SharpEmu
-        ) {
-            self.emu_refresh(self.state.source, false, cx);
-        }
         self.live_mut().loaded = true;
     }
 
@@ -283,11 +314,23 @@ impl SharpPreview {
             ));
         }
         for game in &live.gog_games {
-            let url = s(game, "imageUrl");
-            if !url.is_empty() {
+            let id = s(game, "productId");
+            // Cards: GOG's portrait cover; imageUrl is the store page's faded backdrop, kept for
+            // libraries synced before coverUrl.
+            let card: Vec<C> = ["coverUrl", "imageUrl"]
+                .iter()
+                .map(|key| s(game, key))
+                .filter(|url| !url.is_empty())
+                .map(|url| C::Url(url.to_owned()))
+                .collect();
+            if !card.is_empty() {
+                requests.push((format!("sharp-gog-{id}"), card));
+            }
+            let hero = s(game, "heroUrl");
+            if !hero.is_empty() {
                 requests.push((
-                    format!("sharp-gog-{}", s(game, "productId")),
-                    vec![C::Url(url.to_owned())],
+                    format!("sharp-gog-{id}-hero"),
+                    vec![C::Url(hero.to_owned())],
                 ));
             }
         }
@@ -984,8 +1027,73 @@ impl SharpPreview {
         );
     }
 
+    /// Download a GOG game into the managed "MetalSharp GOG Games" folder;
+    /// without a chosen drive yet, ask for a folder as before.
     pub(super) fn install_gog_game(&mut self, game: Value, cx: &mut Context<Self>) {
+        self.request_gog_install(game, None, cx);
+    }
+
+    fn request_gog_install(&mut self, game: Value, path: Option<String>, cx: &mut Context<Self>) {
         let title = s(&game, "title").to_owned();
+        let id = s(&game, "productId").to_owned();
+        let platform = match s(&game, "platform") {
+            "" => "windows",
+            other => other,
+        }
+        .to_owned();
+        let mut body = json!({"productId": id, "title": title, "platform": platform});
+        if let Some(path) = &path {
+            body["installPath"] = json!(path);
+        }
+        self.live_mut().gog_loading.insert(format!("{id}:install"));
+        cx.notify();
+        live::call(
+            cx,
+            "POST",
+            "/sharp-library/gog/install",
+            Some(body),
+            MS(90_000),
+            move |this, r, cx| {
+                this.live_mut().gog_loading.remove(&format!("{id}:install"));
+                if let Some(game) = r
+                    .as_ref()
+                    .filter(|r| is_ok(r))
+                    .and_then(|r| r.get("game"))
+                    .cloned()
+                {
+                    this.upsert_gog_game(game);
+                    toast::success(cx, format!("Downloading {title}"));
+                    this.monitor_gog_progress(id, 0, cx);
+                } else if path.is_none() && r.as_ref().is_some_and(|r| b(r, "needs_location")) {
+                    let game = this
+                        .live
+                        .as_ref()
+                        .and_then(|live| live.gog_games.iter().find(|g| s(g, "productId") == id))
+                        .cloned();
+                    if let Some(game) = game {
+                        this.pick_install_folder(title.clone(), cx, move |this, folder, cx| {
+                            this.request_gog_install(game, Some(folder), cx)
+                        });
+                    }
+                } else {
+                    toast::error(
+                        cx,
+                        error_text(r.as_ref())
+                            .unwrap_or_else(|| format!("Failed to download {title}")),
+                    );
+                }
+                cx.notify();
+            },
+        );
+    }
+
+    /// Fallback folder choice for a GOG or Epic download.
+    fn pick_install_folder(
+        &mut self,
+        title: String,
+        cx: &mut Context<Self>,
+        then: impl FnOnce(&mut Self, String, &mut Context<Self>) + 'static,
+    ) {
         cx.spawn(async move |this, cx| {
             let Some(folder) = rfd::AsyncFileDialog::new()
                 .set_title(format!("Choose install folder for {title}"))
@@ -995,34 +1103,7 @@ impl SharpPreview {
                 return;
             };
             let path = folder.path().to_string_lossy().into_owned();
-            let _ = this.update(cx, move |this, cx| {
-                let id = s(&game, "productId").to_owned();
-                this.live_mut().gog_loading.insert(format!("{id}:install"));
-                cx.notify();
-                let platform = match s(&game, "platform") {
-                    "" => "windows",
-                    other => other,
-                }
-                .to_owned();
-                live::call(
-                    cx,
-                    "POST",
-                    "/sharp-library/gog/install",
-                    Some(json!({"productId": id, "title": title, "platform": platform, "installPath": path})),
-                    MS(90_000),
-                    move |this, r, cx| {
-                        this.live_mut().gog_loading.remove(&format!("{id}:install"));
-                        if let Some(game) = r.as_ref().filter(|r| is_ok(r)).and_then(|r| r.get("game")).cloned() {
-                            this.upsert_gog_game(game);
-                            toast::success(cx, format!("Downloading {title}"));
-                            this.monitor_gog_progress(id, 0, cx);
-                        } else {
-                            toast::error(cx, error_text(r.as_ref()).unwrap_or_else(|| format!("Failed to download {title}")));
-                        }
-                        cx.notify();
-                    },
-                );
-            });
+            let _ = this.update(cx, move |this, cx| then(this, path, cx));
         })
         .detach();
     }
@@ -1147,7 +1228,7 @@ impl SharpPreview {
         );
     }
 
-    fn uninstall_gog_game(&mut self, id: String, title: String, cx: &mut Context<Self>) {
+    pub(super) fn uninstall_gog_game(&mut self, id: String, title: String, cx: &mut Context<Self>) {
         self.live_mut()
             .gog_loading
             .insert(format!("{id}:uninstall"));
@@ -1448,50 +1529,63 @@ impl SharpPreview {
         );
     }
 
+    /// Download an Epic game into the managed "MetalSharp Epic Games"
+    /// folder; without a chosen drive yet, ask for a folder as before.
     pub(super) fn install_epic_game(&mut self, game: Value, cx: &mut Context<Self>) {
+        self.request_epic_install(game, None, cx);
+    }
+
+    fn request_epic_install(&mut self, game: Value, path: Option<String>, cx: &mut Context<Self>) {
         let title = s(&game, "title").to_owned();
         let app = s(&game, "appName").to_owned();
-        cx.spawn(async move |this, cx| {
-            let Some(folder) = rfd::AsyncFileDialog::new()
-                .set_title(format!("Choose install folder for {title}"))
-                .pick_folder()
-                .await
-            else {
-                return;
-            };
-            let path = folder.path().to_string_lossy().into_owned();
-            let _ = this.update(cx, move |this, cx| {
+        let mut body = json!({"appName": app});
+        if let Some(path) = &path {
+            body["installPath"] = json!(path);
+        }
+        self.live_mut()
+            .epic_loading
+            .insert(format!("{app}:install"));
+        cx.notify();
+        live::call(
+            cx,
+            "POST",
+            "/sharp-library/epic/install",
+            Some(body),
+            MS(30_000),
+            move |this, r, cx| {
                 this.live_mut()
                     .epic_loading
-                    .insert(format!("{app}:install"));
+                    .remove(&format!("{app}:install"));
+                if r.as_ref().is_some_and(is_ok) {
+                    let place = r
+                        .as_ref()
+                        .and_then(|r| r.get("installPath"))
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                        .or(path.clone());
+                    toast::success(
+                        cx,
+                        match place {
+                            Some(place) => format!("Downloading {title} to {place}"),
+                            None => format!("Downloading {title}"),
+                        },
+                    );
+                    this.live_mut().epic_progress.insert(app.clone(), 0.0);
+                    this.monitor_epic_progress(app, 0, cx);
+                } else if path.is_none() && r.as_ref().is_some_and(|r| b(r, "needs_location")) {
+                    this.pick_install_folder(title.clone(), cx, move |this, folder, cx| {
+                        this.request_epic_install(game, Some(folder), cx)
+                    });
+                } else {
+                    toast::error(
+                        cx,
+                        error_text(r.as_ref())
+                            .unwrap_or_else(|| format!("Could not download {title}")),
+                    );
+                }
                 cx.notify();
-                live::call(
-                    cx,
-                    "POST",
-                    "/sharp-library/epic/install",
-                    Some(json!({"appName": app, "installPath": path})),
-                    MS(30_000),
-                    move |this, r, cx| {
-                        this.live_mut()
-                            .epic_loading
-                            .remove(&format!("{app}:install"));
-                        if r.as_ref().is_some_and(is_ok) {
-                            toast::success(cx, format!("Downloading {title} to {path}"));
-                            this.live_mut().epic_progress.insert(app.clone(), 0.0);
-                            this.monitor_epic_progress(app, 0, cx);
-                        } else {
-                            toast::error(
-                                cx,
-                                error_text(r.as_ref())
-                                    .unwrap_or_else(|| format!("Could not download {title}")),
-                            );
-                        }
-                        cx.notify();
-                    },
-                );
-            });
-        })
-        .detach();
+            },
+        );
     }
 
     fn monitor_epic_progress(&mut self, app: String, attempt: u32, cx: &mut Context<Self>) {
@@ -1732,7 +1826,12 @@ impl SharpPreview {
         );
     }
 
-    fn uninstall_epic_game(&mut self, app: String, title: String, cx: &mut Context<Self>) {
+    pub(super) fn uninstall_epic_game(
+        &mut self,
+        app: String,
+        title: String,
+        cx: &mut Context<Self>,
+    ) {
         self.live_mut()
             .epic_loading
             .insert(format!("{app}:uninstall"));

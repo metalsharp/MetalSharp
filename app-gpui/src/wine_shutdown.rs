@@ -184,7 +184,6 @@ mod tests {
             "/Applications/MetalSharp.app/Contents/MacOS/MetalSharp",
             "/Applications/MetalSharp.app/Contents/Resources/runtime/metalsharp-backend",
             // tools the data folder holds that are not Wine
-            "/Users/fixture/.metalsharp/tools/rpcs3/RPCS3.app/Contents/MacOS/rpcs3",
             "/Users/fixture/.metalsharp/tools/steamcmd/steamcmd",
             // Wine that is not MetalSharp's, and the Mac Steam client
             "/Applications/Wine Stable.app/Contents/Resources/wine/bin/wine64-preloader",

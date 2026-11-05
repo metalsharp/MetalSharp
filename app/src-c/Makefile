@@ -16,6 +16,9 @@ GAME_EXE_TEST ?= $(BUILD_DIR)/game-executable-test
 WINE_RUNTIME_TEST ?= $(BUILD_DIR)/wine-runtime-test
 MTSP_RULES_TEST ?= $(BUILD_DIR)/mtsp-rules-test
 SETUP_VARIANT_TEST ?= $(BUILD_DIR)/setup-variant-test
+STORE_LAUNCHERS_TEST ?= $(BUILD_DIR)/store-launchers-test
+LIBRARY_LOCATIONS_TEST ?= $(BUILD_DIR)/library-locations-test
+LAUNCHER_UNINSTALL_TEST ?= $(BUILD_DIR)/launcher-uninstall-test
 # A MetalSharp-Wine.app for the fex facade test; without one it checks only the mapping.
 METALSHARP_WINE_APP ?=
 
@@ -52,17 +55,17 @@ SOURCES := \
 	runtime/steam_actions.c \
 	runtime/bottles.c \
 	runtime/mono.c \
-	runtime/emulators.c \
-	runtime/pcsx2.c \
-	runtime/rpcs3.c \
-	runtime/shadps4.c \
-	runtime/sharpemu.c \
 	runtime/sharp.c \
 	runtime/epic.c \
 	runtime/gamejolt.c \
 	runtime/gog.c \
 	runtime/steamcmd.c \
 	runtime/ubisoft.c \
+	runtime/store_launcher.c \
+	runtime/library_locations.c \
+	runtime/launcher_uninstall.c \
+	runtime/rockstar.c \
+	runtime/battlenet.c \
 	runtime/game.c \
 	runtime/diagnostics.c \
 	runtime/antidebug.c \
@@ -107,13 +110,24 @@ $(BUILD_DIR)/c-backend/%.o: %.c
 $(BUILD_DIR)/runtime-routes-test: tests/runtime_routes_test.c runtime/steam_actions.c runtime/epic.c $(OBJECTS)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o "$@" tests/runtime_routes_test.c $(filter-out $(BUILD_DIR)/c-backend/runtime/main.o $(BUILD_DIR)/c-backend/runtime/steam_actions.o $(BUILD_DIR)/c-backend/runtime/epic.o $(BUILD_DIR)/c-backend/runtime/ubisoft.o,$(OBJECTS))
 
+# rockstar.c and battlenet.c are #included for their static helpers, so their objects are left out.
+$(STORE_LAUNCHERS_TEST): tests/store_launchers_test.c runtime/rockstar.c runtime/battlenet.c $(OBJECTS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o "$@" tests/store_launchers_test.c $(filter-out $(BUILD_DIR)/c-backend/runtime/main.o $(BUILD_DIR)/c-backend/runtime/rockstar.o $(BUILD_DIR)/c-backend/runtime/battlenet.o,$(OBJECTS))
+
+# The backend whole (without main), on fake homes, prefixes and volumes: no Wine is started.
+$(LAUNCHER_UNINSTALL_TEST): tests/launcher_uninstall_test.c $(OBJECTS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o "$@" tests/launcher_uninstall_test.c $(filter-out $(BUILD_DIR)/c-backend/runtime/main.o,$(OBJECTS))
+
 test: test-$(VARIANT)
 
 # The FEX build's suite (make VARIANT=fex BUILD_DIR=... test): its backend and the tests that hold for
 # MetalSharp Wine. The route, smoke, VC++ seeding, runtime-ready and update-download tests describe
 # the regular build's x86_64 runtime and run in test-regular.
-test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST)
+test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(STORE_LAUNCHERS_TEST) $(LIBRARY_LOCATIONS_TEST) $(LAUNCHER_UNINSTALL_TEST)
 	@"$(SETUP_VARIANT_TEST)"
+	@home="$$(mktemp -d)"; "$(STORE_LAUNCHERS_TEST)" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
+	@dir="$$(mktemp -d)"; "$(LIBRARY_LOCATIONS_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
+	@dir="$$(mktemp -d)"; "$(LAUNCHER_UNINSTALL_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
 	@"$(JSON_TEST)"
 	@cd "$(PROJECT_ROOT)" && METALSHARP_HOME= "$(abspath $(MTSP_RULES_TEST))"
 	@"$(MIGRATION_TEST)"
@@ -125,11 +139,14 @@ test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EX
 	@bash "$(PROJECT_ROOT)/app/updater/tests/build_switch_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@python3 "$(CURDIR)/tests/steam_process_test.py" "$(TARGET)"
 
-test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(BUILD_DIR)/runtime-routes-test
+test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(BUILD_DIR)/runtime-routes-test $(STORE_LAUNCHERS_TEST) $(LIBRARY_LOCATIONS_TEST) $(LAUNCHER_UNINSTALL_TEST)
 	@"$(SETUP_VARIANT_TEST)"
+	@home="$$(mktemp -d)"; "$(STORE_LAUNCHERS_TEST)" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
+	@dir="$$(mktemp -d)"; "$(LIBRARY_LOCATIONS_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
+	@dir="$$(mktemp -d)"; "$(LAUNCHER_UNINSTALL_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
 	@cd "$(PROJECT_ROOT)" && METALSHARP_HOME= "$(abspath $(MTSP_RULES_TEST))"
 	@home="$$(mktemp -d)"; "$(BUILD_DIR)/runtime-routes-test" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
-	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; HOME="$$test_home" METALSHARP_HOME="$$ms_home" METALSHARP_RPCS3_RELEASE_JSON="$(CURDIR)/tests/rpcs3_release.json" METALSHARP_RPCS3_DOWNLOAD_FILE="$(CURDIR)/tests/rpcs3_bad_archive.7z" METALSHARP_SHADPS4_RELEASE_JSON="$(CURDIR)/tests/shadps4_release.json" METALSHARP_SHADPS4_DOWNLOAD_FILE="$(CURDIR)/tests/shadps4_bad_archive.zip" METALSHARP_SHADPS4_HOST_ARCH=arm64 METALSHARP_SHADPS4_HOST_MACOS=27 METALSHARP_SHADPS4_ROSETTA=1 METALSHARP_PCSX2_RELEASE_JSON="$(CURDIR)/tests/pcsx2_release.json" METALSHARP_PCSX2_DOWNLOAD_FILE="$(CURDIR)/tests/pcsx2_bad_archive.tar.xz" METALSHARP_PCSX2_HOST_ARCH=arm64 METALSHARP_PCSX2_HOST_MACOS=27 METALSHARP_PCSX2_ROSETTA=1 METALSHARP_PCSX2_SKIP_SIGNATURE_FOR_TESTS=1 METALSHARP_SHARPEMU_HOST_ARCH=arm64 METALSHARP_SHARPEMU_HOST_MACOS=27 METALSHARP_SHARPEMU_ROSETTA=1 METALSHARP_SHARPEMU_SANDBOX=1 "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc
+	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; HOME="$$test_home" METALSHARP_HOME="$$ms_home" "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc
 	@"$(JSON_TEST)"
 	@"$(MIGRATION_TEST)"
 	@bash "$(CURDIR)/tests/runtime-ready-sim.sh" "$(RUNTIME_READY_SIM)"; rc=$$?; if [ $$rc -eq 97 ]; then echo "runtime-ready sim skipped"; else exit $$rc; fi
@@ -152,30 +169,21 @@ asan-test:
 	attempt=1; while [ $$attempt -le 3 ]; do \
 		ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; \
 		if ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 HOME="$$test_home" \
-			METALSHARP_HOME="$$ms_home" METALSHARP_RPCS3_RELEASE_JSON="$(CURDIR)/tests/rpcs3_release.json" \
-			METALSHARP_RPCS3_DOWNLOAD_FILE="$(CURDIR)/tests/rpcs3_bad_archive.7z" \
-			METALSHARP_SHADPS4_RELEASE_JSON="$(CURDIR)/tests/shadps4_release.json" \
-			METALSHARP_SHADPS4_DOWNLOAD_FILE="$(CURDIR)/tests/shadps4_bad_archive.zip" \
-			METALSHARP_SHADPS4_HOST_ARCH=arm64 METALSHARP_SHADPS4_HOST_MACOS=27 METALSHARP_SHADPS4_ROSETTA=1 \
-			METALSHARP_PCSX2_RELEASE_JSON="$(CURDIR)/tests/pcsx2_release.json" \
-			METALSHARP_PCSX2_DOWNLOAD_FILE="$(CURDIR)/tests/pcsx2_bad_archive.tar.xz" \
-			METALSHARP_PCSX2_HOST_ARCH=arm64 METALSHARP_PCSX2_HOST_MACOS=27 METALSHARP_PCSX2_ROSETTA=1 \
-			METALSHARP_PCSX2_SKIP_SIGNATURE_FOR_TESTS=1 \
-			METALSHARP_SHARPEMU_HOST_ARCH=arm64 METALSHARP_SHARPEMU_HOST_MACOS=27 \
-			METALSHARP_SHARPEMU_ROSETTA=1 METALSHARP_SHARPEMU_SANDBOX=1 \
+			METALSHARP_HOME="$$ms_home" \
 			"$(CURDIR)/tests/smoke.sh" "$(CURDIR)/build-asan/metalsharp-backend"; then \
 			ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 python3 "$(CURDIR)/tests/updater_test.py" \
 				"$(CURDIR)/build-asan/metalsharp-backend" && \
 			ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 python3 "$(CURDIR)/tests/steam_process_test.py" \
-				"$(CURDIR)/build-asan/metalsharp-backend" && \
-			ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 python3 "$(CURDIR)/tests/pcsx2_update_test.py" \
-				"$(CURDIR)/build-asan/metalsharp-backend" && \
-			ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 python3 "$(CURDIR)/tests/sharpemu_update_test.py" \
 				"$(CURDIR)/build-asan/metalsharp-backend" && exit 0; \
 		fi; \
 		rm -rf "$$test_home" "$$ms_home"; \
 		[ $$attempt -eq 3 ] && exit 1; attempt=$$((attempt + 1)); \
 	done
+
+# Volumes come from a folder standing in for /Volumes, and HOME from the test's own folder.
+$(LIBRARY_LOCATIONS_TEST): runtime/library_locations.c runtime/json.c runtime/json_writer.c tests/library_locations_test.c include/metalsharp_backend/library_locations.h
+	@mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/library_locations.c runtime/json.c runtime/json_writer.c tests/library_locations_test.c
 
 $(JSON_TEST): runtime/json.c runtime/json_writer.c tests/json_test.c include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
 	@mkdir -p "$(@D)"

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Battle.net-style mark (original drawing): two open orbits crossing over a small core. -->
+  <ellipse cx="12" cy="12" rx="9.8" ry="4.3" transform="rotate(45 12 12)" stroke-width="2.1" stroke-dasharray="37 10" />
+  <ellipse cx="12" cy="12" rx="9.8" ry="4.3" transform="rotate(-45 12 12)" stroke-width="2.1" stroke-dasharray="37 10" stroke-dashoffset="23" />
+  <circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none" />
+</svg>

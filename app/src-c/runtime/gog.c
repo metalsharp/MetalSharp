@@ -2,8 +2,10 @@
 #include "metalsharp_backend/game_executable.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/library_locations.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/store_launcher.h"
 #include "metalsharp_backend/wine_runtime.h"
 #include <ctype.h>
 #include <dirent.h>
@@ -390,6 +392,21 @@ static char* fetch_gog_owned(const char* home, char* error, size_t error_size) {
     return fetch_gog_url(home, "https://embed.gog.com/user/data/games", true, error, error_size);
 }
 
+/* tools/gogdl is MetalSharp's wrapper for tools/gogdl-venv/bin/gogdl. A failed install (pip refused
+ * the Python) can leave the wrapper without its gogdl: that is not gogdl. */
+static bool gogdl_wrapper_broken(const char* home, const char* wrapper) {
+    char text[1024], target[PATH_MAX];
+    size_t n;
+    FILE* file = fopen(wrapper, "rb");
+    if (!file)
+        return false;
+    n = fread(text, 1, sizeof(text) - 1, file);
+    fclose(file);
+    text[n] = '\0';
+    snprintf(target, sizeof(target), "%s/tools/gogdl-venv/bin/gogdl", home);
+    return strstr(text, target) && access(target, X_OK) != 0;
+}
+
 static char* gogdl_path(const char* home) {
     const char* explicit_path = getenv("METALSHARP_GOGDL_BIN");
     const char* path_env = getenv("PATH");
@@ -398,7 +415,8 @@ static char* gogdl_path(const char* home) {
         return strdup(explicit_path);
     char* candidates[] = {join(home, "tools/gogdl"), join(home, "runtime/gogdl")};
     for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
-        bool found = candidates[i] && access(candidates[i], X_OK) == 0;
+        bool found = candidates[i] && access(candidates[i], X_OK) == 0 &&
+                     !(i == 0 && gogdl_wrapper_broken(home, candidates[i]));
         if (found) {
             for (size_t j = i + 1; j < sizeof(candidates) / sizeof(candidates[0]); j++)
                 free(candidates[j]);
@@ -487,6 +505,37 @@ static const char* bootstrap_tool(const char* name, char* path, size_t path_size
     return NULL;
 }
 
+/* Whether python runs and is 3.10 or newer (heroic-gogdl's requires-python). */
+static bool python_new_enough(const char* python) {
+    char ignored[128];
+    const char* argv[] = {python, "-c", "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)", NULL};
+    return access(python, X_OK) == 0 && run_bootstrap_argv(argv, "python", ignored, sizeof(ignored));
+}
+
+/* A python3 for gogdl: Homebrew's and /usr/local's first, then PATH; macOS's /usr/bin/python3 is 3.9. */
+static bool find_gogdl_python(char* path, size_t path_size) {
+    static const char* const names[] = {"python3", "python3.15", "python3.14", "python3.13",
+                                        "python3.12", "python3.11", "python3.10"};
+    const char* env_path = getenv("PATH");
+    size_t dirs_size = 64 + (env_path ? strlen(env_path) : 0);
+    char* dirs = malloc(dirs_size);
+    char* save = NULL;
+    bool found = false;
+    if (!dirs)
+        return false;
+    snprintf(dirs, dirs_size, "/opt/homebrew/bin:/usr/local/bin:%s:/usr/bin", env_path ? env_path : "");
+    for (char* dir = strtok_r(dirs, ":", &save); dir && !found; dir = strtok_r(NULL, ":", &save)) {
+        if (!*dir)
+            continue;
+        for (size_t i = 0; i < sizeof(names) / sizeof(names[0]) && !found; i++) {
+            snprintf(path, path_size, "%s/%s", dir, names[i]);
+            found = python_new_enough(path);
+        }
+    }
+    free(dirs);
+    return found;
+}
+
 static bool write_gogdl_wrapper(const char* home, char* error, size_t error_size) {
     char* wrapper = join(home, "tools/gogdl");
     char* target = join(home, "tools/gogdl-venv/bin/gogdl");
@@ -516,22 +565,25 @@ static bool write_gogdl_wrapper(const char* home, char* error, size_t error_size
 }
 
 static bool ensure_gogdl_available(const char* home, char* error, size_t error_size) {
-    char venv[PATH_MAX], venv_python[PATH_MAX], source[PATH_MAX], git_dir[PATH_MAX];
+    char venv[PATH_MAX], venv_python[PATH_MAX], venv_gogdl[PATH_MAX], source[PATH_MAX], git_dir[PATH_MAX];
     if (gogdl_available(home)) {
         deploy_gog_oauth_helper(home);
         return true;
     }
     snprintf(venv, sizeof(venv), "%s/tools/gogdl-venv", home);
     snprintf(venv_python, sizeof(venv_python), "%s/bin/python", venv);
-    if (access(venv_python, X_OK) == 0) {
+    snprintf(venv_gogdl, sizeof(venv_gogdl), "%s/bin/gogdl", venv);
+    if (access(venv_gogdl, X_OK) == 0) {
         if (!write_gogdl_wrapper(home, error, error_size) || !gogdl_available(home))
             return false;
         deploy_gog_oauth_helper(home);
         return true;
     }
     char python[PATH_MAX], git[PATH_MAX];
-    if (!bootstrap_tool("python3", python, sizeof(python))) {
-        snprintf(error, error_size, "python3 is required to prepare GOG support");
+    if (!find_gogdl_python(python, sizeof(python))) {
+        snprintf(error, error_size,
+                 "GOG support needs Python 3.10 or newer (the one built into macOS is 3.9). Install it with "
+                 "Homebrew (brew install python), then try again");
         return false;
     }
     if (!bootstrap_tool("git", git, sizeof(git))) {
@@ -543,6 +595,11 @@ static bool ensure_gogdl_available(const char* home, char* error, size_t error_s
     free(tools);
     if (!tools_ok) {
         snprintf(error, error_size, "failed to create GOG tools dir");
+        return false;
+    }
+    /* An environment left by an earlier try with an older Python can't take gogdl: start it again. */
+    if (access(venv_python, X_OK) == 0 && !python_new_enough(venv_python) && !remove_tree(venv)) {
+        snprintf(error, error_size, "failed to reset the GOG support environment");
         return false;
     }
     if (access(venv_python, X_OK) != 0) {
@@ -955,7 +1012,9 @@ static bool safe_gog_install_path(const char* path, const char* home) {
     safe = strcmp(resolved, "/") != 0 && strcmp(resolved, home) != 0 &&
            !(realpath(home, resolved_home) && !strcmp(resolved, resolved_home)) &&
            strcmp(resolved, "/Applications") != 0 && strcmp(resolved, "/Users") != 0 &&
-           strcmp(resolved, "/Volumes") != 0;
+           strcmp(resolved, "/Volumes") != 0 &&
+           /* nor <user home>/Games or a MetalSharp launcher folder, which hold other games */
+           !ms_library_is_managed_root(resolved);
     free(resolved);
     return safe;
 }
@@ -1139,6 +1198,9 @@ char* ms_gog_status_json(const char* home) {
     return o;
 }
 static char* refresh_game_json(const char* home, const ms_json* game);
+static char* with_gamesdb_art(const char* home, const char* raw_game, const char* id);
+/* Games looked up in GOG's games database per listing, so a large library fills in over a few. */
+#define GAMESDB_LOOKUPS_PER_LISTING 12
 
 char* ms_gog_games_json(const char* home) {
     ms_json *a = load_games(home), *refreshed = NULL;
@@ -1150,8 +1212,21 @@ char* ms_gog_games_json(const char* home) {
         return err("failed to read GOG library");
     ms_json_writer_init(&refresh_writer);
     ms_json_writer_array_begin(&refresh_writer);
-    for (size_t i = 0; i < ms_json_array_length(a); i++) {
-        char* game = refresh_game_json(home, ms_json_array_get(a, i));
+    for (size_t i = 0, lookups = 0; i < ms_json_array_length(a); i++) {
+        const ms_json* entry = ms_json_array_get(a, i);
+        char* game = refresh_game_json(home, entry);
+        /* Card and hero art come from GOG's games database: a library synced before it was used
+         * gets it here, without waiting for the next sync. */
+        if (game && !ms_json_object_get(entry, "coverUrl") && lookups < GAMESDB_LOOKUPS_PER_LISTING) {
+            char* id = field(entry, "productId", "");
+            char* with_art = valid_product_id(id) ? with_gamesdb_art(home, game, id) : NULL;
+            lookups++;
+            if (with_art) {
+                free(game);
+                game = with_art;
+            }
+            free(id);
+        }
         ms_json_writer_raw(&refresh_writer, game ? game : "{}");
         free(game);
     }
@@ -1262,15 +1337,44 @@ static char* game_json(const char* id, const char* title, const char* status) {
     return game_json_ex(id, title, status, "windows", NULL, NULL, 0, 0, NULL);
 }
 
-static char* gog_metadata_game_json(const char* raw_game, const ms_json* metadata) {
+/* GOG's games database art: game.<kind>.url_format with {formatter} and {ext} filled in (malloc'd). */
+static char* gamesdb_image_url(const ms_json* gamesdb, const char* kind) {
+    const ms_json* game = gamesdb ? ms_json_object_get(gamesdb, "game") : NULL;
+    const ms_json* image = game ? ms_json_object_get(game, kind) : NULL;
+    char *format = NULL, *url = NULL, *formatter, *ext;
+    if (!image || !ms_json_as_string(ms_json_object_get(image, "url_format"), &format) ||
+        strncmp(format, "https://", 8) || !(formatter = strstr(format, "{formatter}")) ||
+        !(ext = strstr(formatter, "{ext}"))) {
+        free(format);
+        return NULL;
+    }
+    url = malloc(strlen(format) + 4);
+    if (url) {
+        size_t head = (size_t)(formatter - format), middle = (size_t)(ext - formatter) - strlen("{formatter}");
+        memcpy(url, format, head);
+        memcpy(url + head, formatter + strlen("{formatter}"), middle);
+        strcpy(url + head + middle, "jpg");
+        strcat(url, ext + strlen("{ext}"));
+    }
+    free(format);
+    return url;
+}
+
+/* metadata: api.gog.com/products/<id>. gamesdb (may be NULL): gamesdb.gog.com's release, whose
+ * vertical cover (cards) and background (hero) are the full art; the product's own background is
+ * the store page's faded backdrop. */
+static char* gog_metadata_game_json(const char* raw_game, const ms_json* metadata, const ms_json* gamesdb) {
     char error[96];
     ms_json* game = ms_json_parse(raw_game ? raw_game : "{}", raw_game ? strlen(raw_game) : 2, error, sizeof(error));
     const ms_json* images = metadata ? ms_json_object_get(metadata, "images") : NULL;
-    char *background = NULL, *icon = NULL, *slug = NULL;
+    char *background = NULL, *icon = NULL, *slug = NULL, *cover = gamesdb_image_url(gamesdb, "vertical_cover"),
+         *hero = gamesdb_image_url(gamesdb, "background");
     ms_json_writer writer;
     char* result;
     if (!game || ms_json_type_of(game) != MS_JSON_OBJECT) {
         ms_json_free(game);
+        free(cover);
+        free(hero);
         return strdup(raw_game ? raw_game : "{}");
     }
     if (images && ms_json_type_of(images) == MS_JSON_OBJECT) {
@@ -1299,6 +1403,9 @@ static char* gog_metadata_game_json(const char* raw_game, const ms_json* metadat
     for (size_t i = 0; i < ms_json_object_length(game); i++) {
         const char* key = ms_json_object_key_at(game, i);
         const ms_json* value = ms_json_object_value_at(game, i);
+        /* New art replaces what an earlier sync saved: written after the loop. */
+        if ((!strcmp(key, "coverUrl") && cover) || (!strcmp(key, "heroUrl") && hero))
+            continue;
         ms_json_writer_key(&writer, key);
         if (!strcmp(key, "imageUrl") && background)
             ms_json_writer_string(&writer, background);
@@ -1312,11 +1419,65 @@ static char* gog_metadata_game_json(const char* raw_game, const ms_json* metadat
             free(encoded);
         }
     }
+    if (cover) {
+        ms_json_writer_key(&writer, "coverUrl");
+        ms_json_writer_string(&writer, cover);
+    }
+    if (hero) {
+        ms_json_writer_key(&writer, "heroUrl");
+        ms_json_writer_string(&writer, hero);
+    }
     ms_json_writer_object_end(&writer);
     result = ms_json_writer_take(&writer);
     free(background);
     free(icon);
     free(slug);
+    free(cover);
+    free(hero);
+    ms_json_free(game);
+    return result;
+}
+
+/* raw_game with coverUrl and heroUrl from GOG's games database ("" when it has none, so the game
+ * isn't looked up again). NULL when the database can't be reached: the next listing tries again. */
+static char* with_gamesdb_art(const char* home, const char* raw_game, const char* id) {
+    char url[160], error[160], parse_error[96];
+    char *raw, *cover = NULL, *hero = NULL, *result = NULL;
+    ms_json *gamesdb, *game;
+    ms_json_writer writer;
+    snprintf(url, sizeof(url), "https://gamesdb.gog.com/platforms/gog/external_releases/%s", id);
+    raw = fetch_gog_url(home, url, false, error, sizeof(error));
+    gamesdb = raw ? ms_json_parse(raw, strlen(raw), parse_error, sizeof(parse_error)) : NULL;
+    free(raw);
+    game = ms_json_parse(raw_game, strlen(raw_game), parse_error, sizeof(parse_error));
+    if (!gamesdb || !game || ms_json_type_of(game) != MS_JSON_OBJECT) {
+        ms_json_free(gamesdb);
+        ms_json_free(game);
+        return NULL;
+    }
+    cover = gamesdb_image_url(gamesdb, "vertical_cover");
+    hero = gamesdb_image_url(gamesdb, "background");
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    for (size_t i = 0; i < ms_json_object_length(game); i++) {
+        const char* key = ms_json_object_key_at(game, i);
+        char* value;
+        if (!strcmp(key, "coverUrl") || !strcmp(key, "heroUrl"))
+            continue;
+        value = ms_json_stringify(ms_json_object_value_at(game, i));
+        ms_json_writer_key(&writer, key);
+        ms_json_writer_raw(&writer, value ? value : "null");
+        free(value);
+    }
+    ms_json_writer_key(&writer, "coverUrl");
+    ms_json_writer_string(&writer, cover ? cover : "");
+    ms_json_writer_key(&writer, "heroUrl");
+    ms_json_writer_string(&writer, hero ? hero : "");
+    ms_json_writer_object_end(&writer);
+    result = ms_json_writer_take(&writer);
+    free(cover);
+    free(hero);
+    ms_json_free(gamesdb);
     ms_json_free(game);
     return result;
 }
@@ -1462,6 +1623,7 @@ static char* gog_sync_library(const char* home) {
             char* base = NULL;
             char* enriched = NULL;
             ms_json* metadata = NULL;
+            ms_json* gamesdb = NULL;
             snprintf(title, sizeof(title), "GOG %s", id);
             snprintf(url, sizeof(url), "https://api.gog.com/products/%s", id);
             metadata_raw = fetch_gog_url(home, url, false, metadata_error, sizeof(metadata_error));
@@ -1474,16 +1636,23 @@ static char* gog_sync_library(const char* home) {
                         snprintf(title, sizeof(title), "%s", metadata_title);
                 }
             }
+            snprintf(url, sizeof(url), "https://gamesdb.gog.com/platforms/gog/external_releases/%s", id);
+            metadata_raw = fetch_gog_url(home, url, false, metadata_error, sizeof(metadata_error));
+            if (metadata_raw) {
+                gamesdb = ms_json_parse(metadata_raw, strlen(metadata_raw), parse_error, sizeof(parse_error));
+                free(metadata_raw);
+            }
             if (previous)
                 base = ms_json_stringify(previous);
             else
                 base = game_json(id, title, "not_installed");
-            enriched = metadata ? gog_metadata_game_json(base, metadata) : NULL;
+            enriched = metadata ? gog_metadata_game_json(base, metadata, gamesdb) : NULL;
             ms_json_writer_raw(&writer, enriched ? enriched : (base ? base : "{}"));
             free(enriched);
             free(base);
             free(metadata_title);
             ms_json_free(metadata);
+            ms_json_free(gamesdb);
         }
     }
     ms_json_writer_array_end(&writer);
@@ -1553,6 +1722,17 @@ static bool append_game(const char* home, const char* raw) {
                     free(serialized_value);
                 }
             }
+            /* Sync's art (gamesdb) stays when an install or launch rewrites the entry without it. */
+            for (size_t j = 0; j < 2; j++) {
+                const char* key = j ? "heroUrl" : "coverUrl";
+                const ms_json* kept = ms_json_object_get(old_game, key);
+                if (!ms_json_object_get(incoming, key) && kept && ms_json_type_of(kept) == MS_JSON_STRING) {
+                    char* serialized_value = ms_json_stringify(kept);
+                    ms_json_writer_key(&w, key);
+                    ms_json_writer_raw(&w, serialized_value ? serialized_value : "null");
+                    free(serialized_value);
+                }
+            }
             ms_json_writer_object_end(&w);
         }
         free(old_id);
@@ -1570,35 +1750,65 @@ static bool append_game(const char* home, const char* raw) {
     ms_json_free(a);
     return ok;
 }
-static bool remove_game(const char* home, const char* id) {
+/* The owned game id, kept in the library as not installed (its title, art and engine stay): its
+ * install fields are cleared. Returns the updated entry (malloc'd), NULL when it isn't listed. */
+static char* mark_game_uninstalled(const char* home, const char* id) {
     ms_json *a = load_games(home), *newa;
     ms_json_writer w;
-    char* serial;
+    char *serial, *updated = NULL;
     char e[64];
-    bool found = false, ok = false;
+    bool ok = false;
     if (!a)
-        return false;
+        return NULL;
     ms_json_writer_init(&w);
     ms_json_writer_array_begin(&w);
     for (size_t i = 0; i < ms_json_array_length(a); i++) {
-        char* game_id = field(ms_json_array_get(a, i), "productId", "");
-        if (!strcmp(game_id, id))
-            found = true;
-        else {
-            char* old = ms_json_stringify(ms_json_array_get(a, i));
+        const ms_json* game = ms_json_array_get(a, i);
+        char* game_id = field(game, "productId", "");
+        if (strcmp(game_id, id) || updated) {
+            char* old = ms_json_stringify(game);
             ms_json_writer_raw(&w, old ? old : "{}");
             free(old);
+        } else {
+            ms_json_writer entry;
+            ms_json_writer_init(&entry);
+            ms_json_writer_object_begin(&entry);
+            for (size_t k = 0; k < ms_json_object_length(game); k++) {
+                const char* key = ms_json_object_key_at(game, k);
+                ms_json_writer_key(&entry, key);
+                if (!strcmp(key, "installed") || !strcmp(key, "running"))
+                    ms_json_writer_bool(&entry, false);
+                else if (!strcmp(key, "status"))
+                    ms_json_writer_string(&entry, "not_installed");
+                else if (!strcmp(key, "installRoot") || !strcmp(key, "gameFolder") ||
+                         !strcmp(key, "executablePath") || !strcmp(key, "primaryExe") ||
+                         !strcmp(key, "lastLaunchPid") || !strcmp(key, "lastInstallPid") ||
+                         !strcmp(key, "diskSizeBytes"))
+                    ms_json_writer_null(&entry);
+                else {
+                    char* value = ms_json_stringify(ms_json_object_value_at(game, k));
+                    ms_json_writer_raw(&entry, value ? value : "null");
+                    free(value);
+                }
+            }
+            ms_json_writer_object_end(&entry);
+            updated = ms_json_writer_take(&entry);
+            ms_json_writer_raw(&w, updated ? updated : "{}");
         }
         free(game_id);
     }
     ms_json_writer_array_end(&w);
     serial = ms_json_writer_take(&w);
     newa = serial ? ms_json_parse(serial, strlen(serial), e, sizeof(e)) : NULL;
-    ok = found && newa && save_games(home, newa);
+    ok = updated && newa && save_games(home, newa);
     free(serial);
     ms_json_free(newa);
     ms_json_free(a);
-    return ok;
+    if (!ok) {
+        free(updated);
+        return NULL;
+    }
+    return updated;
 }
 
 static char* single_game_json(const char* home, const char* id) {
@@ -1723,51 +1933,13 @@ static char* gog_progress_json(const char* home, const char* id) {
     return result ? result : err("game not found");
 }
 
+/* wineserver -k on the GOG prefix. With no game running there is no server, and -k exits 1: the shared
+ * helper counts that as stopped once the prefix has no server. */
 static bool stop_gog_wineserver(const char* home) {
-    char *server = join(home, "runtime/wine/bin/wineserver"), *prefix = join(home, "bottles/gog-prefix/prefix");
-    struct timespec delay = {0, 100000000};
-    struct stat prefix_stat;
-    pid_t pid;
-    int status = 0;
-    if (!prefix || stat(prefix, &prefix_stat) != 0 || !S_ISDIR(prefix_stat.st_mode)) {
-        free(server);
-        free(prefix);
-        return true;
-    }
-    if (!server || access(server, X_OK) != 0) {
-        free(server);
-        free(prefix);
-        return false;
-    }
-    pid = fork();
-    if (pid == 0) {
-        char* args[] = {server, "-k", NULL};
-        setenv("WINEPREFIX", prefix, 1);
-        setenv("WINEDEBUG", "-all", 1);
-        execv(server, args);
-        _exit(127);
-    }
-    if (pid < 0) {
-        free(server);
-        free(prefix);
-        return false;
-    }
-    for (unsigned attempt = 0; attempt < 100; attempt++) {
-        pid_t waited = waitpid(pid, &status, WNOHANG);
-        if (waited == pid) {
-            free(server);
-            free(prefix);
-            return WIFEXITED(status) && WEXITSTATUS(status) == 0;
-        }
-        if (waited < 0 && errno != EINTR)
-            break;
-        (void)nanosleep(&delay, NULL);
-    }
-    (void)kill(pid, SIGTERM);
-    (void)waitpid(pid, &status, 0);
-    free(server);
+    char* prefix = join(home, "bottles/gog-prefix/prefix");
+    bool stopped = prefix && ms_store_stop_prefix(home, prefix);
     free(prefix);
-    return false;
+    return stopped;
 }
 
 static char* gog_stop_json(const char* home, const char* id) {
@@ -2103,18 +2275,18 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
                 ms_json_free(j);
                 return err("failed to clear GOG download manifest");
             }
-            bool ok = remove_game(home, s);
+            /* Only the game goes: the prefix, saves, sign-in and the library entry stay. */
+            char* removed_game = mark_game_uninstalled(home, s);
             char* removed_path = folder ? strdup(folder) : NULL;
             free(folder);
             free(root);
             ms_json_free(games);
-            if (!ok) {
+            if (!removed_game) {
                 free(s);
                 ms_json_free(j);
                 free(removed_path);
                 return err("game not found");
             }
-            char* removed_game = game_json(s, s, "not_installed");
             ms_json_writer response;
             free(s);
             ms_json_free(j);

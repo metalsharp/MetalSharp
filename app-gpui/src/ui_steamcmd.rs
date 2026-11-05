@@ -104,7 +104,7 @@ impl MetalSharpApp {
             .live
             .library
             .iter()
-            .filter(|g| !g.installed && !g.is_ubisoft() && g.appid != 0)
+            .filter(|g| !g.installed && g.page() == LibraryPage::Steam && g.appid != 0)
             .filter(|g| query.is_empty() || g.name.to_lowercase().contains(&query))
             .cloned()
             .collect();

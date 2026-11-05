@@ -102,9 +102,8 @@ pub(super) struct LiveState {
     pub ubisoft_installed: bool,
     pub ubisoft_running: bool,
     pub ubisoft_installing: bool,
-    /// Ubisoft Connect was started with Launch Ubisoft, so the header's
-    /// primary button is Stop Ubisoft until Connect stops or is seen closed.
-    pub ubisoft_primary: bool,
+    pub rockstar: LauncherStatus,
+    pub battlenet: LauncherStatus,
     pub library: Vec<LibGame>,
     pub library_loaded: bool,
     pub installed_count: usize,
@@ -122,6 +121,17 @@ pub(super) struct LiveState {
     pub fex_welcome_page: Option<usize>,
     pub running: HashMap<u64, u64>,
     pub launching: Option<u64>,
+    /// Installed GOG, Epic, Windows program and GameJolt entries from the
+    /// Sharp Library, with their running and launching state.
+    pub deck_games: Vec<LibGame>,
+    pub deck_running: HashSet<u64>,
+    pub deck_busy: HashSet<u64>,
+    pub deck_progress: HashMap<u64, f64>,
+    /// Card and hero art the user picked for Sharp Library entries, by
+    /// artwork key: (card, hero) file paths.
+    pub custom_art: HashMap<String, (Option<String>, Option<String>)>,
+    /// Launchers whose games folder is chosen and on a mounted drive.
+    pub library_locations: HashSet<String>,
     running_poll_in_flight: bool,
     pub selected_pipeline: String,
     pub pipeline_saving: bool,
@@ -157,26 +167,32 @@ pub(super) struct LiveState {
     pub steam_fix_busy: bool,
     icon_refresh_attempts: u32,
     icon_refresh_scheduled: bool,
-    featured_key: Option<(bool, u64)>,
+    featured_key: Option<(LibraryPage, u64)>,
     pub streaming: StreamingState,
     pub setup: SetupFlow,
 }
 
+/// Install and run state of a launcher MetalSharp starts itself.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct LauncherStatus {
+    pub installed: bool,
+    pub running: bool,
+    pub installing: bool,
+}
+
 impl LiveState {
-    /// Header shows Stop Ubisoft as its primary button (Steam moves into the
-    /// dropdown) while Connect, started by Launch Ubisoft, runs or installs.
-    pub(super) fn ubisoft_is_primary(&self) -> bool {
-        self.ubisoft_primary && (self.ubisoft_running || self.ubisoft_installing)
+    pub(super) fn launcher_status_mut(&mut self, launcher: LauncherAction) -> &mut LauncherStatus {
+        match launcher {
+            LauncherAction::Rockstar => &mut self.rockstar,
+            _ => &mut self.battlenet,
+        }
     }
 
-    /// Apply an Ubisoft Connect status poll; a closed Connect restores Start Steam.
+    /// Apply an Ubisoft Connect status poll.
     fn apply_ubisoft_status(&mut self, installed: bool, running: bool, installing: bool) {
         self.ubisoft_installed = installed;
         self.ubisoft_running = running;
         self.ubisoft_installing = installing;
-        if !running && !installing {
-            self.ubisoft_primary = false;
-        }
     }
 }
 
@@ -202,7 +218,8 @@ impl Default for LiveState {
             ubisoft_installed: false,
             ubisoft_running: false,
             ubisoft_installing: false,
-            ubisoft_primary: false,
+            rockstar: LauncherStatus::default(),
+            battlenet: LauncherStatus::default(),
             library: Vec::new(),
             library_loaded: false,
             installed_count: 0,
@@ -219,6 +236,12 @@ impl Default for LiveState {
             fex_welcome_page: None,
             running: HashMap::new(),
             launching: None,
+            deck_games: Vec::new(),
+            deck_running: HashSet::new(),
+            deck_busy: HashSet::new(),
+            deck_progress: HashMap::new(),
+            custom_art: HashMap::new(),
+            library_locations: HashSet::new(),
             running_poll_in_flight: false,
             selected_pipeline: "auto".into(),
             pipeline_saving: false,
@@ -279,6 +302,7 @@ impl MetalSharpApp {
         let live = Live::new(config);
         cx.set_global(live.clone());
         app.load_ui_state(&live);
+        app.window_size.apply(window, cx);
         // Re-render when cached artwork resolves.
         if let Some(cache) = crate::artwork::cache(cx) {
             app.observers
@@ -344,6 +368,28 @@ impl MetalSharpApp {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         self.library_grid = value.get("libraryLayout").and_then(Value::as_str) == Some("grid");
+        self.window_size = value
+            .get("windowSize")
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .unwrap_or_default();
+        if let Some(art) = value.get("customArt").and_then(Value::as_object) {
+            let path = |entry: &Value, key: &str| {
+                entry.get(key).and_then(Value::as_str).map(str::to_owned)
+            };
+            self.live.custom_art = art
+                .iter()
+                .map(|(key, entry)| (key.clone(), (path(entry, "card"), path(entry, "hero"))))
+                .collect();
+        }
+        self.sidebar_open = value
+            .get("sidebarOpen")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        self.page = value
+            .get("libraryPage")
+            .and_then(Value::as_str)
+            .and_then(LibraryPage::from_storage_id)
+            .unwrap_or_default();
         self.active_tab = self.home_tab();
         self.startup_video_seen = value
             .get("startupVideoSeen")
@@ -364,6 +410,15 @@ impl MetalSharpApp {
             "developerMode": self.developer_mode,
             "lowPerformanceMode": self.low_performance,
             "libraryLayout": if self.library_grid { "grid" } else { "steamDeck" },
+            "windowSize": self.window_size,
+            "libraryPage": self.page.storage_id(),
+            "customArt": self
+                .live
+                .custom_art
+                .iter()
+                .map(|(key, (card, hero))| (key.clone(), json!({"card": card, "hero": hero})))
+                .collect::<serde_json::Map<String, Value>>(),
+            "sidebarOpen": self.sidebar_open,
             "startupVideoSeen": self.startup_video_seen,
             "defaultRulesApplied": self.live.default_rules_applied,
         });
@@ -884,6 +939,103 @@ impl MetalSharpApp {
                 }
             },
         );
+        for launcher in [LauncherAction::Rockstar, LauncherAction::BattleNet] {
+            live::call(
+                cx,
+                "GET",
+                format!("/{}/status", launcher.route()),
+                None,
+                live::DEFAULT_TIMEOUT,
+                move |this, status, cx| {
+                    if let Some(status) = status {
+                        let flag =
+                            |key: &str| status.get(key).and_then(Value::as_bool) == Some(true);
+                        let next = LauncherStatus {
+                            installed: flag("installed"),
+                            running: flag("running"),
+                            installing: flag("installing"),
+                        };
+                        let slot = this.live.launcher_status_mut(launcher);
+                        let finished_install = slot.installing && !next.installing;
+                        if *slot != next {
+                            *slot = next;
+                            if finished_install {
+                                this.load_library(false, cx);
+                            }
+                            cx.notify();
+                        }
+                    }
+                },
+            );
+        }
+    }
+
+    /// Start or stop the Rockstar Games Launcher or Battle.net, installing it
+    /// first when it is missing.
+    pub(super) fn toggle_store_launcher(
+        &mut self,
+        launcher: LauncherAction,
+        cx: &mut Context<Self>,
+    ) {
+        let status = *self.live.launcher_status_mut(launcher);
+        if status.installing {
+            return;
+        }
+        let name = launcher.display_name();
+        let route = launcher.route();
+        if status.running {
+            live::call(
+                cx,
+                "POST",
+                format!("/{route}/stop"),
+                None,
+                live::DEFAULT_TIMEOUT,
+                move |this, result, cx| {
+                    let ok = result.as_ref().is_some_and(is_ok);
+                    if ok {
+                        this.live.launcher_status_mut(launcher).running = false;
+                        toast::success(cx, format!("{name} stopped"));
+                    } else {
+                        toast::error(
+                            cx,
+                            error_text(result.as_ref())
+                                .unwrap_or_else(|| format!("Could not stop {name}")),
+                        );
+                    }
+                    cx.notify();
+                },
+            );
+            return;
+        }
+        live::call(
+            cx,
+            "POST",
+            format!("/{route}/launch"),
+            None,
+            live::DEFAULT_TIMEOUT,
+            move |this, result, cx| {
+                let ok = result.as_ref().is_some_and(is_ok);
+                let installing = result
+                    .as_ref()
+                    .and_then(|r| r.get("installing"))
+                    .and_then(Value::as_bool)
+                    == Some(true);
+                if ok && installing {
+                    this.live.launcher_status_mut(launcher).installing = true;
+                    toast::info(cx, format!("Downloading and installing {name}…"));
+                } else if ok {
+                    this.live.launcher_status_mut(launcher).running = true;
+                    toast::success(cx, format!("Starting {name}…"));
+                } else {
+                    toast::error(
+                        cx,
+                        error_text(result.as_ref())
+                            .unwrap_or_else(|| format!("Could not start {name}")),
+                    );
+                }
+                cx.notify();
+            },
+        );
     }
 
     fn watch_steamapps(&mut self, cx: &mut Context<Self>) {
@@ -927,7 +1079,7 @@ impl MetalSharpApp {
         cx.spawn(async move |this, cx| {
             let mut refresh = force;
             loop {
-                let (steam, ubisoft) = {
+                let (steam, ubisoft, launchers) = {
                     let live = live.clone();
                     cx.background_executor()
                         .spawn(async move {
@@ -936,18 +1088,25 @@ impl MetalSharpApp {
                             } else {
                                 "/steam/library"
                             };
-                            let (a, b) = std::thread::scope(|scope| {
-                                let s = scope
-                                    .spawn(|| live.request("GET", steam_path, None, MS(120_000)));
-                                let u = scope.spawn(|| {
-                                    live.request("GET", "/ubisoft/library", None, MS(120_000))
-                                });
-                                (s.join().ok(), u.join().ok())
-                            });
-                            (
-                                a.and_then(Result::ok).map(live::unwrap_data),
-                                b.and_then(Result::ok).map(live::unwrap_data),
-                            )
+                            let get = |path: &str| {
+                                live.request("GET", path, None, MS(120_000))
+                                    .ok()
+                                    .map(live::unwrap_data)
+                            };
+                            std::thread::scope(|scope| {
+                                let s = scope.spawn(|| get(steam_path));
+                                let u = scope.spawn(|| get("/ubisoft/library"));
+                                let r = scope.spawn(|| get("/rockstar/library"));
+                                let b = scope.spawn(|| get("/battlenet/library"));
+                                let join = |handle: std::thread::ScopedJoinHandle<'_, _>| {
+                                    handle.join().ok().flatten()
+                                };
+                                (
+                                    join(s),
+                                    join(u),
+                                    [("rockstar", join(r)), ("battlenet", join(b))],
+                                )
+                            })
                         })
                         .await
                 };
@@ -964,7 +1123,16 @@ impl MetalSharpApp {
                         if let Some(steam_games) = library_model::parse_library(steam.as_ref()) {
                             let ubisoft_games =
                                 library_model::parse_library(ubisoft.as_ref()).unwrap_or_default();
-                            let games = library_model::merge_libraries(steam_games, ubisoft_games);
+                            let mut games =
+                                library_model::merge_libraries(steam_games, ubisoft_games);
+                            for (source, list) in &launchers {
+                                let list =
+                                    library_model::parse_library(list.as_ref()).unwrap_or_default();
+                                games.extend(list.into_iter().map(|mut game| {
+                                    game.source = Some((*source).to_owned());
+                                    game
+                                }));
+                            }
                             this.live.installed_count =
                                 games.iter().filter(|g| g.installed).count();
                             this.live.library = games;
@@ -1013,7 +1181,9 @@ impl MetalSharpApp {
             .live
             .library
             .iter()
-            .filter(|g| !g.is_ubisoft() && g.installed && g.preferred_pipeline() == "vkd3d")
+            .filter(|g| {
+                g.page() == LibraryPage::Steam && g.installed && g.preferred_pipeline() == "vkd3d"
+            })
             .filter_map(|g| {
                 let recommended = g
                     .available_pipelines
@@ -1059,7 +1229,16 @@ impl MetalSharpApp {
 
     /// Recompute the displayed (installed, ordered) list and its artwork.
     pub(super) fn rebuild_display_games(&mut self, cx: &mut Context<Self>) {
-        let games = library_model::live_games(&self.live.library, &self.live.play_history);
+        let page = self.page;
+        let library: Vec<LibGame> = self
+            .live
+            .library
+            .iter()
+            .chain(&self.live.deck_games)
+            .filter(|game| game.on_page(page))
+            .cloned()
+            .collect();
+        let games = library_model::live_games(&library, &self.live.play_history);
         let previous = self.selected_key();
         self.games = games;
         if let Some(key) = previous {
@@ -1080,7 +1259,10 @@ impl MetalSharpApp {
             self.request_art(&game, cx);
         }
         // Ubisoft icon extraction retry (LibraryView: 1.5 s × 12).
-        let pending = self.games.iter().any(|g| g.is_ubisoft() && g.icon_pending);
+        let pending = self
+            .games
+            .iter()
+            .any(|g| g.is_launcher_game() && g.icon_pending);
         if !pending {
             self.live.icon_refresh_attempts = 0;
         } else if !self.live.icon_refresh_scheduled && self.live.icon_refresh_attempts < 12 {
@@ -1104,18 +1286,22 @@ impl MetalSharpApp {
         }
     }
 
-    pub(super) fn selected_key(&self) -> Option<(bool, u64)> {
+    pub(super) fn selected_key(&self) -> Option<(LibraryPage, u64)> {
         self.games.get(self.selected_game).map(LibGame::key)
     }
 
     pub(super) fn request_art(&self, game: &LibGame, cx: &mut Context<Self>) {
+        // The Sharp Library resolves its own entries' artwork.
+        if game.art_key.is_some() {
+            return;
+        }
         let Some(cache) = crate::artwork::cache(cx) else {
             return;
         };
         use crate::artwork::{Candidate as C, steam_cdn, store_background};
         let appid = game.appid;
         let embedded = game.embedded_icon_path.clone().map(C::LocalFile);
-        let (card, hero): (Vec<C>, Vec<C>) = if game.is_ubisoft() {
+        let (card, hero): (Vec<C>, Vec<C>) = if game.is_launcher_game() {
             let urls: Vec<C> = [
                 game.ubisoft_artwork_url.clone(),
                 game.cover_url.clone(),
@@ -1126,17 +1312,36 @@ impl MetalSharpApp {
             .filter(|u| !u.is_empty())
             .map(C::Url)
             .collect();
-            let mut card = urls.clone();
+            // The launcher's own cover art (Battle.net's key art) comes first for
+            // the card; the wide hero prefers SteamGridDB and falls back to it.
+            let launcher_art = game
+                .card_art_path
+                .clone()
+                .filter(|path| !path.is_empty())
+                .map(C::LocalFile);
+            // Ubisoft keeps no cover art: the same title's Steam store release has a proper
+            // cover and hero, ahead of Ubisoft's page art and the game's EXE icon.
+            let steam_store = |hero: bool| {
+                (game.page() == LibraryPage::Ubisoft).then(|| C::SteamStoreByName {
+                    name: game.name.clone(),
+                    hero,
+                })
+            };
+            let mut card: Vec<C> = steam_store(false).into_iter().collect();
+            card.extend(launcher_art.clone());
+            card.extend(urls.clone());
             card.push(C::SteamGridDb {
                 name: game.name.clone(),
                 hero: false,
             });
             card.extend(embedded.clone());
-            let mut hero = urls;
+            let mut hero: Vec<C> = steam_store(true).into_iter().collect();
+            hero.extend(urls);
             hero.push(C::SteamGridDb {
                 name: game.name.clone(),
                 hero: true,
             });
+            hero.extend(launcher_art);
             hero.extend(embedded);
             (card, hero)
         } else if game.is_shortcut() {
@@ -1191,12 +1396,11 @@ impl MetalSharpApp {
             ];
             (card, hero)
         };
-        let source = if game.is_ubisoft() {
-            "ubisoft"
-        } else {
-            "steam"
-        };
-        let ubisoft_icon_ready = game.is_ubisoft() && game.embedded_icon_path.is_some();
+        let source = game.page().storage_id();
+        // Art that arrived after an earlier miss (an extracted icon, or the
+        // launcher's cached cover) gets another try.
+        let ubisoft_icon_ready = game.is_launcher_game()
+            && (game.embedded_icon_path.is_some() || game.card_art_path.is_some());
         cache.update(cx, |cache, cx| {
             if ubisoft_icon_ready {
                 // The extracted EXE icon arrived after an earlier miss: retry.
@@ -1218,24 +1422,48 @@ impl MetalSharpApp {
         angle: i32,
         cx: &mut Context<Self>,
     ) -> Option<PathBuf> {
-        let source = if game.is_ubisoft() {
-            "ubisoft"
-        } else {
-            "steam"
-        };
+        let source = game.page().storage_id();
         let key = format!("{source}-{}-card", game.appid);
         crate::artwork::cache(cx)?.update(cx, |cache, cx| cache.tilted(&key, angle, cx))
+    }
+
+    /// The hero's image: portrait art (a launcher's cover) goes through its
+    /// generated wide version; None while that is still rendering.
+    pub(super) fn hero_art_path(&self, game: &LibGame, cx: &mut Context<Self>) -> Option<PathBuf> {
+        let base = self.art_path(game, true, cx)?;
+        if game.preview_art.is_some() {
+            return Some(base);
+        }
+        let cache = crate::artwork::cache(cx)?;
+        match cache.update(cx, |cache, cx| cache.wide_hero(&base, cx)) {
+            crate::artwork::HeroArt::AsIs => Some(base),
+            crate::artwork::HeroArt::Wide(wide) => wide,
+        }
     }
 
     pub(super) fn art_path(&self, game: &LibGame, hero: bool, cx: &App) -> Option<PathBuf> {
         if let Some((cover, hero_art)) = game.preview_art {
             return Some(asset_path(if hero { hero_art } else { cover }));
         }
-        let source = if game.is_ubisoft() {
-            "ubisoft"
-        } else {
-            "steam"
-        };
+        if let Some(key) = &game.art_key {
+            let custom = self.live.custom_art.get(key).and_then(|(card, hero_art)| {
+                let card = card.as_deref().map(PathBuf::from).filter(|p| p.is_file());
+                let hero_art = hero_art
+                    .as_deref()
+                    .map(PathBuf::from)
+                    .filter(|p| p.is_file());
+                if hero { hero_art.or(card) } else { card }
+            });
+            let cache = crate::artwork::cache(cx);
+            let cache = || cache.as_ref().map(|cache| cache.read(cx));
+            return custom
+                .or_else(|| {
+                    hero.then(|| cache()?.path(&format!("{key}-hero")))
+                        .flatten()
+                })
+                .or_else(|| cache()?.path(key));
+        }
+        let source = game.page().storage_id();
         let kind = if hero { "hero" } else { "card" };
         let cache = crate::artwork::cache(cx)?;
         let cache = cache.read(cx);
@@ -1253,7 +1481,117 @@ impl MetalSharpApp {
     // ─────────────────────── running / play / stop ───────────────────────
 
     pub(super) fn is_running(&self, appid: u64) -> bool {
-        self.live.running.contains_key(&appid)
+        self.live.running.contains_key(&appid) || self.live.deck_running.contains(&appid)
+    }
+
+    /// Mirror the Sharp Library's installed games into the deck pages.
+    pub(super) fn sync_deck_games(
+        &mut self,
+        sharp: gpui::Entity<crate::sharp_preview::SharpPreview>,
+        cx: &mut Context<Self>,
+    ) {
+        let entries = sharp.read(cx).deck_games();
+        let mut running = HashSet::new();
+        let mut busy = HashSet::new();
+        let mut progress = HashMap::new();
+        let games: Vec<LibGame> = entries
+            .into_iter()
+            .map(|entry| {
+                let appid = library_model::external_appid(entry.source, &entry.id);
+                if entry.running {
+                    running.insert(appid);
+                }
+                if entry.busy {
+                    busy.insert(appid);
+                }
+                if let Some(percent) = entry.progress {
+                    progress.insert(appid, percent);
+                }
+                LibGame {
+                    appid,
+                    name: entry.name,
+                    installed: true,
+                    source: Some(entry.source.to_owned()),
+                    external_id: Some(entry.id),
+                    art_key: Some(entry.art_key),
+                    preferred_pipeline: entry.engine,
+                    deck_engine_options: entry.engine_options,
+                    executable_path: entry.executable,
+                    needs_install: !entry.installed,
+                    ..Default::default()
+                }
+            })
+            .collect();
+        let changed = games != self.live.deck_games;
+        if changed
+            || running != self.live.deck_running
+            || busy != self.live.deck_busy
+            || progress != self.live.deck_progress
+        {
+            self.live.deck_running = running;
+            self.live.deck_busy = busy;
+            self.live.deck_progress = progress;
+            if changed {
+                self.live.deck_games = games;
+                if self.page.sharp_source().is_some() {
+                    self.rebuild_display_games(cx);
+                }
+            }
+            cx.notify();
+        } else if self.page.sharp_source().is_some() {
+            // Setup steps (prefix, login, sync) show on these pages.
+            cx.notify();
+        }
+    }
+
+    /// Download an owned GOG or Epic game into its managed folder.
+    pub(super) fn install_deck_game(&mut self, game: LibGame, cx: &mut Context<Self>) {
+        let (Some(id), Some(sharp)) = (game.external_id.clone(), self.sharp_preview.clone()) else {
+            return;
+        };
+        let source = game.source.clone().unwrap_or_default();
+        sharp.update(cx, |sharp, cx| sharp.deck_install(&source, &id, cx));
+    }
+
+    /// Pick a card or hero image for a Sharp Library entry.
+    pub(super) fn pick_custom_art(&mut self, game: LibGame, hero: bool, cx: &mut Context<Self>) {
+        let Some(key) = game.art_key.clone() else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let Some(file) = rfd::AsyncFileDialog::new()
+                .set_title(format!(
+                    "Choose {} art for {}",
+                    if hero { "hero" } else { "card" },
+                    game.name
+                ))
+                .add_filter("Image", &["png", "jpg", "jpeg", "webp", "gif"])
+                .pick_file()
+                .await
+            else {
+                return;
+            };
+            let path = file.path().to_string_lossy().into_owned();
+            let _ = this.update(cx, move |this, cx| {
+                let entry = this.live.custom_art.entry(key).or_default();
+                if hero {
+                    entry.1 = Some(path);
+                } else {
+                    entry.0 = Some(path);
+                }
+                this.save_ui_state(cx);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(super) fn reset_custom_art(&mut self, game: &LibGame, cx: &mut Context<Self>) {
+        if let Some(key) = &game.art_key {
+            self.live.custom_art.remove(key);
+            self.save_ui_state(cx);
+            cx.notify();
+        }
     }
 
     fn refresh_running_games(&mut self, cx: &mut Context<Self>) {
@@ -1329,6 +1667,34 @@ impl MetalSharpApp {
         if !self.live.enabled {
             return;
         }
+        if let (Some(id), Some(sharp)) = (game.external_id.clone(), self.sharp_preview.clone()) {
+            if self.live.deck_busy.contains(&game.appid)
+                || self.live.deck_progress.contains_key(&game.appid)
+            {
+                return;
+            }
+            if game.needs_install {
+                let page = game.page();
+                if self.live.library_locations.contains(page.storage_id()) {
+                    self.install_deck_game(game, cx);
+                } else {
+                    self.ask_drive(page, drive_impl::DriveNext::DeckInstall(game), cx);
+                }
+                return;
+            }
+            let running = self.is_running(game.appid);
+            let source = game.source.clone().unwrap_or_default();
+            sharp.update(cx, |sharp, cx| sharp.deck_toggle(&source, &id, running, cx));
+            if !running {
+                let now = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0);
+                self.live.play_history.insert(game.appid.to_string(), now);
+                self.save_ui_state(cx);
+            }
+            return;
+        }
         if self.is_running(game.appid) {
             self.stop_game(game, cx);
             return;
@@ -1390,7 +1756,7 @@ impl MetalSharpApp {
             return;
         }
         self.load_game_settings(cx);
-        if game.installed && !game.is_ubisoft() && !game.is_shortcut() {
+        if game.installed && game.page() == LibraryPage::Steam && !game.is_shortcut() {
             let appid = game.appid;
             live::call(
                 cx,
@@ -1399,7 +1765,7 @@ impl MetalSharpApp {
                 None,
                 live::DEFAULT_TIMEOUT,
                 move |this, result, cx| {
-                    if this.selected_key() != Some((false, appid)) {
+                    if this.selected_key() != Some((LibraryPage::Steam, appid)) {
                         return;
                     }
                     if let Some(result) = result.filter(is_ok) {
@@ -1754,17 +2120,7 @@ impl MetalSharpApp {
             };
             let selected = file.path().to_string_lossy().into_owned();
             let _ = this.update(cx, move |_, cx| {
-                let (endpoint, body) = if game.is_ubisoft() {
-                    (
-                        "/ubisoft/save-executable",
-                        json!({"ubisoft_id": game.ubisoft_id, "executablePath": selected}),
-                    )
-                } else {
-                    (
-                        "/steam/save-executable",
-                        json!({"appid": game.appid, "executablePath": selected}),
-                    )
-                };
+                let (endpoint, body) = game.save_executable_request(&selected);
                 live::call(
                     cx,
                     "POST",
@@ -1793,6 +2149,13 @@ impl MetalSharpApp {
                             }
                         }
                         toast::success(cx, format!("{}: launch executable saved", game.name));
+                        // GOG's and Epic's entries come from the Sharp Library's lists: reload them
+                        // so the deck keeps the new executable.
+                        if matches!(game.page(), LibraryPage::Gog | LibraryPage::Epic) {
+                            if let Some(sharp) = this.sharp_preview.clone() {
+                                sharp.update(cx, |sharp, cx| sharp.reload(cx));
+                            }
+                        }
                         cx.notify();
                     },
                 );
@@ -1815,6 +2178,41 @@ impl MetalSharpApp {
             game.launch_method().to_owned()
         };
         if !self.live.enabled {
+            return;
+        }
+        // GOG, Epic and the Windows Programs keep each game's engine in the Sharp Library (GOG's
+        // engines file, Epic's bottle, the app's or Game Jolt game's entry).
+        if let Some(source) = match game.page() {
+            LibraryPage::Gog => Some("gog"),
+            LibraryPage::Epic => Some("epic"),
+            LibraryPage::WindowsPrograms => game.source.as_deref(),
+            _ => None,
+        } {
+            let (Some(id), Some(sharp)) = (game.external_id.clone(), self.sharp_preview.clone())
+            else {
+                return;
+            };
+            if pipeline.is_empty() || pipeline == self.live.selected_pipeline {
+                return;
+            }
+            self.live.selected_pipeline = pipeline.clone();
+            for list in [&mut self.games, &mut self.live.library] {
+                if let Some(entry) = list.iter_mut().find(|g| g.key() == game.key()) {
+                    entry.preferred_pipeline = Some(pipeline.clone());
+                }
+            }
+            sharp.update(cx, |sharp, cx| {
+                sharp.deck_set_engine(source, &id, pipeline.clone(), cx)
+            });
+            toast::success(
+                cx,
+                format!(
+                    "{}: {} selected",
+                    game.name,
+                    library_model::pipeline_label(&pipeline)
+                ),
+            );
+            cx.notify();
             return;
         }
         if collection {
@@ -2000,7 +2398,6 @@ impl MetalSharpApp {
         if self.live.ubisoft_installing {
             return;
         }
-        self.launcher_menu_open = false;
         if self.live.ubisoft_running {
             live::call(
                 cx,
@@ -2012,7 +2409,6 @@ impl MetalSharpApp {
                     let ok = result.as_ref().is_some_and(is_ok);
                     if ok {
                         this.live.ubisoft_running = false;
-                        this.live.ubisoft_primary = false;
                     }
                     toast::show(
                         cx,
@@ -2044,11 +2440,9 @@ impl MetalSharpApp {
                     == Some(true);
                 if ok && installing {
                     this.live.ubisoft_installing = true;
-                    this.live.ubisoft_primary = true;
                     toast::info(cx, "Downloading and installing Ubisoft Connect…");
                 } else if ok {
                     this.live.ubisoft_running = true;
-                    this.live.ubisoft_primary = true;
                     toast::success(
                         cx,
                         if crate::variant::is_fex() {
@@ -3760,35 +4154,6 @@ pub(super) struct MigrationViewState {
     pub total: u64,
     pub message: String,
     pub error: String,
-}
-
-#[cfg(test)]
-mod ubisoft_header_tests {
-    use super::LiveState;
-
-    #[test]
-    fn launch_ubisoft_takes_the_primary_button_until_connect_closes() {
-        let mut live = LiveState::default();
-        assert!(!live.ubisoft_is_primary());
-
-        // Connect running without Launch Ubisoft (e.g. started for a game) keeps Start Steam.
-        live.apply_ubisoft_status(true, true, false);
-        assert!(!live.ubisoft_is_primary());
-
-        // Launch Ubisoft: the primary button becomes Stop Ubisoft, also while installing.
-        live.ubisoft_primary = true;
-        assert!(live.ubisoft_is_primary());
-        live.apply_ubisoft_status(false, false, true);
-        assert!(live.ubisoft_is_primary());
-        live.apply_ubisoft_status(true, true, false);
-        assert!(live.ubisoft_is_primary());
-
-        // Connect seen closed: Start Steam returns and stays after a later unrelated start.
-        live.apply_ubisoft_status(true, false, false);
-        assert!(!live.ubisoft_is_primary());
-        live.apply_ubisoft_status(true, true, false);
-        assert!(!live.ubisoft_is_primary());
-    }
 }
 
 #[cfg(test)]

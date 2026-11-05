@@ -5,7 +5,6 @@
 
 - [User Guide](user-guide.md): the two builds, install, play, game settings, Sharp Library, controllers, streaming, logs
 - [Ubisoft Connect](ubisoft-connect.md)
-- [Emulators](emulators.md): PCSX2, RPCS3, shadPS4, SharpEmu
 - [Supported Games](games-supported.md)
 - [Fix a Broken Update](Fix%20a%20Broken%20Update.md)
 

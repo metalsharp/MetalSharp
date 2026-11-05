@@ -2148,34 +2148,16 @@ char* ms_epic_uninstall_json(const char* home, const unsigned char* body, size_t
     char* app_name = request_app_name(body, body_length);
     if (!app_name)
         return epic_failure("invalid Epic app name");
-    char *tool = epic_tool_path(home), *prefix = epic_prefix_path(home, app_name);
+    char* tool = epic_tool_path(home);
     if (!tool || !legendary_available(home)) {
         free(app_name);
         free(tool);
-        free(prefix);
         return epic_failure("Legendary is not installed");
     }
+    /* Legendary removes the game's files; its bottle (Wine prefix, with saves and settings) stays. */
     char* const argv[] = {tool, "-y", "uninstall", app_name, NULL};
     int status = epic_run_capture(home, argv, NULL, NULL, "legendary-uninstall.log");
-    if (status == 0 && prefix) {
-        char* bottle = strdup(prefix);
-        char* slash = bottle ? strrchr(bottle, '/') : NULL;
-        if (slash) {
-            *slash = 0;
-            char* rm_argv[] = {"/bin/rm", "-rf", "--", bottle, NULL};
-            pid_t child = fork();
-            if (child == 0) {
-                execv(rm_argv[0], rm_argv);
-                _exit(127);
-            }
-            if (child > 0)
-                while (waitpid(child, NULL, 0) < 0 && errno == EINTR)
-                    ;
-        }
-        free(bottle);
-    }
     free(app_name);
     free(tool);
-    free(prefix);
     return status == 0 ? strdup("{\"ok\":true}") : epic_failure("Epic game uninstall failed");
 }

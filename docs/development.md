@@ -52,7 +52,14 @@ Building the app does not compile Wine; see [Building MetalSharp Wine](building-
 cargo run --locked --manifest-path app-gpui/Cargo.toml                             # production: ~/.metalsharp
 cargo run --locked --manifest-path app-gpui/Cargo.toml -- --connected-validation  # isolated home
 cargo run --locked --manifest-path app-gpui/Cargo.toml -- --preview               # offline sample UI
+cargo run --locked --manifest-path app-gpui/Cargo.toml -- --preview=2560x1440     # explicit offline viewport
 ```
+
+The library has a sidebar, open by default and toggled from the header, with one page per launcher: Steam, Ubisoft, Battle.net, Rockstar, GOG, Epic and Windows Programs, plus Logs at the bottom. Every launcher page uses the Steam Deck view (hero and dock) with only that launcher's games; `LibGame::page()` in `library_model.rs` maps a game's `source` to its page. Steam, GOG, Epic and Windows Programs also have a Library/Collection toggle: Steam's Collection is the installed/uninstalled grid, and the others open the Sharp Library view for their source (`sharp_deck.rs` feeds their installed games to the deck). The header holds only the logo, sidebar toggle, search, theme and settings, with no fill or divider, over the page's hero art; each page's launcher button sits under it. The selected page and sidebar state are saved in `gpui-ui-state.json`.
+
+Settings groups preferences into General, Integrations, Storage, Updates, and Advanced. General → Library & display includes window-size presets. Automatic uses most of the display while leaving desktop space; Large (4K) is capped at 2800 × 1700 logical points. Presets resize the app window and fit smaller displays without entering full screen. Production saves the selection alongside the other UI preferences in `gpui-ui-state.json`; offline previews keep changes in memory.
+
+Preview dimensions use logical points; macOS applies the display's pixel density and may constrain the requested window to its available desktop area. The preview prints its actual viewport and scale factor at startup.
 
 Production mode behaves like the installed app: it terminates any stale `metalsharp-backend` on `~/.metalsharp/run/backend.sock`, starts a fresh one against `~/.metalsharp`, and stops it on quit. Quit any other MetalSharp first.
 
@@ -63,7 +70,7 @@ The backend honors `METALSHARP_HOME` (default `~/.metalsharp`) and serves HTTP o
 ## Test
 
 ```bash
-make -C app/src-c test        # HTTP smoke, JSON, migration, SIGPIPE, emulator update transactions
+make -C app/src-c test        # HTTP smoke, JSON, migration, SIGPIPE
 make -C app/src-c VARIANT=fex BUILD_DIR="$PWD/app/src-c/build-fex" test   # the Arm64 FEX build's suite
 make -C app/src-c asan-test   # same under sanitizers
 cargo test --manifest-path app-gpui/Cargo.toml

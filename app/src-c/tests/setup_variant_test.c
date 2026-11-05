@@ -14,6 +14,10 @@ char* ms_ubisoft_stop_json(const char* home, int* status) {
     (void)home, (void)status;
     return NULL;
 }
+char* ms_battlenet_stop_json(const char* home, int* status) {
+    (void)home, (void)status;
+    return NULL;
+}
 bool ms_steam_usability_ensure(const char* home) {
     (void)home;
     return true;
@@ -105,6 +109,37 @@ int main(void) {
     snprintf(command, sizeof(command), "rm -rf '%s'", home);
     assert(system(command) == 0);
     free(home);
+
+    /* The console emulators' folder is deleted; a symlink in it (or the folder itself as a link)
+     * loses only the link, never what it points at. */
+    {
+        char outside[512], kept[512], link[512];
+        struct stat info;
+        home = fresh_home("emulators");
+        assert(ms_setup_remove_console_emulators(home));
+        snprintf(outside, sizeof(outside), "%s-outside", home);
+        snprintf(command, sizeof(command), "rm -rf '%s' && mkdir -p '%s'", outside, outside);
+        assert(system(command) == 0);
+        snprintf(kept, sizeof(kept), "%s/game.iso", outside);
+        write_text_file(kept, "keep\n");
+        snprintf(path, sizeof(path), "%s/emulators/rpcs3/dev_hdd0", home);
+        assert(mkdir_p(path));
+        snprintf(path, sizeof(path), "%s/emulators/rpcs3/dev_hdd0/save.dat", home);
+        write_text_file(path, "save\n");
+        snprintf(link, sizeof(link), "%s/emulators/pcsx2-games", home);
+        assert(symlink(outside, link) == 0);
+        assert(ms_setup_remove_console_emulators(home));
+        snprintf(path, sizeof(path), "%s/emulators", home);
+        assert(lstat(path, &info) != 0 && errno == ENOENT);
+        assert(lstat(kept, &info) == 0 && S_ISREG(info.st_mode));
+        assert(symlink(outside, path) == 0);
+        assert(ms_setup_remove_console_emulators(home));
+        assert(lstat(path, &info) != 0 && errno == ENOENT);
+        assert(lstat(kept, &info) == 0 && S_ISREG(info.st_mode));
+        snprintf(command, sizeof(command), "rm -rf '%s' '%s'", home, outside);
+        assert(system(command) == 0);
+        free(home);
+    }
 
     printf("setup variant record tests passed (%s)\n", ms_wine_variant());
     return 0;

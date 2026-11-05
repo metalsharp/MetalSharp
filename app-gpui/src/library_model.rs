@@ -2,7 +2,7 @@
 //! (`App.vue` loadLibrary merge, `LibraryView.vue` ordering/pipeline helpers).
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 fn lenient_string<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
     Ok(match Value::deserialize(d)? {
@@ -39,6 +39,9 @@ pub struct PipelineOption {
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct LibGame {
+    /// A Sharp Library entry's engine choices (GOG, Epic, Windows Programs), from its deck entry.
+    #[serde(skip)]
+    pub deck_engine_options: Option<Vec<(String, String)>>,
     #[serde(default, deserialize_with = "lenient_u64")]
     pub appid: u64,
     #[serde(default)]
@@ -71,12 +74,19 @@ pub struct LibGame {
     pub icon_pending: bool,
     #[serde(default, deserialize_with = "lenient_string")]
     pub ubisoft_artwork_url: Option<String>,
+    /// The launcher's own cover art on disk (Battle.net's cached key art).
+    #[serde(default, deserialize_with = "lenient_string")]
+    pub card_art_path: Option<String>,
     #[serde(default, deserialize_with = "lenient_bool")]
     pub has_native_build: bool,
     #[serde(default, deserialize_with = "lenient_string")]
     pub source: Option<String>,
     #[serde(default, deserialize_with = "lenient_string")]
     pub ubisoft_id: Option<String>,
+    #[serde(default, deserialize_with = "lenient_string")]
+    pub rockstar_id: Option<String>,
+    #[serde(default, deserialize_with = "lenient_string")]
+    pub battlenet_id: Option<String>,
     #[serde(default, deserialize_with = "lenient_string")]
     pub game_dir: Option<String>,
     #[serde(default, deserialize_with = "lenient_string")]
@@ -90,11 +100,63 @@ pub struct LibGame {
     /// Bundled preview artwork (offline preview only).
     #[serde(skip)]
     pub preview_art: Option<(&'static str, &'static str)>,
+    /// Sharp Library id of a GOG, Epic, Windows program or GameJolt entry.
+    #[serde(skip)]
+    pub external_id: Option<String>,
+    /// Artwork cache key resolved by the Sharp Library.
+    #[serde(skip)]
+    pub art_key: Option<String>,
+    /// An owned GOG or Epic game that is listed but not downloaded yet.
+    #[serde(skip)]
+    pub needs_install: bool,
 }
 
 impl LibGame {
-    pub fn is_ubisoft(&self) -> bool {
-        self.source.as_deref() == Some("ubisoft")
+    /// A game from a launcher MetalSharp runs itself (Ubisoft Connect, the
+    /// Rockstar Games Launcher, Battle.net): the backend lists its graphics
+    /// options and launches it through `/<launcher>/launch-game`.
+    pub fn is_launcher_game(&self) -> bool {
+        matches!(
+            self.page(),
+            LibraryPage::Ubisoft | LibraryPage::Rockstar | LibraryPage::BattleNet
+        )
+    }
+    /// The launcher's route prefix and this game's id field and value.
+    fn launcher_route(&self) -> Option<(&'static str, &'static str, &Option<String>)> {
+        match self.page() {
+            LibraryPage::Ubisoft => Some(("ubisoft", "ubisoft_id", &self.ubisoft_id)),
+            LibraryPage::Rockstar => Some(("rockstar", "rockstar_id", &self.rockstar_id)),
+            LibraryPage::BattleNet => Some(("battlenet", "battlenet_id", &self.battlenet_id)),
+            _ => None,
+        }
+    }
+    /// Endpoint and body that save this game's chosen executable.
+    pub fn save_executable_request(&self, path: &str) -> (String, Value) {
+        match self.page() {
+            LibraryPage::Gog => {
+                return (
+                    "/sharp-library/gog/save-executable".into(),
+                    serde_json::json!({"productId": self.external_id, "executablePath": path}),
+                );
+            }
+            LibraryPage::Epic => {
+                return (
+                    "/sharp-library/epic/save-executable".into(),
+                    serde_json::json!({"appName": self.external_id, "executablePath": path}),
+                );
+            }
+            _ => {}
+        }
+        match self.launcher_route() {
+            Some((route, key, id)) => (
+                format!("/{route}/save-executable"),
+                serde_json::json!({key: id, "executablePath": path}),
+            ),
+            None => (
+                "/steam/save-executable".into(),
+                serde_json::json!({"appid": self.appid, "executablePath": path}),
+            ),
+        }
     }
     /// A non-Steam game the user added to Wine Steam (shortcuts.vdf).
     pub fn is_shortcut(&self) -> bool {
@@ -115,10 +177,137 @@ impl LibGame {
             .filter(|id| !id.is_empty())
             .unwrap_or_else(|| format!("steam_{}", self.appid))
     }
-    /// Library identity used for selection: Steam and Ubisoft app ids live in
-    /// different namespaces in the backend.
-    pub fn key(&self) -> (bool, u64) {
-        (self.is_ubisoft(), self.appid)
+    /// Library identity used for selection: each launcher's app ids live in
+    /// their own namespace in the backend.
+    pub fn key(&self) -> (LibraryPage, u64) {
+        (self.page(), self.appid)
+    }
+    /// The sidebar page this game is listed on. Steam copies of games that
+    /// run through Ubisoft Connect or the Rockstar launcher stay on Steam.
+    /// A Steam copy of a Rockstar Games title: listed on the Rockstar page too, where it
+    /// stays a Steam game, so it launches through Steam with the Steam prefix's patches.
+    pub fn is_steam_rockstar(&self) -> bool {
+        self.page() == LibraryPage::Steam && ROCKSTAR_STEAM_APPIDS.contains(&self.appid)
+    }
+
+    /// Whether this game is listed on `page`.
+    pub fn on_page(&self, page: LibraryPage) -> bool {
+        self.page() == page
+            || (page == LibraryPage::Rockstar && self.installed && self.is_steam_rockstar())
+    }
+
+    pub fn page(&self) -> LibraryPage {
+        match self.source.as_deref() {
+            Some("ubisoft") => LibraryPage::Ubisoft,
+            Some("battlenet") => LibraryPage::BattleNet,
+            Some("rockstar") => LibraryPage::Rockstar,
+            Some("gog") => LibraryPage::Gog,
+            Some("epic") => LibraryPage::Epic,
+            Some("windows" | "gamejolt") => LibraryPage::WindowsPrograms,
+            _ => LibraryPage::Steam,
+        }
+    }
+}
+
+/// Rockstar Games titles on Steam.
+const ROCKSTAR_STEAM_APPIDS: [u64; 17] = [
+    12100,   // Grand Theft Auto III
+    12110,   // Grand Theft Auto: Vice City
+    12120,   // Grand Theft Auto: San Andreas
+    12140,   // Max Payne
+    12150,   // Max Payne 2: The Fall of Max Payne
+    12200,   // Bully: Scholarship Edition
+    12210,   // Grand Theft Auto IV: The Complete Edition
+    12220,   // Manhunt
+    110800,  // L.A. Noire
+    204100,  // Max Payne 3
+    271590,  // Grand Theft Auto V Legacy
+    1174180, // Red Dead Redemption 2
+    1546970, // Grand Theft Auto: Vice City – The Definitive Edition
+    1546990, // Grand Theft Auto III – The Definitive Edition
+    1547000, // Grand Theft Auto: San Andreas – The Definitive Edition
+    2668510, // Red Dead Redemption
+    3240220, // Grand Theft Auto V Enhanced
+];
+
+/// Sidebar pages, in sidebar order. Logs is pinned to the sidebar's bottom.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum LibraryPage {
+    #[default]
+    Steam,
+    Ubisoft,
+    BattleNet,
+    Rockstar,
+    Gog,
+    Epic,
+    WindowsPrograms,
+    Logs,
+}
+
+impl LibraryPage {
+    pub const LAUNCHERS: [Self; 7] = [
+        Self::Steam,
+        Self::Ubisoft,
+        Self::BattleNet,
+        Self::Rockstar,
+        Self::Gog,
+        Self::Epic,
+        Self::WindowsPrograms,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Steam => "Steam",
+            Self::Ubisoft => "Ubisoft",
+            Self::BattleNet => "Battle.net",
+            Self::Rockstar => "Rockstar",
+            Self::Gog => "GOG",
+            Self::Epic => "Epic",
+            Self::WindowsPrograms => "Windows Programs",
+            Self::Logs => "Logs",
+        }
+    }
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::Steam => "icon-steam.svg",
+            Self::Ubisoft => "icon-ubisoft.svg",
+            Self::BattleNet => "icon-battlenet.svg",
+            Self::Rockstar => "icon-rockstar.svg",
+            Self::Gog => "source-gog.svg",
+            Self::Epic => "source-epic.svg",
+            Self::WindowsPrograms => "icon-windows.svg",
+            Self::Logs => "icon-logs.svg",
+        }
+    }
+    pub fn storage_id(self) -> &'static str {
+        match self {
+            Self::Steam => "steam",
+            Self::Ubisoft => "ubisoft",
+            Self::BattleNet => "battlenet",
+            Self::Rockstar => "rockstar",
+            Self::Gog => "gog",
+            Self::Epic => "epic",
+            Self::WindowsPrograms => "windows",
+            Self::Logs => "logs",
+        }
+    }
+    pub fn from_storage_id(id: &str) -> Option<Self> {
+        Self::LAUNCHERS
+            .into_iter()
+            .chain([Self::Logs])
+            .find(|page| page.storage_id() == id)
+    }
+    /// Pages whose Collection view is the Sharp Library source view.
+    pub fn sharp_source(self) -> Option<&'static str> {
+        match self {
+            Self::Gog => Some("gog"),
+            Self::Epic => Some("epic"),
+            Self::WindowsPrograms => Some("installers"),
+            _ => None,
+        }
+    }
+    /// Pages with a Library/Collection toggle.
+    pub fn has_collection(self) -> bool {
+        self == Self::Steam || self.sharp_source().is_some()
     }
 }
 
@@ -133,34 +322,32 @@ pub fn parse_library(value: Option<&Value>) -> Option<Vec<LibGame>> {
     )
 }
 
-/// App.vue `loadLibrary` merge: prefer an installed Ubisoft copy over an
-/// uninstalled Steam ownership entry of the same title, then append distinct
-/// Ubisoft games.
+/// Steam and Ubisoft Connect games, each listed on its own page. A game
+/// without a source is a Steam game.
 pub fn merge_libraries(steam: Vec<LibGame>, ubisoft: Vec<LibGame>) -> Vec<LibGame> {
-    let norm = |name: &str| name.trim().to_lowercase();
-    let installed_ubisoft: HashSet<String> = ubisoft
-        .iter()
-        .filter(|game| game.installed)
-        .map(|game| norm(&game.name))
-        .collect();
-    let steam_games: Vec<LibGame> = steam
-        .into_iter()
-        .filter(|game| !(!game.installed && installed_ubisoft.contains(&norm(&game.name))))
-        .collect();
-    let mut seen: HashSet<String> = steam_games.iter().map(|game| norm(&game.name)).collect();
-    let mut games = steam_games;
-    for mut game in ubisoft {
-        let key = norm(&game.name);
-        if seen.contains(&key) {
-            continue;
-        }
-        seen.insert(key);
+    let mut games = steam;
+    games.extend(ubisoft.into_iter().map(|mut game| {
         if game.source.is_none() {
             game.source = Some("ubisoft".into());
         }
-        games.push(game);
-    }
+        game
+    }));
     games
+}
+
+/// App id for a Sharp Library entry: the source in the top four bits keeps it
+/// clear of Steam and Ubisoft ids and of the other sources.
+pub fn external_appid(source: &str, id: &str) -> u64 {
+    let tag: u64 = match source {
+        "windows" => 0x9,
+        "gamejolt" => 0xa,
+        "gog" => 0xb,
+        _ => 0xc,
+    };
+    let hash = id.bytes().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    });
+    (tag << 60) | (hash & ((1 << 60) - 1))
 }
 
 fn parse_time(value: &Option<String>) -> i64 {
@@ -244,8 +431,11 @@ pub fn game_pipeline_options(game: &LibGame) -> Vec<(String, String)> {
 }
 
 fn game_pipeline_options_for(game: &LibGame, fex: bool) -> Vec<(String, String)> {
+    if let Some(options) = &game.deck_engine_options {
+        return options.clone();
+    }
     if fex {
-        let options: Vec<(String, String)> = if game.is_ubisoft() {
+        let options: Vec<(String, String)> = if game.is_launcher_game() {
             game.available_pipelines
                 .clone()
                 .unwrap_or_default()
@@ -261,7 +451,7 @@ fn game_pipeline_options_for(game: &LibGame, fex: bool) -> Vec<(String, String)>
         // The backend runs D3DMetal and GPTK on VKD3D-Proton and D3D9 on DXVK here: show each lane once.
         return crate::variant::fex_options(options);
     }
-    if !game.is_ubisoft() {
+    if !game.is_launcher_game() {
         return PIPELINE_OPTIONS
             .iter()
             .map(|(id, label)| ((*id).to_owned(), (*label).to_owned()))
@@ -326,13 +516,13 @@ pub fn is_wine_steam_route(launch_method: &str) -> bool {
 }
 
 /// LibraryView `launchGame` endpoint + body selection.
-pub fn launch_request(game: &LibGame) -> (&'static str, Value) {
+pub fn launch_request(game: &LibGame) -> (String, Value) {
     let launch_method = if game.launch_method().is_empty() {
         "auto".to_owned()
     } else {
         game.launch_method().to_owned()
     };
-    if game.is_ubisoft() {
+    if let Some((route, key, id)) = game.launcher_route() {
         let pipeline = if !game.preferred_pipeline().is_empty() {
             Value::String(game.preferred_pipeline().to_owned())
         } else if !game.launch_method().is_empty() {
@@ -341,8 +531,8 @@ pub fn launch_request(game: &LibGame) -> (&'static str, Value) {
             Value::Null
         };
         return (
-            "/ubisoft/launch-game",
-            serde_json::json!({"appid": game.appid, "ubisoft_id": game.ubisoft_id, "pipeline": pipeline}),
+            format!("/{route}/launch-game"),
+            serde_json::json!({"appid": game.appid, key: id, "pipeline": pipeline}),
         );
     }
     let endpoint = if game.has_native_build {
@@ -353,22 +543,22 @@ pub fn launch_request(game: &LibGame) -> (&'static str, Value) {
         "/game/launch-auto"
     };
     (
-        endpoint,
+        endpoint.to_owned(),
         serde_json::json!({"appid": game.appid, "launchMethod": launch_method}),
     )
 }
 
 /// LibraryView `savePipeline` / `saveCollectionPipeline` route selection.
-pub fn pipeline_save_request(game: &LibGame, pipeline: &str) -> (&'static str, Value, u64) {
-    if game.is_ubisoft() {
+pub fn pipeline_save_request(game: &LibGame, pipeline: &str) -> (String, Value, u64) {
+    if let Some((route, key, id)) = game.launcher_route() {
         (
-            "/ubisoft/save-pipeline",
-            serde_json::json!({"ubisoft_id": game.ubisoft_id, "pipeline": pipeline}),
+            format!("/{route}/save-pipeline"),
+            serde_json::json!({key: id, "pipeline": pipeline}),
             30_000,
         )
     } else if pipeline == "d3dmetal" {
         (
-            "/d3dmetal/bottles/save",
+            "/d3dmetal/bottles/save".into(),
             serde_json::json!({
                 "appid": game.appid,
                 "bottleId": game.bottle_id(),
@@ -379,7 +569,7 @@ pub fn pipeline_save_request(game: &LibGame, pipeline: &str) -> (&'static str, V
         )
     } else {
         (
-            "/bottles/edit",
+            "/bottles/edit".into(),
             serde_json::json!({"id": game.bottle_id(), "name": game.name, "preferredPipeline": pipeline}),
             30_000,
         )
@@ -396,14 +586,28 @@ mod tests {
     }
 
     #[test]
+    fn steam_rockstar_titles_are_on_the_rockstar_page_too() {
+        let rdr2 =
+            game(json!({"appid": 1174180u64, "name": "Red Dead Redemption 2", "installed": true}));
+        assert!(rdr2.on_page(LibraryPage::Steam) && rdr2.on_page(LibraryPage::Rockstar));
+        assert_eq!(rdr2.page(), LibraryPage::Steam);
+        let owned = game(
+            json!({"appid": 271590u64, "name": "Grand Theft Auto V Legacy", "installed": false}),
+        );
+        assert!(!owned.on_page(LibraryPage::Rockstar));
+        let other = game(json!({"appid": 730u64, "name": "Counter-Strike 2", "installed": true}));
+        assert!(!other.on_page(LibraryPage::Rockstar));
+    }
+
+    #[test]
     fn steam_shortcuts_launch_through_wine_steam() {
         let shortcut = game(json!({
             "appid": 3039101758u64, "name": "Soma", "installed": true,
             "source": "steam_shortcut", "gameid": "13052842659859660800",
             "launch_method": "steam", "cover_url": null
         }));
-        assert!(shortcut.is_shortcut() && !shortcut.is_ubisoft());
-        assert_eq!(shortcut.key(), (false, 3039101758));
+        assert!(shortcut.is_shortcut() && shortcut.page() == LibraryPage::Steam);
+        assert_eq!(shortcut.key(), (LibraryPage::Steam, 3039101758));
         let (endpoint, body) = launch_request(&shortcut);
         assert_eq!(endpoint, "/steam/launch-game");
         assert_eq!(body["launchMethod"], "steam");
@@ -416,21 +620,130 @@ mod tests {
     }
 
     #[test]
-    fn merge_prefers_installed_ubisoft_copy_and_dedupes() {
+    fn steam_and_ubisoft_games_stay_on_their_own_pages() {
         let steam = vec![
             game(json!({"appid":1,"name":"Far Cry 5","installed":false})),
             game(json!({"appid":2,"name":"Portal","installed":true})),
+            game(json!({"appid":3,"name":"Soma","installed":true,"source":"steam_shortcut"})),
         ];
         let ubisoft = vec![
-            game(
-                json!({"appid":900,"name":"Far Cry 5","installed":true,"source":"ubisoft","ubisoft_id":5}),
-            ),
-            game(json!({"appid":901,"name":"portal ","installed":true,"source":"ubisoft"})),
+            game(json!({"appid":900,"name":"Far Cry 5","installed":true,"ubisoft_id":5})),
+            game(json!({"appid":2,"name":"portal ","installed":true,"source":"ubisoft"})),
         ];
         let merged = merge_libraries(steam, ubisoft);
-        let names: Vec<_> = merged.iter().map(|g| (g.appid, g.is_ubisoft())).collect();
-        assert_eq!(names, vec![(2, false), (900, true)]);
-        assert_eq!(merged[1].ubisoft_id.as_deref(), Some("5"));
+        let pages: Vec<_> = merged.iter().map(|g| (g.appid, g.page())).collect();
+        assert_eq!(
+            pages,
+            vec![
+                (1, LibraryPage::Steam),
+                (2, LibraryPage::Steam),
+                (3, LibraryPage::Steam),
+                (900, LibraryPage::Ubisoft),
+                (2, LibraryPage::Ubisoft),
+            ]
+        );
+        assert_ne!(merged[1].key(), merged[4].key());
+        assert_eq!(merged[3].ubisoft_id.as_deref(), Some("5"));
+    }
+
+    #[test]
+    fn rockstar_and_battlenet_games_use_their_launcher_routes() {
+        let rockstar = game(json!({"appid": 1073741825u64, "source": "rockstar",
+            "rockstar_id": "gta5", "preferred_pipeline": "d3dmetal"}));
+        assert!(rockstar.is_launcher_game());
+        assert_eq!(
+            launch_request(&rockstar),
+            (
+                "/rockstar/launch-game".to_owned(),
+                json!({"appid": 1073741825u64, "rockstar_id": "gta5", "pipeline": "d3dmetal"})
+            )
+        );
+        let battlenet = game(json!({"appid": 536870913u64, "source": "battlenet",
+            "battlenet_id": "prometheus"}));
+        let (path, body, _) = pipeline_save_request(&battlenet, "dxmt");
+        assert_eq!(path, "/battlenet/save-pipeline");
+        assert_eq!(
+            body,
+            json!({"battlenet_id": "prometheus", "pipeline": "dxmt"})
+        );
+        assert_eq!(
+            battlenet.save_executable_request("/x/Overwatch.exe").0,
+            "/battlenet/save-executable"
+        );
+        let steam = game(json!({"appid": 400}));
+        assert!(!steam.is_launcher_game());
+        assert_eq!(
+            steam.save_executable_request("/x").0,
+            "/steam/save-executable"
+        );
+    }
+
+    #[test]
+    fn external_ids_stay_apart_by_source() {
+        let gog = external_appid("gog", "1207658924");
+        assert_eq!(gog, external_appid("gog", "1207658924"));
+        assert_ne!(gog, external_appid("epic", "1207658924"));
+        assert_eq!(gog >> 60, 0xb);
+        assert!(external_appid("windows", "sharp_1") > u64::from(u32::MAX));
+    }
+
+    #[test]
+    fn sources_map_to_sidebar_pages() {
+        for (source, page) in [
+            ("battlenet", LibraryPage::BattleNet),
+            ("rockstar", LibraryPage::Rockstar),
+            ("gog", LibraryPage::Gog),
+            ("epic", LibraryPage::Epic),
+            ("windows", LibraryPage::WindowsPrograms),
+            ("gamejolt", LibraryPage::WindowsPrograms),
+        ] {
+            assert_eq!(game(json!({"appid": 1, "source": source})).page(), page);
+        }
+        for page in LibraryPage::LAUNCHERS
+            .into_iter()
+            .chain([LibraryPage::Logs])
+        {
+            assert_eq!(LibraryPage::from_storage_id(page.storage_id()), Some(page));
+        }
+        assert!(LibraryPage::Steam.has_collection() && LibraryPage::Gog.has_collection());
+        assert!(!LibraryPage::Ubisoft.has_collection() && !LibraryPage::Logs.has_collection());
+    }
+
+    #[test]
+    fn synced_owned_games_remain_available_outside_the_installed_library() {
+        let response = json!({"ok": true, "library": {"games": [
+            {"appid": 400, "name": "Portal", "installed": true, "state": "installed"},
+            {
+                "appid": 620, "name": "Portal 2", "installed": false, "state": "not_installed",
+                "cover_url": "https://steamcdn-a.akamaihd.net/steam/apps/620/library_600x900.jpg",
+                "header_url": "https://steamcdn-a.akamaihd.net/steam/apps/620/header.jpg",
+                "wine_game_path": null, "executable_path": null, "bottle_id": null
+            }
+        ]}});
+        let library = merge_libraries(parse_library(response.get("library")).unwrap(), Vec::new());
+        assert_eq!(library.len(), 2);
+        let owned = &library[1];
+        assert_eq!(owned.appid, 620);
+        assert!(!owned.installed && owned.page() == LibraryPage::Steam);
+        assert_eq!(owned.state.as_deref(), Some("not_installed"));
+        assert_eq!(
+            owned.cover_url,
+            response["library"]["games"][1]["cover_url"]
+                .as_str()
+                .map(str::to_owned)
+        );
+        assert_eq!(
+            owned.header_url,
+            response["library"]["games"][1]["header_url"]
+                .as_str()
+                .map(str::to_owned)
+        );
+        assert!(owned.wine_game_path.is_none() && owned.executable_path.is_none());
+        let installed = live_games(&library, &HashMap::new());
+        assert_eq!(
+            installed.iter().map(|game| game.appid).collect::<Vec<_>>(),
+            [400]
+        );
     }
 
     #[test]
@@ -443,7 +756,7 @@ mod tests {
         assert_eq!(
             launch_request(&g),
             (
-                "/game/launch-auto",
+                "/game/launch-auto".to_owned(),
                 json!({"appid":10,"launchMethod":"auto"})
             )
         );
@@ -455,7 +768,7 @@ mod tests {
         assert_eq!(
             launch_request(&g),
             (
-                "/ubisoft/launch-game",
+                "/ubisoft/launch-game".to_owned(),
                 json!({"appid":10,"ubisoft_id":"77","pipeline":"dxmt"})
             )
         );
