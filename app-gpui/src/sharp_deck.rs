@@ -19,6 +19,15 @@ pub struct DeckGame {
     pub progress: Option<f64>,
     /// Artwork cache key the Sharp Library already resolves for its cards.
     pub art_key: String,
+    /// The graphics engine chosen for it (GOG), for the hero's picker.
+    pub engine: Option<String>,
+    /// Its saved or detected launch executable (GOG), for the game settings panel.
+    pub executable: Option<String>,
+}
+
+/// GOG's graphics engines on this build, as the Collection view lists them.
+pub fn gog_engine_options() -> Vec<(String, String)> {
+    super::sharp_live::engine_options()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,6 +82,8 @@ impl SharpPreview {
                 installed: true,
                 progress: None,
                 art_key: format!("sharp-app-{id}"),
+                engine: None,
+                executable: None,
             });
         }
         for game in live
@@ -90,6 +101,8 @@ impl SharpPreview {
                 installed: true,
                 progress: None,
                 art_key: format!("sharp-gamejolt-{id}"),
+                engine: None,
+                executable: None,
             });
         }
         // Every owned GOG and Epic game, installed or not, like the
@@ -108,6 +121,10 @@ impl SharpPreview {
                 installed: flag(game, "installed"),
                 progress: live.gog_progress.get(id).copied(),
                 art_key: format!("sharp-gog-{id}"),
+                engine: live.gog_engines.get(id).cloned(),
+                executable: Some(text(game, "executablePath"))
+                    .filter(|path| !path.is_empty())
+                    .map(str::to_owned),
             });
         }
         for game in &live.epic_games {
@@ -124,6 +141,8 @@ impl SharpPreview {
                 installed: flag(game, "installed"),
                 progress: live.epic_progress.get(id).copied(),
                 art_key: format!("sharp-epic-{id}"),
+                engine: None,
+                executable: None,
             });
         }
         games.retain(|game| !game.id.is_empty());
@@ -231,6 +250,19 @@ impl SharpPreview {
             _ => {}
         }
         cx.notify();
+    }
+
+    /// The hero's graphics picker on a deck page (GOG): saves the engine like the Collection view.
+    pub fn deck_set_engine(
+        &mut self,
+        source: &str,
+        id: &str,
+        engine: String,
+        cx: &mut Context<Self>,
+    ) {
+        if source == "gog" {
+            self.set_gog_engine(id.to_owned(), engine, cx);
+        }
     }
 
     /// Reload every source after a launcher was uninstalled.

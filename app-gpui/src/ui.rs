@@ -25,6 +25,16 @@ use live_impl::{LiveState, LogClass, MigrationViewState, SteamPending, UpdateDia
 use steamcmd_impl::{CollectionView, SteamcmdModal};
 
 const GAME_SETTINGS_WIDTH: f32 = 600.0;
+/// The narrowest the game settings panel gets (one setting per line) before it opens to the left.
+const GAME_SETTINGS_MIN_WIDTH: f32 = 300.0;
+
+/// Where the game settings panel opens beside the hero's gear, and how it lays out.
+#[derive(Clone, Copy)]
+struct SettingsPlacement {
+    width: f32,
+    two_columns: bool,
+    open_left: bool,
+}
 const PAGE_BG: u32 = 0x080a0d;
 const PANEL_BG: u32 = 0x101316;
 const TEXT: u32 = 0xf2efe6;
@@ -3030,9 +3040,10 @@ impl MetalSharpApp {
         let launching = self.live.launching == Some(game.appid)
             || self.live.deck_busy.contains(&game.appid)
             || install_progress.is_some();
-        // Graphics, game settings and artwork apply to Steam and Ubisoft games;
-        // Sharp Library entries keep theirs in Collection.
+        // Graphics, game settings and artwork apply to Steam and the launchers' games, and to GOG's;
+        // other Sharp Library entries keep theirs in Collection.
         let bottle_settings = game.external_id.is_none();
+        let game_controls = bottle_settings || game.page() == LibraryPage::Gog;
         let pipeline_label = library_model::game_pipeline_options(&game)
             .into_iter()
             .find(|(id, _)| *id == self.live.selected_pipeline)
@@ -3041,24 +3052,54 @@ impl MetalSharpApp {
         let pipeline_menu = self
             .pipeline_menu_open
             .then(|| gpui::deferred(self.render_pipeline_menu(&game, cx)).with_priority(20));
-        // The settings panel opens right of the action row's gear when it
-        // fits within the hero's content width, otherwise to its left.
-        let row_width = layout.scaled(
-            if layout.content_width < layout.scaled(860.0) {
-                150.0 + 120.0
-            } else {
-                210.0 + 220.0
-            } + 3.0 * (42.0 + 14.0),
-        );
-        let panel_width = if crate::variant::is_fex() {
+        // The settings panel opens right of the action row's gear, as wide as the window leaves
+        // room for: one setting per line when the two-column FEX layout doesn't fit, and to the
+        // gear's left only when not even that does. The row's width is estimated from its pieces.
+        let row_width = {
+            let mut items: Vec<f32> = Vec::new();
+            if game.art_key.is_some() {
+                items.push(42.0);
+            }
+            if game.page() == LibraryPage::Steam {
+                items.push(46.0);
+            }
+            if game_controls && !game.has_native_build {
+                items.push(28.0 + 9.0 + 18.0 + 7.0 * pipeline_label.chars().count() as f32);
+            }
+            if game_controls {
+                items.push(42.0);
+            }
+            let group = items.iter().sum::<f32>() + 9.0 * items.len().saturating_sub(1) as f32;
+            layout.scaled(if narrow_hero { 150.0 } else { 210.0 } + 14.0 + group)
+        };
+        let content_left = ((f32::from(viewport.width) - layout.content_width) / 2.0).max(0.0);
+        let room_right = f32::from(viewport.width) - content_left - row_width - 10.0 - 16.0;
+        let full_width = if crate::variant::is_fex() {
             GAME_SETTINGS_WIDTH
         } else {
             365.0
         };
-        let settings_open_left = row_width + 10.0 + panel_width > layout.content_width;
+        let settings_layout = if room_right >= full_width {
+            SettingsPlacement {
+                width: full_width,
+                two_columns: crate::variant::is_fex(),
+                open_left: false,
+            }
+        } else if room_right >= GAME_SETTINGS_MIN_WIDTH {
+            SettingsPlacement {
+                width: room_right,
+                two_columns: false,
+                open_left: false,
+            }
+        } else {
+            SettingsPlacement {
+                width: full_width.min(GAME_SETTINGS_MIN_WIDTH.max(365.0)),
+                two_columns: false,
+                open_left: true,
+            }
+        };
         let game_settings_menu = self.game_settings_open.then(|| {
-            gpui::deferred(self.render_game_settings(&game, settings_open_left, cx))
-                .with_priority(20)
+            gpui::deferred(self.render_game_settings(&game, settings_layout, cx)).with_priority(20)
         });
         let hero_art = self.hero_art_path(&game, cx);
         let play_game = game.clone();
@@ -3286,7 +3327,7 @@ impl MetalSharpApp {
                                                 0xf0f0ee,
                                             ))
                                     }))
-                                    .children((bottle_settings && !game.has_native_build).then(
+                                    .children((game_controls && !game.has_native_build).then(
                                         || {
                                             div()
                                                 .relative()
@@ -3315,9 +3356,6 @@ impl MetalSharpApp {
                                                             this.pipeline_menu_open = open;
                                                             cx.notify();
                                                         }))
-                                                        .children(
-                                                            (!narrow_hero).then_some("Graphics"),
-                                                        )
                                                         .child(pipeline_label.clone())
                                                         .child(if self.live.pipeline_saving {
                                                             div()
@@ -3335,7 +3373,7 @@ impl MetalSharpApp {
                                                 .children(pipeline_menu)
                                         },
                                     ))
-                                    .children(bottle_settings.then(|| {
+                                    .children(game_controls.then(|| {
                                         div()
                                             .relative()
                                             .flex_none()
@@ -4170,9 +4208,10 @@ impl MetalSharpApp {
     fn render_game_settings(
         &self,
         game: &LibGame,
-        open_left: bool,
+        placement: SettingsPlacement,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
+        let open_left = placement.open_left;
         let muted = if self.theme == PreviewTheme::Light {
             0x000000
         } else {
@@ -4184,16 +4223,12 @@ impl MetalSharpApp {
             .absolute()
             // Beside the gear button with the panel's bottom level with the
             // button's, so it rises over the hero art instead of covering the
-            // dock's cards: to the right, or to the left when the window is
-            // too narrow for it there.
+            // dock's cards: to the right, narrower in a small window, and to the
+            // left only when there is no room for it there.
             .bottom(px(0.0))
             .when(!open_left, |menu| menu.left(relative(1.0)).ml(px(10.0)))
             .when(open_left, |menu| menu.right(relative(1.0)).mr(px(10.0)))
-            .w(px(if crate::variant::is_fex() {
-                GAME_SETTINGS_WIDTH
-            } else {
-                365.0
-            }))
+            .w(px(placement.width))
             .flex()
             .flex_col()
             .gap(px(12.0))
@@ -4256,8 +4291,8 @@ impl MetalSharpApp {
                 .cursor_pointer()
                 .child(text)
         };
-        // FEX lays the settings out two per line; the regular build keeps one per line.
-        let two_columns = crate::variant::is_fex();
+        // FEX lays the settings out two per line when the panel has room; otherwise one per line.
+        let two_columns = placement.two_columns;
         let row = |label: &'static str, options: gpui::Div| {
             div()
                 .when(two_columns, |cell| cell.flex_1().min_w_0())
@@ -4366,7 +4401,7 @@ impl MetalSharpApp {
                 ),
             ));
         }
-        if game.installed && !game.has_native_build {
+        if game.installed && !game.needs_install && !game.has_native_build {
             let executable_name = game
                 .executable_path
                 .as_deref()

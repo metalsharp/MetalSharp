@@ -1504,6 +1504,8 @@ impl MetalSharpApp {
                     source: Some(entry.source.to_owned()),
                     external_id: Some(entry.id),
                     art_key: Some(entry.art_key),
+                    preferred_pipeline: entry.engine,
+                    executable_path: entry.executable,
                     needs_install: !entry.installed,
                     ..Default::default()
                 }
@@ -2136,6 +2138,13 @@ impl MetalSharpApp {
                             }
                         }
                         toast::success(cx, format!("{}: launch executable saved", game.name));
+                        // GOG's entries come from the Sharp Library's list: reload it so the deck
+                        // keeps the new executable.
+                        if game.page() == LibraryPage::Gog {
+                            if let Some(sharp) = this.sharp_preview.clone() {
+                                sharp.update(cx, |sharp, cx| sharp.reload(cx));
+                            }
+                        }
                         cx.notify();
                     },
                 );
@@ -2158,6 +2167,35 @@ impl MetalSharpApp {
             game.launch_method().to_owned()
         };
         if !self.live.enabled {
+            return;
+        }
+        // GOG keeps each game's engine in the Sharp Library (gpui-gog-engines.json).
+        if game.page() == LibraryPage::Gog {
+            let (Some(id), Some(sharp)) = (game.external_id.clone(), self.sharp_preview.clone())
+            else {
+                return;
+            };
+            if pipeline.is_empty() || pipeline == self.live.selected_pipeline {
+                return;
+            }
+            self.live.selected_pipeline = pipeline.clone();
+            for list in [&mut self.games, &mut self.live.library] {
+                if let Some(entry) = list.iter_mut().find(|g| g.key() == game.key()) {
+                    entry.preferred_pipeline = Some(pipeline.clone());
+                }
+            }
+            sharp.update(cx, |sharp, cx| {
+                sharp.deck_set_engine("gog", &id, pipeline.clone(), cx)
+            });
+            toast::success(
+                cx,
+                format!(
+                    "{}: {} selected",
+                    game.name,
+                    library_model::pipeline_label(&pipeline)
+                ),
+            );
+            cx.notify();
             return;
         }
         if collection {
