@@ -284,6 +284,22 @@ impl SharpPreview {
         }
     }
 
+    /// Uninstall an installed GOG or Epic game: only its files go (its prefix or bottle, saves and
+    /// library entry stay).
+    pub fn deck_uninstall(
+        &mut self,
+        source: &str,
+        id: &str,
+        title: String,
+        cx: &mut Context<Self>,
+    ) {
+        match source {
+            "gog" => self.uninstall_gog_game(id.to_owned(), title, cx),
+            "epic" => self.uninstall_epic_game(id.to_owned(), title, cx),
+            _ => {}
+        }
+    }
+
     /// Reload every source after a launcher was uninstalled.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         if self.live.is_some() {

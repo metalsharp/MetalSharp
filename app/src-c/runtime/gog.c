@@ -1750,35 +1750,65 @@ static bool append_game(const char* home, const char* raw) {
     ms_json_free(a);
     return ok;
 }
-static bool remove_game(const char* home, const char* id) {
+/* The owned game id, kept in the library as not installed (its title, art and engine stay): its
+ * install fields are cleared. Returns the updated entry (malloc'd), NULL when it isn't listed. */
+static char* mark_game_uninstalled(const char* home, const char* id) {
     ms_json *a = load_games(home), *newa;
     ms_json_writer w;
-    char* serial;
+    char *serial, *updated = NULL;
     char e[64];
-    bool found = false, ok = false;
+    bool ok = false;
     if (!a)
-        return false;
+        return NULL;
     ms_json_writer_init(&w);
     ms_json_writer_array_begin(&w);
     for (size_t i = 0; i < ms_json_array_length(a); i++) {
-        char* game_id = field(ms_json_array_get(a, i), "productId", "");
-        if (!strcmp(game_id, id))
-            found = true;
-        else {
-            char* old = ms_json_stringify(ms_json_array_get(a, i));
+        const ms_json* game = ms_json_array_get(a, i);
+        char* game_id = field(game, "productId", "");
+        if (strcmp(game_id, id) || updated) {
+            char* old = ms_json_stringify(game);
             ms_json_writer_raw(&w, old ? old : "{}");
             free(old);
+        } else {
+            ms_json_writer entry;
+            ms_json_writer_init(&entry);
+            ms_json_writer_object_begin(&entry);
+            for (size_t k = 0; k < ms_json_object_length(game); k++) {
+                const char* key = ms_json_object_key_at(game, k);
+                ms_json_writer_key(&entry, key);
+                if (!strcmp(key, "installed") || !strcmp(key, "running"))
+                    ms_json_writer_bool(&entry, false);
+                else if (!strcmp(key, "status"))
+                    ms_json_writer_string(&entry, "not_installed");
+                else if (!strcmp(key, "installRoot") || !strcmp(key, "gameFolder") ||
+                         !strcmp(key, "executablePath") || !strcmp(key, "primaryExe") ||
+                         !strcmp(key, "lastLaunchPid") || !strcmp(key, "lastInstallPid") ||
+                         !strcmp(key, "diskSizeBytes"))
+                    ms_json_writer_null(&entry);
+                else {
+                    char* value = ms_json_stringify(ms_json_object_value_at(game, k));
+                    ms_json_writer_raw(&entry, value ? value : "null");
+                    free(value);
+                }
+            }
+            ms_json_writer_object_end(&entry);
+            updated = ms_json_writer_take(&entry);
+            ms_json_writer_raw(&w, updated ? updated : "{}");
         }
         free(game_id);
     }
     ms_json_writer_array_end(&w);
     serial = ms_json_writer_take(&w);
     newa = serial ? ms_json_parse(serial, strlen(serial), e, sizeof(e)) : NULL;
-    ok = found && newa && save_games(home, newa);
+    ok = updated && newa && save_games(home, newa);
     free(serial);
     ms_json_free(newa);
     ms_json_free(a);
-    return ok;
+    if (!ok) {
+        free(updated);
+        return NULL;
+    }
+    return updated;
 }
 
 static char* single_game_json(const char* home, const char* id) {
@@ -2245,18 +2275,18 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
                 ms_json_free(j);
                 return err("failed to clear GOG download manifest");
             }
-            bool ok = remove_game(home, s);
+            /* Only the game goes: the prefix, saves, sign-in and the library entry stay. */
+            char* removed_game = mark_game_uninstalled(home, s);
             char* removed_path = folder ? strdup(folder) : NULL;
             free(folder);
             free(root);
             ms_json_free(games);
-            if (!ok) {
+            if (!removed_game) {
                 free(s);
                 ms_json_free(j);
                 free(removed_path);
                 return err("game not found");
             }
-            char* removed_game = game_json(s, s, "not_installed");
             ms_json_writer response;
             free(s);
             ms_json_free(j);

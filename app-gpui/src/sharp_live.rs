@@ -1175,7 +1175,7 @@ impl SharpPreview {
         );
     }
 
-    fn uninstall_gog_game(&mut self, id: String, title: String, cx: &mut Context<Self>) {
+    pub(super) fn uninstall_gog_game(&mut self, id: String, title: String, cx: &mut Context<Self>) {
         self.live_mut()
             .gog_loading
             .insert(format!("{id}:uninstall"));
@@ -1773,7 +1773,12 @@ impl SharpPreview {
         );
     }
 
-    fn uninstall_epic_game(&mut self, app: String, title: String, cx: &mut Context<Self>) {
+    pub(super) fn uninstall_epic_game(
+        &mut self,
+        app: String,
+        title: String,
+        cx: &mut Context<Self>,
+    ) {
         self.live_mut()
             .epic_loading
             .insert(format!("{app}:uninstall"));

@@ -683,6 +683,8 @@ pub struct MetalSharpApp {
     art_menu: Option<ArtMenuAnchor>,
     /// Drive choice shown before a launcher or GOG/Epic prefix is set up.
     drive_prompt: Option<drive_impl::DrivePrompt>,
+    /// An installed GOG or Epic game waiting on "Uninstall <game>?".
+    game_uninstall_prompt: Option<LibGame>,
     uninstall_prompt: Option<drive_impl::UninstallPrompt>,
     hovered_card: Option<usize>,
     active_tab: LibraryTab,
@@ -746,6 +748,7 @@ impl MetalSharpApp {
             game_settings_open: false,
             art_menu: None,
             drive_prompt: None,
+            game_uninstall_prompt: None,
             uninstall_prompt: None,
             hovered_card: None,
             active_tab: LibraryTab::Play,
@@ -1963,6 +1966,10 @@ impl MetalSharpApp {
             .children(
                 self.render_game_settings_overlay(viewport, cx)
                     .map(|overlay| gpui::deferred(overlay).with_priority(140)),
+            )
+            .children(
+                self.render_game_uninstall_prompt(viewport, cx)
+                    .map(|prompt| gpui::deferred(prompt).with_priority(150)),
             )
             .children(
                 self.render_drive_prompt(viewport, cx)
@@ -4033,6 +4040,11 @@ impl MetalSharpApp {
                 .child(label)
         };
         let (card_game, hero_game, reset_game) = (game.clone(), game.clone(), game.clone());
+        let uninstall_game = (matches!(game.page(), LibraryPage::Gog | LibraryPage::Epic)
+            && game.installed
+            && !game.needs_install
+            && game.external_id.is_some())
+        .then(|| game.clone());
         div()
             .absolute()
             .top(px(layout.scaled(48.0)))
@@ -4076,6 +4088,136 @@ impl MetalSharpApp {
                     },
                 )),
             )
+            .children(uninstall_game.map(|game| {
+                item("art-menu-uninstall", "Uninstall…").on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        this.art_menu = None;
+                        this.game_uninstall_prompt = Some(game.clone());
+                        cx.notify();
+                    },
+                ))
+            }))
+    }
+
+    /// "Uninstall <game>?" for a GOG or Epic game, centred over the window.
+    fn render_game_uninstall_prompt(
+        &self,
+        viewport: gpui::Size<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Stateful<gpui::Div>> {
+        let game = self.game_uninstall_prompt.clone()?;
+        let layout = LibraryLayout::for_viewport(viewport.width.into(), viewport.height.into());
+        let theme = self.theme;
+        let text_color = theme.control_text();
+        let keeps = if game.page() == LibraryPage::Epic {
+            "Only the game's files are deleted. Its bottle (saves and settings) and your Epic library stay."
+        } else {
+            "Only the game's folder is deleted. The GOG prefix (saves and settings) and your GOG library stay."
+        };
+        let button = |id: &'static str, label: &'static str, primary: bool| {
+            div()
+                .id(id)
+                .px(px(layout.scaled(14.0)))
+                .py(px(layout.scaled(7.0)))
+                .rounded(px(layout.scaled(7.0)))
+                .text_size(px(layout.scaled(13.0)))
+                .when(primary, |b| b.bg(rgb(0xb3261e)).text_color(rgb(0xffffff)))
+                .when(!primary, |b| b.text_color(rgb(text_color)))
+                .cursor_pointer()
+                .hover(move |style| {
+                    if primary {
+                        style.bg(rgb(0xc9372c))
+                    } else {
+                        style.bg(rgb(theme.menu_hover()))
+                    }
+                })
+                .child(label)
+        };
+        let confirm = game.clone();
+        let panel =
+            div()
+                .id("game-uninstall-prompt")
+                .occlude()
+                .w(px(layout.scaled(440.0)))
+                .flex()
+                .flex_col()
+                .gap(px(layout.scaled(14.0)))
+                .p(px(layout.scaled(22.0)))
+                .rounded(px(layout.scaled(12.0)))
+                .border_1()
+                .border_color(rgba(theme.page_palette().control_border))
+                .bg(rgb(theme.menu_bg()))
+                .shadow_lg()
+                .child(
+                    div()
+                        .text_size(px(layout.scaled(18.0)))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(rgb(text_color))
+                        .child(format!("Uninstall {}?", game.name)),
+                )
+                .child(
+                    div()
+                        .text_size(px(layout.scaled(12.5)))
+                        .line_height(px(layout.scaled(18.0)))
+                        .text_color(rgb(0xaeb3b2))
+                        .child(keeps),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .justify_end()
+                        .gap(px(layout.scaled(8.0)))
+                        .child(button("game-uninstall-cancel", "Cancel", false).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.game_uninstall_prompt = None;
+                                cx.notify();
+                            }),
+                        ))
+                        .child(
+                            button("game-uninstall-confirm", "Uninstall", true).on_click(
+                                cx.listener(move |this, _, _, cx| {
+                                    this.game_uninstall_prompt = None;
+                                    let (Some(id), Some(sharp)) =
+                                        (confirm.external_id.clone(), this.sharp_preview.clone())
+                                    else {
+                                        return;
+                                    };
+                                    let source = confirm.source.clone().unwrap_or_default();
+                                    let title = confirm.name.clone();
+                                    sharp.update(cx, |sharp, cx| {
+                                        sharp.deck_uninstall(&source, &id, title, cx)
+                                    });
+                                    cx.notify();
+                                }),
+                            ),
+                        ),
+                );
+        Some(
+            div()
+                .id("game-uninstall-scrim")
+                .absolute()
+                .top(px(0.0))
+                .left(px(0.0))
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .occlude()
+                .child(
+                    div()
+                        .id("game-uninstall-backdrop")
+                        .absolute()
+                        .top(px(0.0))
+                        .left(px(0.0))
+                        .size_full()
+                        .bg(rgba(0x000000a0))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.game_uninstall_prompt = None;
+                            cx.notify();
+                        })),
+                )
+                .child(panel),
+        )
     }
 
     fn close_library_menus(&mut self) {
