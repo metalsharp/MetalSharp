@@ -223,6 +223,8 @@ pub struct SharpPreview {
     state: PreviewState,
     focus: Option<gpui::FocusHandle>,
     live: Option<sharp_live::SharpLive>,
+    /// Sources the picker offers; the app's sidebar page decides them.
+    sources: &'static [SharpSource],
 }
 impl SharpPreview {
     pub fn new() -> Self {
@@ -232,7 +234,29 @@ impl SharpPreview {
             state: PreviewState::default(),
             focus: None,
             live: None,
+            sources: &SharpSource::ALL,
         }
+    }
+    /// Show one sidebar page's source: "gog", "epic", or "installers"
+    /// (Windows Programs, which also offers GameJolt).
+    pub fn show_source(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.sources = match id {
+            "gog" => &[SharpSource::Gog],
+            "epic" => &[SharpSource::Epic],
+            _ => &[SharpSource::Installers, SharpSource::GameJolt],
+        };
+        if self.sources.contains(&self.state.source) {
+            return;
+        }
+        let choice = self.sources[0];
+        self.state.choose(choice);
+        if self.live.is_some() {
+            self.state.notice.clear();
+            if choice == SharpSource::Epic {
+                self.refresh_epic(false, cx);
+            }
+        }
+        cx.notify();
     }
     fn source_menu(
         &self,
@@ -247,7 +271,7 @@ impl SharpPreview {
             .flex()
             .flex_wrap()
             .gap(px(8.));
-        for choice in SharpSource::ALL {
+        for choice in self.sources.iter().copied() {
             let selected = choice == source;
             options = options.child(
                 div()
@@ -1229,7 +1253,8 @@ impl Render for SharpPreview {
             .gap(px(12.0));
         source_controls =
             source_controls.child(self.launch_settings_control(window.viewport_size(), cx));
-        controls = controls.child(source_controls.child(source_picker));
+        controls = controls
+            .child(source_controls.children((self.sources.len() > 1).then_some(source_picker)));
         controls = if stacked {
             controls.w_full().min_w_0()
         } else {

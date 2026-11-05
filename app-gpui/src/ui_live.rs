@@ -104,7 +104,6 @@ pub(super) struct LiveState {
     pub ubisoft_installing: bool,
     /// Ubisoft Connect was started with Launch Ubisoft, so the header's
     /// primary button is Stop Ubisoft until Connect stops or is seen closed.
-    pub ubisoft_primary: bool,
     pub library: Vec<LibGame>,
     pub library_loaded: bool,
     pub installed_count: usize,
@@ -157,26 +156,17 @@ pub(super) struct LiveState {
     pub steam_fix_busy: bool,
     icon_refresh_attempts: u32,
     icon_refresh_scheduled: bool,
-    featured_key: Option<(bool, u64)>,
+    featured_key: Option<(LibraryPage, u64)>,
     pub streaming: StreamingState,
     pub setup: SetupFlow,
 }
 
 impl LiveState {
-    /// Header shows Stop Ubisoft as its primary button (Steam moves into the
-    /// dropdown) while Connect, started by Launch Ubisoft, runs or installs.
-    pub(super) fn ubisoft_is_primary(&self) -> bool {
-        self.ubisoft_primary && (self.ubisoft_running || self.ubisoft_installing)
-    }
-
-    /// Apply an Ubisoft Connect status poll; a closed Connect restores Start Steam.
+    /// Apply an Ubisoft Connect status poll.
     fn apply_ubisoft_status(&mut self, installed: bool, running: bool, installing: bool) {
         self.ubisoft_installed = installed;
         self.ubisoft_running = running;
         self.ubisoft_installing = installing;
-        if !running && !installing {
-            self.ubisoft_primary = false;
-        }
     }
 }
 
@@ -202,7 +192,6 @@ impl Default for LiveState {
             ubisoft_installed: false,
             ubisoft_running: false,
             ubisoft_installing: false,
-            ubisoft_primary: false,
             library: Vec::new(),
             library_loaded: false,
             installed_count: 0,
@@ -349,6 +338,15 @@ impl MetalSharpApp {
             .get("windowSize")
             .and_then(|value| serde_json::from_value(value.clone()).ok())
             .unwrap_or_default();
+        self.sidebar_open = value
+            .get("sidebarOpen")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        self.page = value
+            .get("libraryPage")
+            .and_then(Value::as_str)
+            .and_then(LibraryPage::from_storage_id)
+            .unwrap_or_default();
         self.active_tab = self.home_tab();
         self.startup_video_seen = value
             .get("startupVideoSeen")
@@ -370,6 +368,8 @@ impl MetalSharpApp {
             "lowPerformanceMode": self.low_performance,
             "libraryLayout": if self.library_grid { "grid" } else { "steamDeck" },
             "windowSize": self.window_size,
+            "libraryPage": self.page.storage_id(),
+            "sidebarOpen": self.sidebar_open,
             "startupVideoSeen": self.startup_video_seen,
             "defaultRulesApplied": self.live.default_rules_applied,
         });
@@ -1065,7 +1065,15 @@ impl MetalSharpApp {
 
     /// Recompute the displayed (installed, ordered) list and its artwork.
     pub(super) fn rebuild_display_games(&mut self, cx: &mut Context<Self>) {
-        let games = library_model::live_games(&self.live.library, &self.live.play_history);
+        let page = self.page;
+        let library: Vec<LibGame> = self
+            .live
+            .library
+            .iter()
+            .filter(|game| game.page() == page)
+            .cloned()
+            .collect();
+        let games = library_model::live_games(&library, &self.live.play_history);
         let previous = self.selected_key();
         self.games = games;
         if let Some(key) = previous {
@@ -1110,7 +1118,7 @@ impl MetalSharpApp {
         }
     }
 
-    pub(super) fn selected_key(&self) -> Option<(bool, u64)> {
+    pub(super) fn selected_key(&self) -> Option<(LibraryPage, u64)> {
         self.games.get(self.selected_game).map(LibGame::key)
     }
 
@@ -1396,7 +1404,7 @@ impl MetalSharpApp {
             return;
         }
         self.load_game_settings(cx);
-        if game.installed && !game.is_ubisoft() && !game.is_shortcut() {
+        if game.installed && game.page() == LibraryPage::Steam && !game.is_shortcut() {
             let appid = game.appid;
             live::call(
                 cx,
@@ -1405,7 +1413,7 @@ impl MetalSharpApp {
                 None,
                 live::DEFAULT_TIMEOUT,
                 move |this, result, cx| {
-                    if this.selected_key() != Some((false, appid)) {
+                    if this.selected_key() != Some((LibraryPage::Steam, appid)) {
                         return;
                     }
                     if let Some(result) = result.filter(is_ok) {
@@ -2006,7 +2014,6 @@ impl MetalSharpApp {
         if self.live.ubisoft_installing {
             return;
         }
-        self.launcher_menu_open = false;
         if self.live.ubisoft_running {
             live::call(
                 cx,
@@ -2018,7 +2025,6 @@ impl MetalSharpApp {
                     let ok = result.as_ref().is_some_and(is_ok);
                     if ok {
                         this.live.ubisoft_running = false;
-                        this.live.ubisoft_primary = false;
                     }
                     toast::show(
                         cx,
@@ -2050,11 +2056,9 @@ impl MetalSharpApp {
                     == Some(true);
                 if ok && installing {
                     this.live.ubisoft_installing = true;
-                    this.live.ubisoft_primary = true;
                     toast::info(cx, "Downloading and installing Ubisoft Connect…");
                 } else if ok {
                     this.live.ubisoft_running = true;
-                    this.live.ubisoft_primary = true;
                     toast::success(
                         cx,
                         if crate::variant::is_fex() {
@@ -3766,35 +3770,6 @@ pub(super) struct MigrationViewState {
     pub total: u64,
     pub message: String,
     pub error: String,
-}
-
-#[cfg(test)]
-mod ubisoft_header_tests {
-    use super::LiveState;
-
-    #[test]
-    fn launch_ubisoft_takes_the_primary_button_until_connect_closes() {
-        let mut live = LiveState::default();
-        assert!(!live.ubisoft_is_primary());
-
-        // Connect running without Launch Ubisoft (e.g. started for a game) keeps Start Steam.
-        live.apply_ubisoft_status(true, true, false);
-        assert!(!live.ubisoft_is_primary());
-
-        // Launch Ubisoft: the primary button becomes Stop Ubisoft, also while installing.
-        live.ubisoft_primary = true;
-        assert!(live.ubisoft_is_primary());
-        live.apply_ubisoft_status(false, false, true);
-        assert!(live.ubisoft_is_primary());
-        live.apply_ubisoft_status(true, true, false);
-        assert!(live.ubisoft_is_primary());
-
-        // Connect seen closed: Start Steam returns and stays after a later unrelated start.
-        live.apply_ubisoft_status(true, false, false);
-        assert!(!live.ubisoft_is_primary());
-        live.apply_ubisoft_status(true, true, false);
-        assert!(!live.ubisoft_is_primary());
-    }
 }
 
 #[cfg(test)]

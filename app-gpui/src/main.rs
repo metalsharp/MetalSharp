@@ -88,6 +88,14 @@ impl gpui::AssetSource for PreviewIcons {
                 "../assets/icon-collection.svg"
             ))),
             "icon-logs.svg" => Some(Cow::Borrowed(include_bytes!("../assets/icon-logs.svg"))),
+            "icon-sidebar.svg" => Some(Cow::Borrowed(include_bytes!("../assets/icon-sidebar.svg"))),
+            "icon-rockstar.svg" => {
+                Some(Cow::Borrowed(include_bytes!("../assets/icon-rockstar.svg")))
+            }
+            "icon-battlenet.svg" => Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon-battlenet.svg"
+            ))),
+            "icon-windows.svg" => Some(Cow::Borrowed(include_bytes!("../assets/icon-windows.svg"))),
             "theme-moon.svg" => Some(Cow::Borrowed(include_bytes!("../assets/theme-moon.svg"))),
             "theme-sun.svg" => Some(Cow::Borrowed(include_bytes!("../assets/theme-sun.svg"))),
             "theme-dragonfruit.svg" => Some(Cow::Borrowed(include_bytes!(
@@ -125,6 +133,10 @@ impl gpui::AssetSource for PreviewIcons {
             "icon-sharp.svg".into(),
             "icon-collection.svg".into(),
             "icon-logs.svg".into(),
+            "icon-sidebar.svg".into(),
+            "icon-rockstar.svg".into(),
+            "icon-battlenet.svg".into(),
+            "icon-windows.svg".into(),
             "theme-moon.svg".into(),
             "theme-sun.svg".into(),
             "theme-dragonfruit.svg".into(),

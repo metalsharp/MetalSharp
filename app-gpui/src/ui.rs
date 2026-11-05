@@ -1,4 +1,4 @@
-use crate::library_model::{self, LibGame};
+use crate::library_model::{self, LibGame, LibraryPage};
 #[path = "library_layout.rs"]
 mod library_layout;
 use gpui::{
@@ -572,26 +572,17 @@ fn chrome_bar(theme: PreviewTheme, hairline_at_bottom: bool) -> gpui::Div {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+enum LauncherAction {
+    Steam,
+    Ubisoft,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum LibraryTab {
     Play,
     Collection,
     SharpLibrary,
     Logs,
-}
-
-impl LibraryTab {
-    fn icon(self, size: f32, color: u32) -> gpui::Svg {
-        gpui::svg()
-            .path(match self {
-                Self::Play => "icon-gamepad.svg",
-                Self::Collection => "icon-collection.svg",
-                Self::SharpLibrary => "icon-sharp.svg",
-                Self::Logs => "icon-logs.svg",
-            })
-            .flex_none()
-            .size(px(size))
-            .text_color(rgb(color))
-    }
 }
 
 fn preview_games() -> Vec<LibGame> {
@@ -616,9 +607,10 @@ pub struct MetalSharpApp {
     show_setup: bool,
     theme: PreviewTheme,
     theme_menu_open: bool,
-    tab_menu_open: bool,
-    launcher_menu_open: bool,
     steam_options_open: bool,
+    page: LibraryPage,
+    sidebar_open: bool,
+    page_top_inset: f32,
     settings_open: bool,
     settings_preview: Option<gpui::Entity<crate::settings_preview::SettingsPreview>>,
     streaming_open: bool,
@@ -636,7 +628,7 @@ pub struct MetalSharpApp {
     selected_game: usize,
     dock_start: usize,
     pipeline_menu_open: bool,
-    collection_menu: Option<(bool, u64)>,
+    collection_menu: Option<(LibraryPage, u64)>,
     collection_view: CollectionView,
     steamcmd_modal: Option<SteamcmdModal>,
     steamcmd_inputs: Option<[gpui::Entity<crate::search_input::SearchInput>; 3]>,
@@ -674,9 +666,10 @@ impl MetalSharpApp {
             show_setup: false,
             theme: PreviewTheme::Dark,
             theme_menu_open: false,
-            tab_menu_open: false,
-            launcher_menu_open: false,
             steam_options_open: false,
+            page: LibraryPage::Steam,
+            sidebar_open: true,
+            page_top_inset: 0.0,
             settings_open: false,
             settings_preview: None,
             streaming_open: false,
@@ -1529,7 +1522,17 @@ impl MetalSharpApp {
                 logs.set_active(active, cx);
             });
         }
-        let show_search = matches!(self.active_tab, LibraryTab::Play | LibraryTab::Collection);
+        let show_search = self.page != LibraryPage::Logs
+            && matches!(self.active_tab, LibraryTab::Play | LibraryTab::Collection);
+        let sidebar_width = if self.sidebar_open {
+            layout.scaled(212.0)
+        } else {
+            0.0
+        };
+        let content_viewport = gpui::size(viewport.width - px(sidebar_width), viewport.height);
+        // Pages run up under the transparent header and the launcher row.
+        let top_inset = layout.header_height + self.page_toolbar_height(layout);
+        self.page_top_inset = top_inset;
         if self.search_input.is_none() {
             let input = cx.new(crate::search_input::SearchInput::new);
             cx.observe(&input, |this, input, cx| {
@@ -1562,18 +1565,9 @@ impl MetalSharpApp {
                 0xaaaaaa
             };
         });
-        let control_bg = theme.control_bg();
         let control_text = theme.control_text();
         let control_border = rgba(theme.page_palette().control_border);
-        let current_tab_label = match self.active_tab {
-            LibraryTab::Play => "Play",
-            LibraryTab::Collection => "Collection",
-            LibraryTab::SharpLibrary => "Sharp Library",
-            LibraryTab::Logs => "Logs",
-        };
-
         let mut theme_menu = None;
-        let mut tab_menu = None;
         let mut steam_menu = None;
         if self.theme_menu_open {
             let mut menu = div()
@@ -1627,89 +1621,16 @@ impl MetalSharpApp {
             theme_menu = Some(gpui::deferred(menu.id("theme_menu").occlude()).with_priority(10));
         }
 
-        if self.tab_menu_open {
-            let options = [
-                (LibraryTab::Play, "Play"),
-                (LibraryTab::Collection, "Collection"),
-                (LibraryTab::SharpLibrary, "Sharp Library"),
-                (LibraryTab::Logs, "Logs"),
-            ];
-            let mut menu = div()
+        if self.steam_options_open && self.page == LibraryPage::Steam {
+            let (label, disabled) = if self.live.steam_fix_busy {
+                ("Fixing Steam...", true)
+            } else {
+                ("Fix Steam", false)
+            };
+            let menu = div()
                 .absolute()
                 .top(px(layout.control_height + layout.scaled(6.0)))
-                .right(px(0.0))
-                .w(px(layout.scaled(174.0)))
-                .flex()
-                .flex_col()
-                .gap(px(2.0))
-                .rounded(px(layout.scaled(8.0)))
-                .border_1()
-                .border_color(control_border)
-                .bg(rgb(theme.menu_bg()))
-                .shadow_lg()
-                .p(px(6.0));
-            for (index, (tab, label)) in options.into_iter().enumerate() {
-                let selected = tab == self.active_tab;
-                menu = menu.child(
-                    div()
-                        .id(("library-tab-option", index))
-                        .h(px(layout.scaled(31.0)))
-                        .flex()
-                        .items_center()
-                        .gap(px(layout.scaled(8.0)))
-                        .px(px(9.0))
-                        .rounded(px(5.0))
-                        .bg(rgb(if selected {
-                            theme.menu_hover()
-                        } else {
-                            theme.menu_bg()
-                        }))
-                        .text_size(px(layout.scaled(12.0)))
-                        .text_color(rgb(control_text))
-                        .cursor_pointer()
-                        .hover(move |style| style.bg(rgb(theme.menu_hover())))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.active_tab = tab;
-                            this.tab_menu_open = false;
-                            cx.notify();
-                        }))
-                        .child(tab.icon(15.0, control_text))
-                        .child(label),
-                );
-            }
-            tab_menu = Some(gpui::deferred(menu.id("tab_menu").occlude()).with_priority(10));
-        }
-
-        let steam_pending = self.live.steam_pending;
-        let steam_running = if self.live.enabled {
-            self.live.wine_steam_running
-        } else {
-            self.steam_running
-        };
-        let steam_label = match steam_pending {
-            Some(SteamPending::Starting) => "Starting Steam…",
-            Some(SteamPending::Stopping) => "Stopping Steam…",
-            None if steam_running => "Stop Steam",
-            None => "Start Steam",
-        };
-        let (ubisoft_label, ubisoft_disabled): (&str, bool) = if self.live.ubisoft_installing {
-            ("Installing Ubisoft Connect…", true)
-        } else if self.live.ubisoft_running {
-            ("Stop Ubisoft", false)
-        } else {
-            ("Launch Ubisoft", false)
-        };
-        // After Launch Ubisoft, the primary button is Stop Ubisoft and the
-        // dropdown carries the Steam action until Connect stops or closes.
-        let ubisoft_primary = self.live.ubisoft_is_primary();
-
-        if self.launcher_menu_open || self.steam_options_open {
-            let is_launcher = self.launcher_menu_open;
-            let steam_in_menu = is_launcher && ubisoft_primary;
-            let mut menu = div()
-                .absolute()
-                .top(px(layout.control_height + layout.scaled(6.0)))
-                .right(px(if is_launcher { 27.0 } else { 0.0 }))
+                .left(px(0.0))
                 .min_w(px(layout.scaled(178.0)))
                 .flex()
                 .flex_col()
@@ -1719,70 +1640,55 @@ impl MetalSharpApp {
                 .border_color(control_border)
                 .bg(rgb(theme.menu_bg()))
                 .shadow_lg()
-                .p(px(5.0));
-            let (label, disabled): (&str, bool) = if steam_in_menu {
-                (steam_label, steam_pending.is_some())
-            } else if is_launcher {
-                (ubisoft_label, ubisoft_disabled)
-            } else if self.live.steam_fix_busy {
-                ("Fixing Steam...", true)
-            } else {
-                ("Fix Steam", false)
-            };
-            menu = menu.child(
-                div()
-                    .id("steam-menu-option")
-                    .h(px(30.0))
-                    .flex()
-                    .items_center()
-                    .gap(px(layout.scaled(8.0)))
-                    .px(px(layout.scaled(10.0)))
-                    .rounded(px(5.0))
-                    .text_size(px(layout.scaled(12.5)))
-                    .text_color(rgb(control_text))
-                    .opacity(if disabled { 0.5 } else { 1.0 })
-                    .cursor_pointer()
-                    .hover(|style| style.bg(rgb(theme.menu_hover())))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if steam_in_menu {
-                            this.close_library_menus();
-                            this.toggle_steam(false, cx);
-                        } else if is_launcher {
-                            this.toggle_ubisoft(cx);
-                        } else {
+                .p(px(5.0))
+                .child(
+                    div()
+                        .id("steam-menu-option")
+                        .h(px(30.0))
+                        .flex()
+                        .items_center()
+                        .gap(px(layout.scaled(8.0)))
+                        .px(px(layout.scaled(10.0)))
+                        .rounded(px(5.0))
+                        .text_size(px(layout.scaled(12.5)))
+                        .text_color(rgb(control_text))
+                        .opacity(if disabled { 0.5 } else { 1.0 })
+                        .cursor_pointer()
+                        .hover(|style| style.bg(rgb(theme.menu_hover())))
+                        .on_click(cx.listener(move |this, _, _, cx| {
                             this.run_steam_fix(cx);
-                        }
-                        this.launcher_menu_open = false;
-                        this.steam_options_open = false;
-                        cx.notify();
-                    }))
-                    .children(is_launcher.then(|| {
-                        gpui::svg()
-                            .path(if steam_in_menu {
-                                "icon-steam.svg"
-                            } else {
-                                "icon-ubisoft.svg"
-                            })
-                            .flex_none()
-                            .size(px(layout.scaled(15.0)))
-                            .text_color(rgb(control_text))
-                    }))
-                    .child(label.to_owned()),
-            );
+                            this.steam_options_open = false;
+                            cx.notify();
+                        }))
+                        .child(label),
+                );
             steam_menu = Some(gpui::deferred(menu.id("steam_menu").occlude()).with_priority(10));
         }
 
-        let mut header = chrome_bar(theme, true)
-            .w_full()
-            .flex_none()
+        // The header has no fill or divider: the logo, search and the theme
+        // and settings icons sit directly on the page's hero art.
+        let plain_icon = |id: &'static str| {
+            div()
+                .id(id)
+                .size(px(layout.control_height))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(layout.scaled(8.0)))
+                .text_color(rgb(0xffffff))
+                .cursor_pointer()
+                .hover(|style| style.bg(rgba(0xffffff1f)))
+        };
+        let header = div()
+            .absolute()
+            .top(px(0.0))
+            .left(px(0.0))
+            .right(px(0.0))
             .h(px(layout.header_height))
-            .min_h(px(layout.header_height))
             .flex()
             .items_center()
             .gap(px(layout.scaled(10.0)))
-            .px(px(layout.page_padding));
-
-        header = header
+            .px(px(layout.page_padding))
             .child(
                 div()
                     .flex()
@@ -1797,126 +1703,21 @@ impl MetalSharpApp {
                             .size(px(layout.scaled(27.0)))
                             .object_fit(ObjectFit::Contain),
                     )
-                    .children((!layout.compact).then(|| div().child("MetalSharp"))),
-            )
-            .child(
-                div()
-                    .relative()
-                    .flex()
-                    .flex_none()
+                    .children((!layout.compact).then(|| div().child("MetalSharp")))
                     .child(
-                        div()
-                            .id("library-steam-button")
-                            .h(px(layout.control_height))
-                            .flex()
-                            .items_center()
-                            .gap(px(layout.scaled(8.0)))
-                            .px(px(layout.scaled(15.0)))
-                            .rounded_tl(px(layout.scaled(8.0)))
-                            .rounded_bl(px(layout.scaled(8.0)))
-                            .border_1()
-                            .border_color(control_border)
-                            .text_size(px(layout.scaled(13.0)))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgb(0xffffff))
-                            .when(
-                                if ubisoft_primary {
-                                    ubisoft_disabled
-                                } else {
-                                    steam_pending.is_some()
-                                },
-                                |d| d.opacity(0.7),
-                            )
-                            .when(
-                                if ubisoft_primary {
-                                    !ubisoft_disabled
-                                } else {
-                                    steam_pending.is_none()
-                                },
-                                |d| d.cursor_pointer(),
-                            )
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.close_library_menus();
-                                if ubisoft_primary {
-                                    this.toggle_ubisoft(cx);
-                                } else {
-                                    this.toggle_steam(false, cx);
-                                }
-                            }))
-                            .child(
-                                gpui::svg()
-                                    .path(if ubisoft_primary {
-                                        "icon-ubisoft.svg"
-                                    } else {
-                                        "icon-steam.svg"
-                                    })
-                                    .flex_none()
-                                    .size(px(layout.scaled(17.0)))
-                                    .text_color(rgb(0xffffff)),
-                            )
-                            .child(if ubisoft_primary {
-                                ubisoft_label
-                            } else {
-                                steam_label
-                            }),
-                    )
-                    .child(
-                        div()
-                            .id("library-launcher-menu-toggle")
-                            .h(px(layout.control_height))
-                            .w(px(layout.control_height * 0.75))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .border_1()
-                            .border_l_0()
-                            .border_color(control_border)
-                            .bg(rgb(control_bg))
-                            .text_color(rgb(control_text))
-                            .cursor_pointer()
+                        plain_icon("library-sidebar-toggle")
                             .on_click(cx.listener(|this, _, _, cx| {
-                                let open = !this.launcher_menu_open;
                                 this.close_library_menus();
-                                this.launcher_menu_open = open;
-                                this.steam_options_open = false;
+                                this.sidebar_open = !this.sidebar_open;
+                                this.save_ui_state(cx);
                                 cx.notify();
                             }))
                             .child(control_icon(
-                                "icon-chevron-down.svg",
-                                layout.scaled(18.0),
-                                control_text,
-                            )),
-                    )
-                    .child(
-                        div()
-                            .id("library-steam-options-toggle")
-                            .h(px(layout.control_height))
-                            .w(px(layout.control_height))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_tr(px(layout.scaled(8.0)))
-                            .rounded_br(px(layout.scaled(8.0)))
-                            .border_1()
-                            .border_l_0()
-                            .border_color(control_border)
-                            .bg(rgb(control_bg))
-                            .text_color(rgb(control_text))
-                            .cursor_pointer()
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                let open = !this.steam_options_open;
-                                this.close_library_menus();
-                                this.steam_options_open = open;
-                                this.launcher_menu_open = false;
-                                cx.notify();
-                            }))
-                            .child(control_icon(
-                                "launch-settings.svg",
-                                layout.scaled(20.0),
+                                "icon-sidebar.svg",
+                                layout.scaled(19.0),
                                 0xffffff,
                             )),
-                    )
-                    .children(steam_menu),
+                    ),
             )
             .child(if show_search {
                 div()
@@ -1939,14 +1740,10 @@ impl MetalSharpApp {
                             .px(px(layout.scaled(12.0)))
                             .rounded(px(layout.scaled(8.0)))
                             .border_1()
-                            .border_color(control_border)
-                            .bg(rgb(control_bg))
+                            .border_color(rgba(0xe7eaec40))
+                            .bg(rgba(0x0c0f10a6))
                             .text_size(px(layout.scaled(14.0)))
-                            .text_color(rgb(if theme == PreviewTheme::Light {
-                                0x000000
-                            } else {
-                                0xaaaaaa
-                            }))
+                            .text_color(rgb(0xaaaaaa))
                             .cursor(gpui::CursorStyle::IBeam)
                             .on_click(cx.listener(|this, _, window, cx| {
                                 if let Some(input) = &this.search_input {
@@ -1970,24 +1767,11 @@ impl MetalSharpApp {
                     .relative()
                     .flex_none()
                     .child(
-                        div()
-                            .id("library-theme-toggle")
-                            .h(px(layout.control_height))
-                            .w(px(layout.control_height))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(5.0))
-                            .border_1()
-                            .border_color(control_border)
-                            .text_size(px(layout.scaled(17.0)))
-                            .text_color(rgb(0xffffff))
-                            .cursor_pointer()
+                        plain_icon("library-theme-toggle")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 let open = !this.theme_menu_open;
                                 this.close_library_menus();
                                 this.theme_menu_open = open;
-                                this.tab_menu_open = false;
                                 cx.notify();
                             }))
                             .child(theme.render_icon(0xffffff, layout.scaled(20.0))),
@@ -1995,69 +1779,27 @@ impl MetalSharpApp {
                     .children(theme_menu),
             )
             .child(
-                div()
-                    .relative()
-                    .flex_none()
-                    .child(
-                        div()
-                            .id("library-tab-toggle")
-                            .h(px(layout.control_height))
-                            .flex()
-                            .items_center()
-                            .gap(px(layout.scaled(8.0)))
-                            .px(px(layout.scaled(13.0)))
-                            .rounded(px(7.0))
-                            .border_1()
-                            .border_color(control_border)
-                            .text_size(px(layout.scaled(13.0)))
-                            .text_color(rgb(0xffffff))
-                            .cursor_pointer()
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                let open = !this.tab_menu_open;
-                                this.close_library_menus();
-                                this.tab_menu_open = open;
-                                this.theme_menu_open = false;
-                                cx.notify();
-                            }))
-                            .child(self.active_tab.icon(layout.scaled(16.0), 0xffffff))
-                            .child(current_tab_label)
-                            .child(control_icon(
-                                "icon-chevron-down.svg",
-                                layout.scaled(18.0),
-                                0xffffff,
-                            )),
-                    )
-                    .children(tab_menu),
-            )
-            .child(
-                div().relative().flex_none().child(
-                    div()
-                        .id("library-settings-toggle")
-                        .size(px(layout.control_height))
-                        .ml(px(7.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(layout.scaled(8.0)))
-                        .border_1()
-                        .border_color(control_border)
-                        .text_size(px(layout.scaled(18.0)))
-                        .text_color(rgb(0xffffff))
-                        .cursor_pointer()
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.open_settings_preview(window, cx);
-                        }))
-                        .child(control_icon(
-                            "launch-settings.svg",
-                            layout.scaled(20.0),
-                            0xffffff,
-                        )),
-                ),
+                plain_icon("library-settings-toggle")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_settings_preview(window, cx);
+                    }))
+                    .child(control_icon(
+                        "launch-settings.svg",
+                        layout.scaled(20.0),
+                        0xffffff,
+                    )),
             );
 
+        let sidebar = self
+            .sidebar_open
+            .then(|| self.render_sidebar(layout, sidebar_width, cx));
+        let toolbar = self.render_page_toolbar(layout, steam_menu, cx);
+
         let body = match self.active_tab {
-            LibraryTab::Play => self.render_library_play(viewport, cx),
-            LibraryTab::Collection => self.render_library_collection(viewport, cx),
+            LibraryTab::Play => self.render_library_play(content_viewport, cx),
+            LibraryTab::Collection => self
+                .render_library_collection(content_viewport, cx)
+                .pt(px(top_inset)),
             LibraryTab::Logs => div()
                 .id("logs-page-body")
                 .relative()
@@ -2065,6 +1807,7 @@ impl MetalSharpApp {
                 .min_h_0()
                 .w_full()
                 .overflow_hidden()
+                .pt(px(top_inset))
                 .child(self.logs_preview.clone().unwrap()),
             LibraryTab::SharpLibrary => div()
                 .id("sharp-page-body")
@@ -2073,6 +1816,7 @@ impl MetalSharpApp {
                 .min_h_0()
                 .w_full()
                 .overflow_hidden()
+                .pt(px(top_inset))
                 .child(self.sharp_preview.clone().unwrap()),
         };
 
@@ -2088,8 +1832,27 @@ impl MetalSharpApp {
             .font_family("Rethink Sans")
             .bg(rgb(self.theme.page_bg()))
             .children(update_banner)
-            .child(header)
-            .child(body)
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .flex()
+                    .children(sidebar)
+                    .child(
+                        div()
+                            .relative()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .flex()
+                            .flex_col()
+                            .child(body)
+                            .children(toolbar),
+                    )
+                    .child(header),
+            )
             .child(footer)
             .children(
                 self.settings_open.then(|| {
@@ -2099,6 +1862,308 @@ impl MetalSharpApp {
             .children(self.streaming_open.then(|| {
                 gpui::deferred(self.render_streaming_overlay(viewport, cx)).with_priority(100)
             }))
+    }
+
+    /// Height of the per-page launcher row under the header, or 0 when the
+    /// page has none.
+    fn page_toolbar_height(&self, layout: LibraryLayout) -> f32 {
+        if self.page_launcher().is_some() || self.page.has_collection() {
+            layout.control_height + layout.scaled(14.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// The page's launcher button: (action, label, icon, busy).
+    fn page_launcher(&self) -> Option<(LauncherAction, &'static str, &'static str, bool)> {
+        match self.page {
+            LibraryPage::Steam => {
+                let running = if self.live.enabled {
+                    self.live.wine_steam_running
+                } else {
+                    self.steam_running
+                };
+                let label = match self.live.steam_pending {
+                    Some(SteamPending::Starting) => "Starting Steam…",
+                    Some(SteamPending::Stopping) => "Stopping Steam…",
+                    None if running => "Stop Steam",
+                    None => "Start Steam",
+                };
+                Some((
+                    LauncherAction::Steam,
+                    label,
+                    "icon-steam.svg",
+                    self.live.steam_pending.is_some(),
+                ))
+            }
+            LibraryPage::Ubisoft => {
+                let (label, busy) = if self.live.ubisoft_installing {
+                    ("Installing Ubisoft Connect…", true)
+                } else if self.live.ubisoft_running {
+                    ("Stop Ubisoft Connect", false)
+                } else if self.live.ubisoft_installed {
+                    ("Launch Ubisoft Connect", false)
+                } else {
+                    ("Install Ubisoft Connect", false)
+                };
+                Some((LauncherAction::Ubisoft, label, "icon-ubisoft.svg", busy))
+            }
+            _ => None,
+        }
+    }
+
+    fn run_launcher_action(&mut self, action: LauncherAction, cx: &mut Context<Self>) {
+        self.close_library_menus();
+        match action {
+            LauncherAction::Steam => self.toggle_steam(false, cx),
+            LauncherAction::Ubisoft => self.toggle_ubisoft(cx),
+        }
+        cx.notify();
+    }
+
+    fn set_page(&mut self, page: LibraryPage, cx: &mut Context<Self>) {
+        self.close_library_menus();
+        if self.page != page {
+            self.page = page;
+            self.selected_game = 0;
+            self.dock_start = 0;
+            self.rebuild_display_games(cx);
+        }
+        self.active_tab = if page == LibraryPage::Logs {
+            LibraryTab::Logs
+        } else {
+            self.home_tab()
+        };
+        self.sync_sharp_source(cx);
+        self.save_ui_state(cx);
+        cx.notify();
+    }
+
+    /// Library/Collection toggle of the Steam, GOG, Epic and Windows Programs pages.
+    fn set_page_collection(&mut self, collection: bool, cx: &mut Context<Self>) {
+        self.close_library_menus();
+        self.active_tab = match (collection, self.page.sharp_source()) {
+            (false, _) => LibraryTab::Play,
+            (true, Some(_)) => LibraryTab::SharpLibrary,
+            (true, None) => LibraryTab::Collection,
+        };
+        self.sync_sharp_source(cx);
+        cx.notify();
+    }
+
+    /// Point the Sharp Library view at the current page's source.
+    fn sync_sharp_source(&mut self, cx: &mut Context<Self>) {
+        let (Some(source), Some(sharp)) = (self.page.sharp_source(), &self.sharp_preview) else {
+            return;
+        };
+        sharp.update(cx, |sharp, cx| sharp.show_source(source, cx));
+    }
+
+    fn render_sidebar(
+        &self,
+        layout: LibraryLayout,
+        width: f32,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let theme = self.theme;
+        let accent = theme.accent();
+        let (ink, _) = theme.chrome_ink();
+        let item = |page: LibraryPage, index: usize, cx: &mut Context<Self>| {
+            let selected = page == self.page;
+            div()
+                .id(("sidebar-page", index))
+                .relative()
+                .h(px(layout.scaled(38.0)))
+                .flex()
+                .items_center()
+                .gap(px(layout.scaled(11.0)))
+                .px(px(layout.scaled(12.0)))
+                .rounded(px(layout.scaled(8.0)))
+                .text_size(px(layout.scaled(13.5)))
+                .font_weight(if selected {
+                    FontWeight::SEMIBOLD
+                } else {
+                    FontWeight::NORMAL
+                })
+                .text_color(rgb(if selected { 0xffffff } else { 0xc3cbd8 }))
+                .when(selected, |d| d.bg(rgba((accent << 8) | 0x2e)))
+                .cursor_pointer()
+                .hover(|style| style.bg(rgba(0xffffff14)))
+                .on_click(cx.listener(move |this, _, _, cx| this.set_page(page, cx)))
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(0.0))
+                        .top(px(layout.scaled(9.0)))
+                        .bottom(px(layout.scaled(9.0)))
+                        .w(px(3.0))
+                        .rounded(px(2.0))
+                        .when(selected, |d| d.bg(rgb(accent))),
+                )
+                .child(control_icon(
+                    page.icon(),
+                    layout.scaled(18.0),
+                    if selected { 0xffffff } else { 0xc3cbd8 },
+                ))
+                .child(page.label())
+        };
+        let mut pages = div().flex().flex_col().gap(px(layout.scaled(3.0)));
+        for (index, page) in LibraryPage::LAUNCHERS.into_iter().enumerate() {
+            pages = pages.child(item(page, index, cx));
+        }
+        div()
+            .id("library-sidebar")
+            .flex_none()
+            .w(px(width))
+            .h_full()
+            .flex()
+            .flex_col()
+            .pt(px(layout.header_height + layout.scaled(8.0)))
+            .pb(px(layout.scaled(12.0)))
+            .px(px(layout.scaled(10.0)))
+            .bg(rgba((ink << 8) | 0xf0))
+            .child(pages)
+            .child(div().flex_1())
+            .child(item(LibraryPage::Logs, LibraryPage::LAUNCHERS.len(), cx))
+    }
+
+    /// Launcher button and Library/Collection toggle under the header.
+    fn render_page_toolbar(
+        &self,
+        layout: LibraryLayout,
+        steam_menu: Option<gpui::Deferred>,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Div> {
+        let launcher = self.page_launcher();
+        if launcher.is_none() && !self.page.has_collection() {
+            return None;
+        }
+        let border = rgba(0xe7eaec4d);
+        let fill = rgba(0x0c0f10b8);
+        let mut row = div()
+            .absolute()
+            .top(px(layout.header_height))
+            .left(px(layout.page_padding))
+            .right(px(layout.page_padding))
+            .h(px(layout.control_height))
+            .flex()
+            .items_center()
+            .gap(px(layout.scaled(10.0)));
+        if let Some((action, label, icon, busy)) = launcher {
+            let is_steam = action == LauncherAction::Steam;
+            row = row.child(
+                div()
+                    .relative()
+                    .flex()
+                    .flex_none()
+                    .child(
+                        div()
+                            .id("library-launcher-button")
+                            .h(px(layout.control_height))
+                            .flex()
+                            .items_center()
+                            .gap(px(layout.scaled(8.0)))
+                            .px(px(layout.scaled(15.0)))
+                            .rounded_l(px(layout.scaled(8.0)))
+                            .when(!is_steam, |d| d.rounded_r(px(layout.scaled(8.0))))
+                            .border_1()
+                            .border_color(border)
+                            .bg(fill)
+                            .text_size(px(layout.scaled(13.0)))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(rgb(0xffffff))
+                            .when(busy, |d| d.opacity(0.7))
+                            .when(!busy, |d| {
+                                d.cursor_pointer().hover(|style| style.bg(rgba(0x1a1e22d0)))
+                            })
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if !busy {
+                                    this.run_launcher_action(action, cx);
+                                }
+                            }))
+                            .child(control_icon(icon, layout.scaled(17.0), 0xffffff))
+                            .child(label),
+                    )
+                    .children(is_steam.then(|| {
+                        div()
+                            .id("library-steam-options-toggle")
+                            .h(px(layout.control_height))
+                            .w(px(layout.control_height))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_r(px(layout.scaled(8.0)))
+                            .border_1()
+                            .border_l_0()
+                            .border_color(border)
+                            .bg(fill)
+                            .cursor_pointer()
+                            .hover(|style| style.bg(rgba(0x1a1e22d0)))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                let open = !this.steam_options_open;
+                                this.close_library_menus();
+                                this.steam_options_open = open;
+                                cx.notify();
+                            }))
+                            .child(control_icon(
+                                "launch-settings.svg",
+                                layout.scaled(19.0),
+                                0xffffff,
+                            ))
+                    }))
+                    .children(steam_menu),
+            );
+        }
+        if self.page.has_collection() {
+            let collection = matches!(
+                self.active_tab,
+                LibraryTab::Collection | LibraryTab::SharpLibrary
+            );
+            let segment = |id: &'static str, label: &'static str, on: bool, value: bool| {
+                div()
+                    .id(id)
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .px(px(layout.scaled(14.0)))
+                    .rounded(px(layout.scaled(6.0)))
+                    .text_size(px(layout.scaled(12.5)))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(rgb(if on { 0xffffff } else { 0xaab4c4 }))
+                    .when(on, |d| d.bg(rgba(0xffffff26)))
+                    .cursor_pointer()
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.set_page_collection(value, cx)),
+                    )
+                    .child(label)
+            };
+            row = row.child(
+                div()
+                    .flex_none()
+                    .h(px(layout.control_height))
+                    .flex()
+                    .items_center()
+                    .gap(px(2.0))
+                    .p(px(3.0))
+                    .rounded(px(layout.scaled(8.0)))
+                    .border_1()
+                    .border_color(border)
+                    .bg(fill)
+                    .child(segment(
+                        "library-view-library",
+                        "Library",
+                        !collection,
+                        false,
+                    ))
+                    .child(segment(
+                        "library-view-collection",
+                        "Collection",
+                        collection,
+                        true,
+                    )),
+            );
+        }
+        Some(row)
     }
 
     /// App.vue update banner.
@@ -2464,9 +2529,83 @@ impl MetalSharpApp {
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         let theme = self.theme;
-        let hero_height = (f32::from(viewport.height) * 0.54).clamp(300.0, 520.0);
+        let layout = LibraryLayout::for_viewport(viewport.width.into(), viewport.height.into());
+        let hero_height =
+            (f32::from(viewport.height) * 0.54).clamp(300.0, 520.0) + layout.header_height;
         let searching = !self.search_query.trim().is_empty() && !self.games.is_empty();
-        let starting = self.live.steam_pending == Some(SteamPending::Starting);
+        let description = match self.page {
+            LibraryPage::Steam => {
+                "Start Steam or install a game to see your real library here. MetalSharp will use the games already installed on this Mac."
+            }
+            LibraryPage::Ubisoft => {
+                "Games you install with Ubisoft Connect show up here. Ubisoft games you own on Steam stay on the Steam page."
+            }
+            LibraryPage::BattleNet => "Games you install with Battle.net show up here.",
+            LibraryPage::Rockstar => {
+                "Games you install with the Rockstar Games Launcher show up here. Rockstar games you own on Steam stay on the Steam page."
+            }
+            LibraryPage::Gog => "Install games from your GOG library in Collection.",
+            LibraryPage::Epic => "Install games from your Epic library in Collection.",
+            LibraryPage::WindowsPrograms => {
+                "Programs you install with a Windows installer, and your GameJolt games, show up here."
+            }
+            LibraryPage::Logs => "",
+        };
+        let button = |id: &'static str, label: &'static str, icon: &'static str, busy: bool| {
+            div()
+                .id(id)
+                .mt(px(8.0))
+                .min_w(px(204.0))
+                .h(px(48.0))
+                .px(px(18.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .gap(px(10.0))
+                .rounded(px(8.0))
+                .border_1()
+                .border_color(rgb(theme.border()))
+                .bg(rgb(theme.control_bg()))
+                .text_size(px(15.0))
+                .font_weight(FontWeight::BOLD)
+                .text_color(rgb(theme.control_text()))
+                .when(busy, |d| d.opacity(0.7))
+                .when(!busy, |d| {
+                    d.cursor_pointer()
+                        .hover(|style| style.bg(rgb(theme.control_hover())))
+                })
+                .child(
+                    gpui::svg()
+                        .path(icon)
+                        .flex_none()
+                        .size(px(20.0))
+                        .text_color(rgb(theme.control_text())),
+                )
+                .child(label)
+        };
+        let action = if let Some((action, label, icon, busy)) = self.page_launcher() {
+            Some(
+                button("library-empty-launcher", label, icon, busy).on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        if !busy {
+                            this.run_launcher_action(action, cx);
+                        }
+                    },
+                )),
+            )
+        } else if self.page.has_collection() {
+            Some(
+                button(
+                    "library-empty-collection",
+                    "Open Collection",
+                    self.page.icon(),
+                    false,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.set_page_collection(true, cx))),
+            )
+        } else {
+            None
+        };
         div()
             .id("library-empty-scroll")
             .flex_1()
@@ -2483,6 +2622,7 @@ impl MetalSharpApp {
                     .flex()
                     .items_center()
                     .justify_center()
+                    .pt(px(self.page_top_inset))
                     .bg(linear_gradient(
                         180.0,
                         linear_color_stop(rgb(self.theme.page_bg_raised()), 0.0),
@@ -2498,13 +2638,16 @@ impl MetalSharpApp {
                             .items_center()
                             .gap(px(12.0))
                             .text_center()
-                            .child(div().text_size(px(38.0)).text_color(rgb(0x9aa09e)).child("▦"))
+                            .child(control_icon(self.page.icon(), 38.0, 0x9aa09e))
                             .child(
                                 div()
                                     .text_size(px(11.0))
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(rgb(0xb9b0a1))
-                                    .child("YOUR LIBRARY AWAITS"),
+                                    .child(format!(
+                                        "YOUR {} LIBRARY",
+                                        self.page.label().to_uppercase()
+                                    )),
                             )
                             .child(
                                 div()
@@ -2518,44 +2661,9 @@ impl MetalSharpApp {
                                     .text_size(px(14.0))
                                     .line_height(px(21.0))
                                     .text_color(rgb(0xaeb3b2))
-                                    .child("Start Steam or install a game to see your real library here. MetalSharp will use the games already installed on this Mac."),
+                                    .child(description),
                             )
-                            .child(
-                                div()
-                                    .id("library-empty-start-steam")
-                                    .mt(px(8.0))
-                                    .w(px(204.0))
-                                    .h(px(48.0))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .gap(px(10.0))
-                                    .rounded(px(8.0))
-                                    .border_1()
-                                    .border_color(rgb(theme.border()))
-                                    .bg(rgb(theme.control_bg()))
-                                    .text_size(px(15.0))
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_color(rgb(theme.control_text()))
-                                    .when(starting, |d| d.opacity(0.7))
-                                    .when(!starting, |d| {
-                                        d.cursor_pointer()
-                                            .hover(|style| style.bg(rgb(theme.control_hover())))
-                                    })
-                                    .on_click(cx.listener(|this, _, _, cx| this.start_steam(true, cx)))
-                                    .child(
-                                        gpui::svg()
-                                            .path("icon-steam.svg")
-                                            .flex_none()
-                                            .size(px(20.0))
-                                            .text_color(rgb(theme.control_text())),
-                                    )
-                                    .child(if starting {
-                                        "Starting Steam…"
-                                    } else {
-                                        "Start Steam"
-                                    }),
-                            )
+                            .children(action)
                     }),
             )
     }
@@ -2570,7 +2678,10 @@ impl MetalSharpApp {
             return self.render_empty_hero(viewport, cx);
         }
         let layout = LibraryLayout::for_viewport(viewport.width.into(), viewport.height.into());
-        let hero_height = layout.hero_height;
+        // The hero runs up under the transparent header; its content starts
+        // below the header and the page's launcher row.
+        let top_inset = self.page_top_inset;
+        let hero_height = layout.hero_height + layout.header_height;
         let card_width = layout.dock_card_width;
         let card_height = layout.dock_card_height;
         let selected = if matches.contains(&self.selected_game) {
@@ -2596,12 +2707,18 @@ impl MetalSharpApp {
             .then(|| gpui::deferred(self.render_game_settings(&game, cx)).with_priority(20));
         let hero_art = self.art_path(&game, true, cx);
         let play_game = game.clone();
-        let badge = if game.is_ubisoft() {
-            Some("Ubisoft Connect")
-        } else if game.has_native_build {
+        let badge = if game.has_native_build {
             Some("Native macOS")
         } else {
-            Some("Windows · Steam library")
+            Some(match game.page() {
+                LibraryPage::Ubisoft => "Ubisoft Connect",
+                LibraryPage::BattleNet => "Battle.net",
+                LibraryPage::Rockstar => "Rockstar Games Launcher",
+                LibraryPage::Gog => "GOG",
+                LibraryPage::Epic => "Epic Games",
+                LibraryPage::WindowsPrograms => "Windows program",
+                LibraryPage::Steam | LibraryPage::Logs => "Windows · Steam library",
+            })
         };
         let hero = div()
             .relative()
@@ -2652,12 +2769,27 @@ impl MetalSharpApp {
                         linear_color_stop(rgb(self.theme.page_bg()), 1.0),
                     )),
             )
+            // Keeps the header and launcher row legible over bright art.
+            .child(
+                div()
+                    .absolute()
+                    .top(px(0.0))
+                    .right(px(0.0))
+                    .left(px(0.0))
+                    .h(px(top_inset + layout.scaled(24.0)))
+                    .bg(linear_gradient(
+                        180.0,
+                        linear_color_stop(rgba(0x0608098c), 0.0),
+                        linear_color_stop(rgba(0x06080900), 1.0),
+                    )),
+            )
             .child(
                 div()
                     .relative()
                     .w_full()
                     .max_w(px(layout.content_width))
                     .mx_auto()
+                    .pt(px(top_inset))
                     .flex()
                     .flex_col()
                     .items_start()
@@ -3148,8 +3280,7 @@ impl MetalSharpApp {
                             .cursor_pointer()
                             .hover(|style| style.text_color(rgb(0xffffff)))
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.active_tab = LibraryTab::Collection;
-                                cx.notify();
+                                this.set_page_collection(true, cx);
                             }))
                             .child("View collection  →"),
                     ),
@@ -3424,17 +3555,15 @@ impl MetalSharpApp {
 
     /// The library tab the app opens on, from Settings' Library Layout.
     fn home_tab(&self) -> LibraryTab {
-        if self.library_grid {
-            LibraryTab::Collection
-        } else {
-            LibraryTab::Play
+        match self.page {
+            LibraryPage::Logs => LibraryTab::Logs,
+            LibraryPage::Steam if self.library_grid => LibraryTab::Collection,
+            _ => LibraryTab::Play,
         }
     }
 
     fn close_library_menus(&mut self) {
         self.theme_menu_open = false;
-        self.tab_menu_open = false;
-        self.launcher_menu_open = false;
         self.steam_options_open = false;
         self.settings_open = false;
         self.game_settings_open = false;

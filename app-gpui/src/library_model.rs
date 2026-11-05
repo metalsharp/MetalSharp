@@ -2,7 +2,7 @@
 //! (`App.vue` loadLibrary merge, `LibraryView.vue` ordering/pipeline helpers).
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 fn lenient_string<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
     Ok(match Value::deserialize(d)? {
@@ -115,10 +115,104 @@ impl LibGame {
             .filter(|id| !id.is_empty())
             .unwrap_or_else(|| format!("steam_{}", self.appid))
     }
-    /// Library identity used for selection: Steam and Ubisoft app ids live in
-    /// different namespaces in the backend.
-    pub fn key(&self) -> (bool, u64) {
-        (self.is_ubisoft(), self.appid)
+    /// Library identity used for selection: each launcher's app ids live in
+    /// their own namespace in the backend.
+    pub fn key(&self) -> (LibraryPage, u64) {
+        (self.page(), self.appid)
+    }
+    /// The sidebar page this game is listed on. Steam copies of games that
+    /// run through Ubisoft Connect or the Rockstar launcher stay on Steam.
+    pub fn page(&self) -> LibraryPage {
+        match self.source.as_deref() {
+            Some("ubisoft") => LibraryPage::Ubisoft,
+            Some("battlenet") => LibraryPage::BattleNet,
+            Some("rockstar") => LibraryPage::Rockstar,
+            Some("gog") => LibraryPage::Gog,
+            Some("epic") => LibraryPage::Epic,
+            Some("windows" | "gamejolt") => LibraryPage::WindowsPrograms,
+            _ => LibraryPage::Steam,
+        }
+    }
+}
+
+/// Sidebar pages, in sidebar order. Logs is pinned to the sidebar's bottom.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum LibraryPage {
+    #[default]
+    Steam,
+    Ubisoft,
+    BattleNet,
+    Rockstar,
+    Gog,
+    Epic,
+    WindowsPrograms,
+    Logs,
+}
+
+impl LibraryPage {
+    pub const LAUNCHERS: [Self; 7] = [
+        Self::Steam,
+        Self::Ubisoft,
+        Self::BattleNet,
+        Self::Rockstar,
+        Self::Gog,
+        Self::Epic,
+        Self::WindowsPrograms,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Steam => "Steam",
+            Self::Ubisoft => "Ubisoft",
+            Self::BattleNet => "Battle.net",
+            Self::Rockstar => "Rockstar",
+            Self::Gog => "GOG",
+            Self::Epic => "Epic",
+            Self::WindowsPrograms => "Windows Programs",
+            Self::Logs => "Logs",
+        }
+    }
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::Steam => "icon-steam.svg",
+            Self::Ubisoft => "icon-ubisoft.svg",
+            Self::BattleNet => "icon-battlenet.svg",
+            Self::Rockstar => "icon-rockstar.svg",
+            Self::Gog => "source-gog.svg",
+            Self::Epic => "source-epic.svg",
+            Self::WindowsPrograms => "icon-windows.svg",
+            Self::Logs => "icon-logs.svg",
+        }
+    }
+    pub fn storage_id(self) -> &'static str {
+        match self {
+            Self::Steam => "steam",
+            Self::Ubisoft => "ubisoft",
+            Self::BattleNet => "battlenet",
+            Self::Rockstar => "rockstar",
+            Self::Gog => "gog",
+            Self::Epic => "epic",
+            Self::WindowsPrograms => "windows",
+            Self::Logs => "logs",
+        }
+    }
+    pub fn from_storage_id(id: &str) -> Option<Self> {
+        Self::LAUNCHERS
+            .into_iter()
+            .chain([Self::Logs])
+            .find(|page| page.storage_id() == id)
+    }
+    /// Pages whose Collection view is the Sharp Library source view.
+    pub fn sharp_source(self) -> Option<&'static str> {
+        match self {
+            Self::Gog => Some("gog"),
+            Self::Epic => Some("epic"),
+            Self::WindowsPrograms => Some("installers"),
+            _ => None,
+        }
+    }
+    /// Pages with a Library/Collection toggle.
+    pub fn has_collection(self) -> bool {
+        self == Self::Steam || self.sharp_source().is_some()
     }
 }
 
@@ -133,33 +227,16 @@ pub fn parse_library(value: Option<&Value>) -> Option<Vec<LibGame>> {
     )
 }
 
-/// App.vue `loadLibrary` merge: prefer an installed Ubisoft copy over an
-/// uninstalled Steam ownership entry of the same title, then append distinct
-/// Ubisoft games.
+/// Steam and Ubisoft Connect games, each listed on its own page. A game
+/// without a source is a Steam game.
 pub fn merge_libraries(steam: Vec<LibGame>, ubisoft: Vec<LibGame>) -> Vec<LibGame> {
-    let norm = |name: &str| name.trim().to_lowercase();
-    let installed_ubisoft: HashSet<String> = ubisoft
-        .iter()
-        .filter(|game| game.installed)
-        .map(|game| norm(&game.name))
-        .collect();
-    let steam_games: Vec<LibGame> = steam
-        .into_iter()
-        .filter(|game| !(!game.installed && installed_ubisoft.contains(&norm(&game.name))))
-        .collect();
-    let mut seen: HashSet<String> = steam_games.iter().map(|game| norm(&game.name)).collect();
-    let mut games = steam_games;
-    for mut game in ubisoft {
-        let key = norm(&game.name);
-        if seen.contains(&key) {
-            continue;
-        }
-        seen.insert(key);
+    let mut games = steam;
+    games.extend(ubisoft.into_iter().map(|mut game| {
         if game.source.is_none() {
             game.source = Some("ubisoft".into());
         }
-        games.push(game);
-    }
+        game
+    }));
     games
 }
 
@@ -403,7 +480,7 @@ mod tests {
             "launch_method": "steam", "cover_url": null
         }));
         assert!(shortcut.is_shortcut() && !shortcut.is_ubisoft());
-        assert_eq!(shortcut.key(), (false, 3039101758));
+        assert_eq!(shortcut.key(), (LibraryPage::Steam, 3039101758));
         let (endpoint, body) = launch_request(&shortcut);
         assert_eq!(endpoint, "/steam/launch-game");
         assert_eq!(body["launchMethod"], "steam");
@@ -416,21 +493,52 @@ mod tests {
     }
 
     #[test]
-    fn merge_prefers_installed_ubisoft_copy_and_dedupes() {
+    fn steam_and_ubisoft_games_stay_on_their_own_pages() {
         let steam = vec![
             game(json!({"appid":1,"name":"Far Cry 5","installed":false})),
             game(json!({"appid":2,"name":"Portal","installed":true})),
+            game(json!({"appid":3,"name":"Soma","installed":true,"source":"steam_shortcut"})),
         ];
         let ubisoft = vec![
-            game(
-                json!({"appid":900,"name":"Far Cry 5","installed":true,"source":"ubisoft","ubisoft_id":5}),
-            ),
-            game(json!({"appid":901,"name":"portal ","installed":true,"source":"ubisoft"})),
+            game(json!({"appid":900,"name":"Far Cry 5","installed":true,"ubisoft_id":5})),
+            game(json!({"appid":2,"name":"portal ","installed":true,"source":"ubisoft"})),
         ];
         let merged = merge_libraries(steam, ubisoft);
-        let names: Vec<_> = merged.iter().map(|g| (g.appid, g.is_ubisoft())).collect();
-        assert_eq!(names, vec![(2, false), (900, true)]);
-        assert_eq!(merged[1].ubisoft_id.as_deref(), Some("5"));
+        let pages: Vec<_> = merged.iter().map(|g| (g.appid, g.page())).collect();
+        assert_eq!(
+            pages,
+            vec![
+                (1, LibraryPage::Steam),
+                (2, LibraryPage::Steam),
+                (3, LibraryPage::Steam),
+                (900, LibraryPage::Ubisoft),
+                (2, LibraryPage::Ubisoft),
+            ]
+        );
+        assert_ne!(merged[1].key(), merged[4].key());
+        assert_eq!(merged[3].ubisoft_id.as_deref(), Some("5"));
+    }
+
+    #[test]
+    fn sources_map_to_sidebar_pages() {
+        for (source, page) in [
+            ("battlenet", LibraryPage::BattleNet),
+            ("rockstar", LibraryPage::Rockstar),
+            ("gog", LibraryPage::Gog),
+            ("epic", LibraryPage::Epic),
+            ("windows", LibraryPage::WindowsPrograms),
+            ("gamejolt", LibraryPage::WindowsPrograms),
+        ] {
+            assert_eq!(game(json!({"appid": 1, "source": source})).page(), page);
+        }
+        for page in LibraryPage::LAUNCHERS
+            .into_iter()
+            .chain([LibraryPage::Logs])
+        {
+            assert_eq!(LibraryPage::from_storage_id(page.storage_id()), Some(page));
+        }
+        assert!(LibraryPage::Steam.has_collection() && LibraryPage::Gog.has_collection());
+        assert!(!LibraryPage::Ubisoft.has_collection() && !LibraryPage::Logs.has_collection());
     }
 
     #[test]
