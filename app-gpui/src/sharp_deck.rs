@@ -84,10 +84,7 @@ impl SharpPreview {
                 installed: true,
                 progress: None,
                 art_key: format!("sharp-app-{id}"),
-                engine: Some(match text(app, "engine") {
-                    "" => "auto".to_owned(),
-                    engine => engine.to_owned(),
-                }),
+                engine: Some(super::sharp_live::app_engine(app)),
                 executable: None,
                 engine_options: Some(super::sharp_live::app_engine_options()),
             });

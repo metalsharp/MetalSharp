@@ -34,11 +34,23 @@ pub(super) fn engine_options() -> Vec<(String, String)> {
     }
 }
 
-/// A Sharp Library app's engine choices: Auto, then this build's engines.
+/// A Sharp Library app's engine choices: this build's engines and OpenGL (Wine's own Direct3D,
+/// no graphics route), which is what an app saved as "auto" runs on.
 pub(super) fn app_engine_options() -> Vec<(String, String)> {
-    let mut options = vec![("auto".to_owned(), "Auto".to_owned())];
-    options.extend(engine_options());
+    let mut options = engine_options();
+    if !options.iter().any(|(id, _)| id == "wine_bare") {
+        options.push(("wine_bare".to_owned(), "OpenGL".to_owned()));
+    }
     options
+}
+
+/// An app's engine for the pickers: one saved as "auto" (or none) launches with no graphics
+/// route, the same as OpenGL.
+pub(super) fn app_engine(app: &Value) -> String {
+    match s(app, "engine") {
+        "" | "auto" => "wine_bare".to_owned(),
+        other => other.to_owned(),
+    }
 }
 
 /// A Game Jolt game's engine choices: the pipelines its entry lists, or this build's

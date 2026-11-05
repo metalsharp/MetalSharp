@@ -550,10 +550,7 @@ impl SharpPreview {
                 for app in live.apps.clone() {
                     let id = s(&app, "id").to_owned();
                     let running = live.sharp_running.contains_key(&id);
-                    let engine = match s(&app, "engine") {
-                        "" => "auto".to_owned(),
-                        other => other.to_owned(),
-                    };
+                    let engine = super::sharp_live::app_engine(&app);
                     let size = app
                         .get("size_bytes")
                         .and_then(Value::as_u64)
