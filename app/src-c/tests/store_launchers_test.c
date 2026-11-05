@@ -540,6 +540,38 @@ static void test_battlenet(const char* home) {
     free(link);
 }
 
+/* The setup lets the user install Battle.net anywhere: MetalSharp finds it from its Uninstall entry
+ * instead of reporting it missing, and does not list it as a game. */
+static void test_battlenet_elsewhere(const char* root) {
+    static const char registry[] =
+        "WINE REGISTRY Version 2\n"
+        "[Software\\\\Wow6432Node\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Uninstall\\\\Battle.net] 1\n"
+        "\"DisplayName\"=\"Battle.net\"\n"
+        "\"InstallLocation\"=\"C:\\\\Moved\\\\Battle.net\"\n"
+        "\"Publisher\"=\"Blizzard Entertainment\"\n";
+    char* home = ms_store_path_join(root, "battlenet-elsewhere");
+    char* link = home ? ms_store_path_join(home, "prefix-battlenet/dosdevices/c:") : NULL;
+    char* dosdevices = home ? ms_store_path_join(home, "prefix-battlenet/dosdevices") : NULL;
+    assert(home && link && dosdevices && ms_store_mkdir_p(dosdevices));
+    (void)unlink(link);
+    assert(symlink("../drive_c", link) == 0);
+    fixture(home, "prefix-battlenet/system.reg", registry);
+    sized_fixture(home, "prefix-battlenet/drive_c/Moved/Battle.net/Battle.net.exe", 100);
+    sized_fixture(home, "prefix-battlenet/drive_c/Moved/Battle.net/Battle.net Launcher.exe", 100);
+    char* launcher = battlenet_launcher(home);
+    assert(launcher && strstr(launcher, "/drive_c/Moved/Battle.net/Battle.net Launcher.exe"));
+    free(launcher);
+    char* raw = ms_battlenet_status_json(home);
+    assert(raw && strstr(raw, "\"installed\":true"));
+    free(raw);
+    raw = ms_battlenet_library_json(home);
+    assert(raw && !strstr(raw, "\"name\":\"Battle.net\""));
+    free(raw);
+    free(dosdevices);
+    free(link);
+    free(home);
+}
+
 int main(int argc, char** argv) {
     char home[PATH_MAX];
     assert(argc == 2);
@@ -549,6 +581,7 @@ int main(int argc, char** argv) {
     route_fixtures(home);
     test_rockstar(home);
     test_battlenet(home);
+    test_battlenet_elsewhere(home);
     printf("store launchers test passed (%s)\n", ms_wine_variant());
     return 0;
 }

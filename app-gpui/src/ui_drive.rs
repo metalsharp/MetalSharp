@@ -42,6 +42,13 @@ fn drive_description(page: LibraryPage) -> String {
         LibraryPage::Rockstar => Some(("the Rockstar Games Launcher", "R:")),
         _ => None,
     };
+    if page == LibraryPage::BattleNet {
+        // Battle.net's own app misbehaves when run from an external drive under
+        // Wine; only its games go on the chosen drive.
+        return format!(
+            "MetalSharp creates a \"{folder}\" folder on the drive you pick. Keep the Battle.net app in its default C: folder when the installer asks, then install games to drive Y: inside Battle.net."
+        );
+    }
     match drive {
         Some((launcher, letter)) => format!(
             "MetalSharp creates a \"{folder}\" folder on the drive you pick. In {launcher} it is drive {letter}: choose it when installing a game."

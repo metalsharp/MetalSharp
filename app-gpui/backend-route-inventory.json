@@ -1525,7 +1525,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_drive.rs",
-          "line": 371,
+          "line": 378,
           "kind": "literal-candidate"
         }
       ],
@@ -1542,17 +1542,17 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_drive.rs",
-          "line": 71,
+          "line": 78,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_drive.rs",
-          "line": 106,
+          "line": 113,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_drive.rs",
-          "line": 337,
+          "line": 344,
           "kind": "literal-candidate"
         }
       ],
@@ -1569,7 +1569,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_drive.rs",
-          "line": 141,
+          "line": 148,
           "kind": "literal-candidate"
         }
       ],

@@ -48,9 +48,41 @@ static char* battlenet_prefix(const char* home) {
     return ms_store_path_join(home, BATTLENET_PREFIX);
 }
 
+typedef struct {
+    const char* prefix;
+    char* dir;
+} battlenet_install_lookup;
+
+static void battlenet_visit_install(const ms_store_registry_section* section, void* context) {
+    battlenet_install_lookup* lookup = context;
+    const char* key = strrchr(section->key, '\\');
+    if (lookup->dir || !key || strcasecmp(key + 1, "Battle.net") || !strstr(section->key, "\\Uninstall\\") ||
+        !section->install_location[0])
+        return;
+    char* host = ms_store_wine_path_to_host(lookup->prefix, section->install_location);
+    struct stat info;
+    if (host && stat(host, &info) == 0 && S_ISDIR(info.st_mode))
+        lookup->dir = host;
+    else
+        free(host);
+}
+
+/* Where Battle.net installed itself: its Uninstall entry's InstallLocation (the setup lets the user
+ * pick any folder), else the default C:\Program Files (x86)\Battle.net.  */
+static char* battlenet_install_dir(const char* prefix) {
+    char* registry = ms_store_path_join(prefix, "system.reg");
+    battlenet_install_lookup lookup = {prefix, NULL};
+    if (registry)
+        (void)ms_store_registry_sections(registry, battlenet_visit_install, &lookup);
+    free(registry);
+    if (lookup.dir)
+        return lookup.dir;
+    return ms_store_path_join(prefix, BATTLENET_DIR);
+}
+
 static char* battlenet_file(const char* home, const char* name) {
     char* prefix = battlenet_prefix(home);
-    char* dir = prefix ? ms_store_path_join(prefix, BATTLENET_DIR) : NULL;
+    char* dir = prefix ? battlenet_install_dir(prefix) : NULL;
     char* path = dir ? ms_store_path_join(dir, name) : NULL;
     free(prefix);
     free(dir);
@@ -159,8 +191,10 @@ static size_t battlenet_scan_games(const char* home, ms_store_game** games) {
     char* prefix = battlenet_prefix(home);
     char* registry = prefix ? ms_store_path_join(prefix, "system.reg") : NULL;
     battlenet_scan scan = {prefix, "", NULL, 0, 0};
-    if (prefix)
-        snprintf(scan.client_dir, sizeof(scan.client_dir), "%s/%s", prefix, BATTLENET_DIR);
+    char* client_dir = prefix ? battlenet_install_dir(prefix) : NULL;
+    if (client_dir)
+        snprintf(scan.client_dir, sizeof(scan.client_dir), "%s", client_dir);
+    free(client_dir);
     if (registry)
         (void)ms_store_registry_sections(registry, battlenet_visit_section, &scan);
     free(registry);
@@ -335,8 +369,10 @@ static void* battlenet_install_worker(void* opaque) {
             snprintf(error, sizeof(error), "Could not download the Battle.net installer from Blizzard");
     }
     if (ok) {
-        /* Interactive setup. Its exit status is not the result: the installed client is. */
-        char* argv[] = {wine, installer, NULL};
+        /* Interactive setup. Its exit status is not the result: the installed client is. The app
+         * goes to C: by default: run from an external drive its built-in browser crashes and restarts
+         * under Wine, while games install to the managed Y: folder from inside Battle.net. */
+        char* argv[] = {wine, installer, "--installpath=C:\\Program Files (x86)\\Battle.net", NULL};
         int status = 0;
         ms_store_write_state(home, BATTLENET_CACHE_DIR, "installing", NULL);
         ok = ms_store_run_wine(home, prefix, dir, argv, battlenet_apply_env, battlenet_lane(), true, &status, NULL);
