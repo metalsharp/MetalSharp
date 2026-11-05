@@ -84,11 +84,10 @@ ___
 | Feature | Notes |
 |---|---|
 | **_Sharp Library_** | Import and run standalone Windows programs, installers, and launchers |
-| **_GOG Library_** | Download and play GOG games through the Sharp Library |
-| **_Epic Library_** | Download and play Epic Games through the Sharp Library |
+| **_GOG Library_** | Download and play GOG Games |
+| **_Epic Library_** | Download and play Epic Games |
 | **_Ubisoft Connect_** | Download and play Ubisoft Connect Games |
-| **_GameJolt Library_** | Download and Play GameJolt games through the Sharp Library |
-| **_Emulation Support_** |  Install, manage, and launch emulated games using PCSX2, RPCS3, ShadPS4, and SharpEmu |
+} **_Battle Net_** | Download and Play Battle.Net Games |
 | **_Runtime Bottles_** | Select your launch method, Enable / Disable Msync and MetalFX; Controller Input and x87 Acceleration on x86_64; Metal HUD, Frame Rate Limits and Ray Tracing on Arm64 FEX |
 | **_Route Routing_** | Automatic route selection based on game compatibility data and developer testing |
 | **_Steam Integration_** | Detects your Steam library, manages the Wine Steam session, and deploys a CEF runtime wrapper that survives Steam updates |
@@ -111,9 +110,9 @@ For Arm64 Version with FEX (MetalSharp Wine 4.0):
 
 Current maintainer validation is happening on this hardware/software setup. This is not the recommended baseline or minimum requirement; it is here so readers know what MetalSharp is actively running on during development.
 
-- Apple M4 Macbook Air, 10-core CPU (4 performance, 6 efficiency)
+- Apple M6 Mac mini, 12-core (4 performance, 6 efficiency, 2 Super)
 - 16 GB memory
-- macOS Golden Gate, Version `27.2`
+- macOS Golden Gate, Version `27.3`
 
 ## Documentation
 
