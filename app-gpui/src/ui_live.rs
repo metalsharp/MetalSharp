@@ -1417,6 +1417,20 @@ impl MetalSharpApp {
         crate::artwork::cache(cx)?.update(cx, |cache, cx| cache.tilted(&key, angle, cx))
     }
 
+    /// The hero's image: portrait art (a launcher's cover) goes through its
+    /// generated wide version; None while that is still rendering.
+    pub(super) fn hero_art_path(&self, game: &LibGame, cx: &mut Context<Self>) -> Option<PathBuf> {
+        let base = self.art_path(game, true, cx)?;
+        if game.preview_art.is_some() {
+            return Some(base);
+        }
+        let cache = crate::artwork::cache(cx)?;
+        match cache.update(cx, |cache, cx| cache.wide_hero(&base, cx)) {
+            crate::artwork::HeroArt::AsIs => Some(base),
+            crate::artwork::HeroArt::Wide(wide) => wide,
+        }
+    }
+
     pub(super) fn art_path(&self, game: &LibGame, hero: bool, cx: &App) -> Option<PathBuf> {
         if let Some((cover, hero_art)) = game.preview_art {
             return Some(asset_path(if hero { hero_art } else { cover }));

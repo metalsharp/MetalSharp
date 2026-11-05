@@ -3056,7 +3056,7 @@ impl MetalSharpApp {
             gpui::deferred(self.render_game_settings(&game, settings_open_left, cx))
                 .with_priority(20)
         });
-        let hero_art = self.art_path(&game, true, cx);
+        let hero_art = self.hero_art_path(&game, cx);
         let play_game = game.clone();
         let badge = if game.has_native_build {
             Some("Native macOS")
