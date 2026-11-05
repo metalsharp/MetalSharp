@@ -12,6 +12,8 @@ use std::path::PathBuf;
 
 #[path = "ui_data_location.rs"]
 mod data_location_impl;
+#[path = "ui_drive.rs"]
+mod drive_impl;
 #[path = "ui_live.rs"]
 mod live_impl;
 #[path = "ui_steamcmd.rs"]
@@ -670,6 +672,8 @@ pub struct MetalSharpApp {
     /// The [...] art menu of a Sharp Library entry, opened from the hero or
     /// from the selected dock card.
     art_menu: Option<ArtMenuAnchor>,
+    /// Drive choice shown before a launcher or GOG/Epic prefix is set up.
+    drive_prompt: Option<drive_impl::DrivePrompt>,
     hovered_card: Option<usize>,
     active_tab: LibraryTab,
     step: usize,
@@ -730,6 +734,7 @@ impl MetalSharpApp {
             steamcmd_inputs: None,
             game_settings_open: false,
             art_menu: None,
+            drive_prompt: None,
             hovered_card: None,
             active_tab: LibraryTab::Play,
             step: 2,
@@ -1908,6 +1913,10 @@ impl MetalSharpApp {
             .children(self.streaming_open.then(|| {
                 gpui::deferred(self.render_streaming_overlay(viewport, cx)).with_priority(100)
             }))
+            .children(
+                self.render_drive_prompt(viewport, cx)
+                    .map(|prompt| gpui::deferred(prompt).with_priority(150)),
+            )
     }
 
     /// The page's launcher button: (action, label, icon, busy).
@@ -1995,6 +2004,27 @@ impl MetalSharpApp {
     }
 
     fn run_launcher_action(&mut self, action: LauncherAction, cx: &mut Context<Self>) {
+        // Installing a launcher first asks which drive its games go on.
+        let installing_launcher = match action {
+            LauncherAction::Ubisoft => {
+                !self.live.ubisoft_installed
+                    && !self.live.ubisoft_installing
+                    && !self.live.ubisoft_running
+            }
+            LauncherAction::Rockstar | LauncherAction::BattleNet => {
+                let status = *self.live.launcher_status_mut(action);
+                !status.installed && !status.installing && !status.running
+            }
+            _ => false,
+        };
+        if installing_launcher && self.live.enabled {
+            self.ask_drive(self.page, drive_impl::DriveNext::Launcher(action), cx);
+            return;
+        }
+        self.run_launcher_action_now(action, cx);
+    }
+
+    fn run_launcher_action_now(&mut self, action: LauncherAction, cx: &mut Context<Self>) {
         self.close_library_menus();
         match action {
             LauncherAction::Steam => self.toggle_steam(false, cx),
@@ -2025,6 +2055,9 @@ impl MetalSharpApp {
             self.home_tab()
         };
         self.sync_sharp_source(cx);
+        if self.live.enabled && matches!(page, LibraryPage::Gog | LibraryPage::Epic) {
+            self.refresh_library_locations(cx);
+        }
         self.save_ui_state(cx);
         cx.notify();
     }
@@ -2745,7 +2778,10 @@ impl MetalSharpApp {
                         if busy {
                             return;
                         }
-                        if let Some(sharp) = &this.sharp_preview {
+                        if step == crate::sharp_preview::sharp_deck::GateStep::Prefix {
+                            let page = this.page;
+                            this.ask_drive(page, drive_impl::DriveNext::Gate(source, step), cx);
+                        } else if let Some(sharp) = &this.sharp_preview {
                             sharp.update(cx, |sharp, cx| sharp.run_gate(source, step, cx));
                         }
                     }),

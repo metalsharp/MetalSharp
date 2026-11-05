@@ -130,6 +130,8 @@ pub(super) struct LiveState {
     /// Card and hero art the user picked for Sharp Library entries, by
     /// artwork key: (card, hero) file paths.
     pub custom_art: HashMap<String, (Option<String>, Option<String>)>,
+    /// Launchers whose games folder is chosen and on a mounted drive.
+    pub library_locations: HashSet<String>,
     running_poll_in_flight: bool,
     pub selected_pipeline: String,
     pub pipeline_saving: bool,
@@ -239,6 +241,7 @@ impl Default for LiveState {
             deck_busy: HashSet::new(),
             deck_progress: HashMap::new(),
             custom_art: HashMap::new(),
+            library_locations: HashSet::new(),
             running_poll_in_flight: false,
             selected_pipeline: "auto".into(),
             pipeline_saving: false,
@@ -1495,6 +1498,15 @@ impl MetalSharpApp {
         }
     }
 
+    /// Download an owned GOG or Epic game into its managed folder.
+    pub(super) fn install_deck_game(&mut self, game: LibGame, cx: &mut Context<Self>) {
+        let (Some(id), Some(sharp)) = (game.external_id.clone(), self.sharp_preview.clone()) else {
+            return;
+        };
+        let source = game.source.clone().unwrap_or_default();
+        sharp.update(cx, |sharp, cx| sharp.deck_install(&source, &id, cx));
+    }
+
     /// Pick a card or hero image for a Sharp Library entry.
     pub(super) fn pick_custom_art(&mut self, game: LibGame, hero: bool, cx: &mut Context<Self>) {
         let Some(key) = game.art_key.clone() else {
@@ -1616,8 +1628,12 @@ impl MetalSharpApp {
                 return;
             }
             if game.needs_install {
-                let source = game.source.clone().unwrap_or_default();
-                sharp.update(cx, |sharp, cx| sharp.deck_install(&source, &id, cx));
+                let page = game.page();
+                if self.live.library_locations.contains(page.storage_id()) {
+                    self.install_deck_game(game, cx);
+                } else {
+                    self.ask_drive(page, drive_impl::DriveNext::DeckInstall(game), cx);
+                }
                 return;
             }
             let running = self.is_running(game.appid);
