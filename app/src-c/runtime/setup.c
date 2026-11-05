@@ -950,6 +950,46 @@ void ms_setup_refresh_legacy_ntdll_hooks(const char* metalsharp_home) {
     closedir(directory);
 }
 
+/* Builds before console emulator support was removed kept PCSX2, RPCS3, shadPS4 and SharpEmu (their
+ * binaries, firmware, saves and installed games) under <home>/emulators. Nothing reads it any more.
+ * rm -rf never follows symlinks, so a linked folder or a link inside the tree loses only the link. */
+bool ms_setup_remove_console_emulators(const char* metalsharp_home) {
+    char path[PATH_MAX];
+    struct stat info;
+    if (metalsharp_home == NULL || !metalsharp_home[0] ||
+        snprintf(path, sizeof(path), "%s/emulators", metalsharp_home) >= (int)sizeof(path))
+        return false;
+    if (lstat(path, &info) != 0)
+        return errno == ENOENT;
+    remove_path_tree(path);
+    return lstat(path, &info) != 0 && errno == ENOENT;
+}
+
+static void* remove_console_emulators_worker(void* opaque) {
+    char* home = (char*)opaque;
+    if (!ms_setup_remove_console_emulators(home))
+        fprintf(stderr, "warning: could not remove %s/emulators\n", home);
+    free(home);
+    return NULL;
+}
+
+/* The folder can hold installed games, so it is removed off the startup path. */
+void ms_setup_remove_console_emulators_async(const char* metalsharp_home) {
+    char path[PATH_MAX];
+    struct stat info;
+    pthread_t thread;
+    char* home;
+    if (metalsharp_home == NULL ||
+        snprintf(path, sizeof(path), "%s/emulators", metalsharp_home) >= (int)sizeof(path) ||
+        lstat(path, &info) != 0 || (home = strdup(metalsharp_home)) == NULL)
+        return;
+    if (pthread_create(&thread, NULL, remove_console_emulators_worker, home) != 0) {
+        free(home);
+        return;
+    }
+    (void)pthread_detach(thread);
+}
+
 bool ms_setup_wine_wrapper_ensure(const char* metalsharp_home) {
     static const char marker[] = "# METALSHARP_ROUTE_ENV_V1";
     /* SIP strips DYLD_* when a shell script runs, so routes pass the variables under another name. */

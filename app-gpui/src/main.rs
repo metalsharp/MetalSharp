@@ -74,14 +74,6 @@ impl gpui::AssetSource for PreviewIcons {
             "source-gamejolt.svg" => Some(Cow::Borrowed(include_bytes!(
                 "../assets/source-gamejolt.svg"
             ))),
-            "source-pcsx2.svg" => Some(Cow::Borrowed(include_bytes!("../assets/source-pcsx2.svg"))),
-            "source-rpcs3.svg" => Some(Cow::Borrowed(include_bytes!("../assets/source-rpcs3.svg"))),
-            "source-shadps4.svg" => Some(Cow::Borrowed(include_bytes!(
-                "../assets/source-shadps4.svg"
-            ))),
-            "source-sharpemu.svg" => Some(Cow::Borrowed(include_bytes!(
-                "../assets/source-sharpemu.svg"
-            ))),
             "source-empty-monitor.svg" => Some(Cow::Borrowed(include_bytes!(
                 "../assets/source-empty-monitor.svg"
             ))),
@@ -126,10 +118,6 @@ impl gpui::AssetSource for PreviewIcons {
             "source-gog.svg".into(),
             "source-epic.svg".into(),
             "source-gamejolt.svg".into(),
-            "source-pcsx2.svg".into(),
-            "source-rpcs3.svg".into(),
-            "source-shadps4.svg".into(),
-            "source-sharpemu.svg".into(),
             "source-empty-monitor.svg".into(),
             "icon-steam.svg".into(),
             "icon-ubisoft.svg".into(),

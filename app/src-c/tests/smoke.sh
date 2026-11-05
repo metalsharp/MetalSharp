@@ -356,28 +356,6 @@ done
 grep -q 'gogdl exited with Some(0)' "$gog_launch_log"
 rm -rf "$home/logs/gog" "$home/gog-launch-args"
 
-emulators=$(curl --silent --fail --unix-socket "$sock" "http://localhost/emulators")
-
-
-
-
-
-sleep 0.2
-i=0
-while [ "$i" -lt 50 ]; do
-    i=$((i + 1))
-    sleep 0.1
-done
-
-
-
-sleep 0.2
-i=0
-while [ "$i" -lt 50 ]; do
-    i=$((i + 1))
-    sleep 0.1
-done
-
 mkdir -p "$home/d3d-game" "$home/bottles/steam_1234"
 printf 'smoke' > "$home/d3d-game/game.exe"
 printf '%s' '{"id":"steam_1234","name":"Smoke Game","bottle_type":"steam","steam_app_id":1234,"prefix_path":"'$home'/prefix-steam","arch":"wow64","runtime_profile":"d3dmetal","preferred_pipeline":"d3dmetal","installed_components":[],"health":"new"}' > "$home/bottles/steam_1234/bottle.json"

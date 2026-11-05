@@ -37,7 +37,7 @@ include/                        Native public headers
 tests/                          Native C/C++ tests
 tools/                          Packaging, runtime, CI, and D3D12 SDK tooling
 configs/                        Route rules and runtime configuration
-docs/                           Architecture, runtime, emulator, and compatibility docs
+docs/                           Architecture, runtime, and compatibility docs
 CMakeLists.txt                  Native engine build
 ```
 
@@ -62,7 +62,7 @@ Important runtime paths:
 
 ## Backend API
 
-The backend serves HTTP only on the owner-only Unix socket `$METALSHARP_HOME/run/backend.sock` (no TCP port); query it with `curl --unix-socket`. The router is `app/src-c/runtime/backend.c`. Domain implementations live beside it, including `steam_actions.c`, `bottles.c`, `setup.c`, `migration.c`, `epic.c`, `gog.c`, `gamejolt.c`, `pcsx2.c`, `rpcs3.c`, `shadps4.c`, and `sharpemu.c`.
+The backend serves HTTP only on the owner-only Unix socket `$METALSHARP_HOME/run/backend.sock` (no TCP port); query it with `curl --unix-socket`. The router is `app/src-c/runtime/backend.c`. Domain implementations live beside it, including `steam_actions.c`, `bottles.c`, `setup.c`, `migration.c`, `epic.c`, `gog.c`, and `gamejolt.c`.
 
 Representative endpoints:
 
@@ -140,7 +140,6 @@ Use `tools/release/set-version.sh X.Y.Z`.
 - The backend has no TCP listener; validation isolates it with a temporary `METALSHARP_HOME`.
 - Package and atomically install backend/frontend changes before final validation.
 - Do not preview the GPUI app against a temporary `METALSHARP_HOME` except with `--connected-validation`.
-- Preserve firmware, saves, configuration, profiles, caches, and external games during emulator updates.
 - Never log or persist launcher secrets.
 - Never use AppleScript to quit a possibly closed MetalSharp app; addressing it launches it first.
 - Leave `/Applications/MetalSharp.app` closed after final validation unless the user requests otherwise.

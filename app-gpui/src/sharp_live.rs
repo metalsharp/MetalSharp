@@ -67,8 +67,6 @@ pub(super) struct SharpLive {
     pub engine_menu: Option<String>,
     pub confirm: Option<SharpConfirm>,
     pub oauth: Option<std::sync::mpsc::Receiver<crate::mini_browser::MiniBrowserResult>>,
-    pub emu: [super::sharp_emu_live::EmuState; 4],
-    pub emu_confirm: Option<super::sharp_emu_live::EmuConfirm>,
     pub bottles: Vec<Value>,
     pub d3d_states: HashMap<String, Value>,
     pub d3d_actions: HashMap<String, Vec<Value>>,
@@ -174,18 +172,6 @@ impl SharpPreview {
                         this.refresh_gamejolt_running(cx);
                         this.refresh_sharp_running(cx);
                     }
-                    if tick % 6 == 0 {
-                        let source = this.state.source;
-                        let installed = super::sharp_emu_live::emu_index(source).is_some_and(|i| {
-                            this.live.as_ref().unwrap().emu[i]
-                                .status
-                                .as_ref()
-                                .is_some_and(|s| b(s, "installed"))
-                        });
-                        if installed {
-                            this.emu_refresh(source, false, cx);
-                        }
-                    }
                     if tick % 4 == 0 {
                         let live = this.live.as_ref().unwrap();
                         let gog = this.state.source == SharpSource::Gog
@@ -256,14 +242,6 @@ impl SharpPreview {
         self.refresh_gog(cx);
         self.load_gamejolt(cx, true);
         self.refresh_epic(false, cx);
-        self.emu_refresh(SharpSource::Rpcs3, false, cx);
-        self.emu_refresh(SharpSource::ShadPs4, false, cx);
-        if matches!(
-            self.state.source,
-            SharpSource::Pcsx2 | SharpSource::SharpEmu
-        ) {
-            self.emu_refresh(self.state.source, false, cx);
-        }
         self.live_mut().loaded = true;
     }
 

@@ -52,11 +52,6 @@ SOURCES := \
 	runtime/steam_actions.c \
 	runtime/bottles.c \
 	runtime/mono.c \
-	runtime/emulators.c \
-	runtime/pcsx2.c \
-	runtime/rpcs3.c \
-	runtime/shadps4.c \
-	runtime/sharpemu.c \
 	runtime/sharp.c \
 	runtime/epic.c \
 	runtime/gamejolt.c \
@@ -129,7 +124,7 @@ test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCP
 	@"$(SETUP_VARIANT_TEST)"
 	@cd "$(PROJECT_ROOT)" && METALSHARP_HOME= "$(abspath $(MTSP_RULES_TEST))"
 	@home="$$(mktemp -d)"; "$(BUILD_DIR)/runtime-routes-test" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
-	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; HOME="$$test_home" METALSHARP_HOME="$$ms_home" METALSHARP_RPCS3_RELEASE_JSON="$(CURDIR)/tests/rpcs3_release.json" METALSHARP_RPCS3_DOWNLOAD_FILE="$(CURDIR)/tests/rpcs3_bad_archive.7z" METALSHARP_SHADPS4_RELEASE_JSON="$(CURDIR)/tests/shadps4_release.json" METALSHARP_SHADPS4_DOWNLOAD_FILE="$(CURDIR)/tests/shadps4_bad_archive.zip" METALSHARP_SHADPS4_HOST_ARCH=arm64 METALSHARP_SHADPS4_HOST_MACOS=27 METALSHARP_SHADPS4_ROSETTA=1 METALSHARP_PCSX2_RELEASE_JSON="$(CURDIR)/tests/pcsx2_release.json" METALSHARP_PCSX2_DOWNLOAD_FILE="$(CURDIR)/tests/pcsx2_bad_archive.tar.xz" METALSHARP_PCSX2_HOST_ARCH=arm64 METALSHARP_PCSX2_HOST_MACOS=27 METALSHARP_PCSX2_ROSETTA=1 METALSHARP_PCSX2_SKIP_SIGNATURE_FOR_TESTS=1 METALSHARP_SHARPEMU_HOST_ARCH=arm64 METALSHARP_SHARPEMU_HOST_MACOS=27 METALSHARP_SHARPEMU_ROSETTA=1 METALSHARP_SHARPEMU_SANDBOX=1 "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc
+	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; HOME="$$test_home" METALSHARP_HOME="$$ms_home" "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc
 	@"$(JSON_TEST)"
 	@"$(MIGRATION_TEST)"
 	@bash "$(CURDIR)/tests/runtime-ready-sim.sh" "$(RUNTIME_READY_SIM)"; rc=$$?; if [ $$rc -eq 97 ]; then echo "runtime-ready sim skipped"; else exit $$rc; fi
@@ -152,25 +147,11 @@ asan-test:
 	attempt=1; while [ $$attempt -le 3 ]; do \
 		ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; \
 		if ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 HOME="$$test_home" \
-			METALSHARP_HOME="$$ms_home" METALSHARP_RPCS3_RELEASE_JSON="$(CURDIR)/tests/rpcs3_release.json" \
-			METALSHARP_RPCS3_DOWNLOAD_FILE="$(CURDIR)/tests/rpcs3_bad_archive.7z" \
-			METALSHARP_SHADPS4_RELEASE_JSON="$(CURDIR)/tests/shadps4_release.json" \
-			METALSHARP_SHADPS4_DOWNLOAD_FILE="$(CURDIR)/tests/shadps4_bad_archive.zip" \
-			METALSHARP_SHADPS4_HOST_ARCH=arm64 METALSHARP_SHADPS4_HOST_MACOS=27 METALSHARP_SHADPS4_ROSETTA=1 \
-			METALSHARP_PCSX2_RELEASE_JSON="$(CURDIR)/tests/pcsx2_release.json" \
-			METALSHARP_PCSX2_DOWNLOAD_FILE="$(CURDIR)/tests/pcsx2_bad_archive.tar.xz" \
-			METALSHARP_PCSX2_HOST_ARCH=arm64 METALSHARP_PCSX2_HOST_MACOS=27 METALSHARP_PCSX2_ROSETTA=1 \
-			METALSHARP_PCSX2_SKIP_SIGNATURE_FOR_TESTS=1 \
-			METALSHARP_SHARPEMU_HOST_ARCH=arm64 METALSHARP_SHARPEMU_HOST_MACOS=27 \
-			METALSHARP_SHARPEMU_ROSETTA=1 METALSHARP_SHARPEMU_SANDBOX=1 \
+			METALSHARP_HOME="$$ms_home" \
 			"$(CURDIR)/tests/smoke.sh" "$(CURDIR)/build-asan/metalsharp-backend"; then \
 			ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 python3 "$(CURDIR)/tests/updater_test.py" \
 				"$(CURDIR)/build-asan/metalsharp-backend" && \
 			ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 python3 "$(CURDIR)/tests/steam_process_test.py" \
-				"$(CURDIR)/build-asan/metalsharp-backend" && \
-			ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 python3 "$(CURDIR)/tests/pcsx2_update_test.py" \
-				"$(CURDIR)/build-asan/metalsharp-backend" && \
-			ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 python3 "$(CURDIR)/tests/sharpemu_update_test.py" \
 				"$(CURDIR)/build-asan/metalsharp-backend" && exit 0; \
 		fi; \
 		rm -rf "$$test_home" "$$ms_home"; \

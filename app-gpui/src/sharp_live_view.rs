@@ -174,7 +174,6 @@ impl SharpPreview {
                     .on_click(cx.listener(|this, _, _, cx| this.choose_gamejolt_storage(cx))),
                 );
             }
-            _ => {}
         }
         let (label, busy) = match self.state.source {
             SharpSource::Gog => (
@@ -1332,7 +1331,6 @@ impl SharpPreview {
                 }
                 content.child(grid)
             }
-            _ => div(),
         }
     }
 

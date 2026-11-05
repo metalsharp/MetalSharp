@@ -5,8 +5,6 @@ use std::{
     path::PathBuf,
 };
 
-#[path = "sharp_emu_live.rs"]
-mod sharp_emu_live;
 #[path = "sharp_live.rs"]
 mod sharp_live;
 #[path = "sharp_live_view.rs"]
@@ -17,7 +15,6 @@ mod sharp_tools;
 mod sharp_tools_view;
 
 const BG: u32 = 0x111416;
-const PANEL: u32 = 0x121518;
 const TEXT: u32 = 0xf1eee6;
 const MUTED: u32 = 0x9ba19f;
 const GOLD: u32 = 0xe8d6b7;
@@ -28,32 +25,15 @@ pub enum SharpSource {
     Gog,
     Epic,
     GameJolt,
-    Pcsx2,
-    Rpcs3,
-    ShadPs4,
-    SharpEmu,
 }
 impl SharpSource {
-    pub const ALL: [Self; 8] = [
-        Self::Installers,
-        Self::Gog,
-        Self::Epic,
-        Self::GameJolt,
-        Self::Pcsx2,
-        Self::Rpcs3,
-        Self::ShadPs4,
-        Self::SharpEmu,
-    ];
+    pub const ALL: [Self; 4] = [Self::Installers, Self::Gog, Self::Epic, Self::GameJolt];
     pub fn id(self) -> &'static str {
         match self {
             Self::Installers => "installers",
             Self::Gog => "gog",
             Self::Epic => "epic",
             Self::GameJolt => "gamejolt",
-            Self::Pcsx2 => "pcsx2",
-            Self::Rpcs3 => "rpcs3",
-            Self::ShadPs4 => "shadps4",
-            Self::SharpEmu => "sharpemu",
         }
     }
     fn icon(self, color: u32, size: f32) -> gpui::Svg {
@@ -71,10 +51,6 @@ impl SharpSource {
             Self::Gog => "GOG",
             Self::Epic => "Epic",
             Self::GameJolt => "GameJolt",
-            Self::Pcsx2 => "PCSX2",
-            Self::Rpcs3 => "RPCS3",
-            Self::ShadPs4 => "shadPS4",
-            Self::SharpEmu => "SharpEmu",
         }
     }
     fn menu_detail(self) -> &'static str {
@@ -83,14 +59,10 @@ impl SharpSource {
             Self::Gog => "GOG games library",
             Self::Epic => "Epic games library",
             Self::GameJolt => "Indie games library",
-            Self::Pcsx2 => "PS2 Emulation",
-            Self::Rpcs3 => "PS3 Emulation",
-            Self::ShadPs4 => "PS4 Emulation",
-            Self::SharpEmu => "PS5 Emulation",
         }
     }
     fn header(self) -> (&'static str, &'static str, &'static str) {
-        let e = "METALSHARP · INSTALLERS & EMULATORS";
+        let e = "METALSHARP · INSTALLERS & LAUNCHERS";
         match self {
             Self::Installers => (
                 e,
@@ -100,26 +72,6 @@ impl SharpSource {
             Self::Gog => (e, "GOG Library", "GOG games library"),
             Self::Epic => (e, "Epic Library", "Epic games library"),
             Self::GameJolt => (e, "GameJolt Library", "Indie games library"),
-            Self::Pcsx2 => (
-                e,
-                "PCSX2 Library",
-                "Official stable PCSX2, isolated from your normal home folder. MetalSharp never downloads a Sony BIOS or games and preserves all mutable emulator data across updates and runtime removal.",
-            ),
-            Self::Rpcs3 => (
-                e,
-                "RPCS3 Library",
-                "A verified, isolated emulator environment with atomic updates and protected user data.",
-            ),
-            Self::ShadPs4 => (
-                e,
-                "shadPS4 Library",
-                "Official stable core, isolated state, atomic rollback, and protected user-owned content. Compatibility remains experimental.",
-            ),
-            Self::SharpEmu => (
-                e,
-                "SharpEmu Library",
-                "SharpEmu is early-stage research software. Most games do not run, Windows is upstream’s primary target, and macOS support is experimental.",
-            ),
         }
     }
 }
@@ -130,24 +82,16 @@ struct PreviewState {
     picker: bool,
     dialog: Option<&'static str>,
     notice: String,
-    samples: [bool; 8],
-    installed: [bool; 8],
-    authenticated: [bool; 8],
-    runtime_ready: [bool; 8],
-    running: [bool; 8],
-    network_opt_in: [bool; 8],
-    bios_ready: [bool; 8],
-    settings: [[usize; 3]; 8],
-    sidebar_open: [[bool; 3]; 8],
-    roots: [bool; 8],
-    pinned: [bool; 8],
-    modules: [usize; 8],
-    fonts: [usize; 8],
-    running_app: [Option<&'static str>; 8],
-    game_installed: [HashSet<&'static str>; 8],
-    game_removed: [HashSet<&'static str>; 8],
-    bottle_open: [HashSet<&'static str>; 8],
-    card_engines: [HashMap<&'static str, usize>; 8],
+    samples: [bool; 4],
+    installed: [bool; 4],
+    authenticated: [bool; 4],
+    runtime_ready: [bool; 4],
+    running: [bool; 4],
+    running_app: [Option<&'static str>; 4],
+    game_installed: [HashSet<&'static str>; 4],
+    game_removed: [HashSet<&'static str>; 4],
+    bottle_open: [HashSet<&'static str>; 4],
+    card_engines: [HashMap<&'static str, usize>; 4],
     card_picker: Option<&'static str>,
     selected_card: Option<&'static str>,
     launch_settings_open: bool,
@@ -163,20 +107,12 @@ impl Default for PreviewState {
             picker: false,
             dialog: None,
             notice: "Preview data only · no files, accounts, or services are accessed".into(),
-            samples: [false; 8],
-            installed: [false; 8],
-            authenticated: [false; 8],
-            runtime_ready: [false; 8],
-            running: [false; 8],
-            network_opt_in: [false; 8],
-            bios_ready: [false; 8],
-            settings: [[0; 3]; 8],
-            sidebar_open: [[false; 3]; 8],
-            roots: [false; 8],
-            pinned: [false; 8],
-            modules: [0; 8],
-            fonts: [0; 8],
-            running_app: [None; 8],
+            samples: [false; 4],
+            installed: [false; 4],
+            authenticated: [false; 4],
+            runtime_ready: [false; 4],
+            running: [false; 4],
+            running_app: [None; 4],
             game_installed: std::array::from_fn(|_| HashSet::new()),
             game_removed: std::array::from_fn(|_| HashSet::new()),
             bottle_open: std::array::from_fn(|_| HashSet::new()),
@@ -206,10 +142,9 @@ impl PreviewState {
         self.dialog = None;
         let action = match kind {
             "login" => Some("login"),
-            "firmware" => Some("bios"),
             "install" => Some("install"),
-            "installer" | "folder" | "package" => Some("add_sample"),
-            "modules" | "fonts" | "remove" | "game-install" | "game-remove" => Some(kind),
+            "installer" => Some("add_sample"),
+            "remove" | "game-install" | "game-remove" => Some(kind),
             _ => None,
         };
         if let Some(action) = action {
@@ -241,10 +176,6 @@ impl PreviewState {
                 self.running[i] = false;
                 self.notice = "Sample session stopped".into()
             }
-            "bios" => {
-                self.bios_ready[i] = true;
-                self.notice = "Sample BIOS validated · no file was read".into()
-            }
             "refresh" => {
                 self.notice = "Sample library refreshed · no local library was scanned".into()
             }
@@ -254,7 +185,6 @@ impl PreviewState {
             }
             "add_sample" => {
                 self.samples[i] = true;
-                self.roots[i] = true;
                 self.notice = "Sample location added · no directory was accessed".into();
             }
             "game-install" => {
@@ -270,14 +200,6 @@ impl PreviewState {
                     self.game_installed[i].remove(title);
                 }
                 self.notice = "Sample game uninstalled · no files deleted".into();
-            }
-            "modules" => {
-                self.modules[i] = 2;
-                self.notice = "Two sample modules · no files were accessed".into();
-            }
-            "fonts" => {
-                self.fonts[i] = 3;
-                self.notice = "Three sample fonts · no files were accessed".into();
             }
             "remove" => {
                 self.installed[i] = false;
@@ -359,15 +281,6 @@ impl SharpPreview {
                             this.state.notice.clear();
                             if choice == SharpSource::Epic {
                                 this.refresh_epic(false, cx);
-                            } else if sharp_emu_live::emu_index(choice).is_some() {
-                                this.emu_refresh(choice, false, cx);
-                                let has_update =
-                                    sharp_emu_live::emu_index(choice).is_some_and(|i| {
-                                        this.live.as_ref().unwrap().emu[i].update.is_some()
-                                    });
-                                if !has_update {
-                                    this.emu_check_update(choice, false, false, |_, _, _| {}, cx);
-                                }
                             }
                         }
                         cx.notify();
@@ -688,611 +601,6 @@ impl SharpPreview {
         control
     }
 
-    fn emulator_overview(&self, width: f32) -> gpui::Div {
-        let source = self.state.source;
-        let i = source.index();
-        let (eyebrow, platform) = match source {
-            SharpSource::Pcsx2 => ("MANAGED PLAYSTATION 2 ENVIRONMENT", "PS2 Emulation"),
-            SharpSource::Rpcs3 => ("MANAGED PLAYSTATION 3 ENVIRONMENT", "PS3 Emulation"),
-            SharpSource::ShadPs4 => ("EXPERIMENTAL PLAYSTATION 4 ENVIRONMENT", "PS4 Emulation"),
-            _ => (
-                "EXPERIMENTAL PLAYSTATION 5 RESEARCH ENVIRONMENT",
-                "PS5 Emulation",
-            ),
-        };
-        let (_, _, desc) = source.header();
-        let mut stats = vec![
-            (
-                "Stable runtime",
-                if self.state.runtime_ready[i] {
-                    "Preview build · installed"
-                } else {
-                    "Not installed"
-                }
-                .to_owned(),
-            ),
-            (
-                "Host",
-                if source == SharpSource::Pcsx2 {
-                    "Apple Silicon · Rosetta"
-                } else {
-                    "Apple Silicon · macOS"
-                }
-                .to_owned(),
-            ),
-            (
-                "Library",
-                format!(
-                    "{} {}",
-                    if self.state.samples[i] { 2 } else { 0 },
-                    if source == SharpSource::SharpEmu {
-                        "layouts"
-                    } else {
-                        "games"
-                    }
-                ),
-            ),
-        ];
-        match source {
-            SharpSource::Pcsx2 => stats.insert(
-                2,
-                (
-                    "User BIOS",
-                    if self.state.bios_ready[i] {
-                        "Validated · sample"
-                    } else {
-                        "Required"
-                    }
-                    .into(),
-                ),
-            ),
-            SharpSource::Rpcs3 => stats.insert(
-                2,
-                (
-                    "Firmware",
-                    if self.state.bios_ready[i] {
-                        "Installed · sample"
-                    } else {
-                        "Required"
-                    }
-                    .into(),
-                ),
-            ),
-            SharpSource::ShadPs4 => stats.push((
-                "Compatibility files",
-                format!(
-                    "{} modules · {} fonts",
-                    self.state.modules[i], self.state.fonts[i]
-                ),
-            )),
-            _ => stats.push((
-                "Guest network",
-                if self.state.network_opt_in[i] {
-                    "Explicitly enabled"
-                } else {
-                    "Denied by default"
-                }
-                .into(),
-            )),
-        }
-        let stat_width = ((width - 36.0 - 6.0) / 2.0).max(110.0);
-        let mut stat_grid = div().flex().flex_wrap().gap(px(6.0));
-        for (index, (label, value)) in stats.into_iter().enumerate() {
-            let icon = if index == 0 {
-                "source-installers.svg"
-            } else if index == 1 {
-                "source-empty-monitor.svg"
-            } else {
-                "source-pcsx2.svg"
-            };
-            stat_grid = stat_grid.child(
-                div()
-                    .w(px(stat_width))
-                    .min_w_0()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .px(px(10.0))
-                    .py(px(6.0))
-                    .rounded(px(8.0))
-                    .bg(gpui::rgba(0x00000024))
-                    .border_1()
-                    .border_color(gpui::rgba(0xffffff0a))
-                    .child(
-                        gpui::svg()
-                            .path(icon)
-                            .size(px(14.0))
-                            .text_color(rgb(self.palette.accent)),
-                    )
-                    .child(
-                        div()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.0))
-                            .child(div().text_size(px(9.0)).text_color(rgb(MUTED)).child(label))
-                            .child(
-                                div()
-                                    .text_size(px(11.5))
-                                    .text_color(rgb(TEXT))
-                                    .font_weight(FontWeight::BOLD)
-                                    .child(value),
-                            ),
-                    ),
-            );
-        }
-        div()
-            .flex_none()
-            .w_full()
-            .rounded(px(12.0))
-            .border_1()
-            .border_color(gpui::rgba((self.palette.accent << 8) | 0x40))
-            .bg(rgb(0x1c2228))
-            .px(px(18.0))
-            .py(px(14.0))
-            .flex()
-            .flex_col()
-            .gap(px(12.0))
-            .child(
-                div()
-                    .flex()
-                    .gap(px(12.0))
-                    .items_start()
-                    .child(
-                        div()
-                            .flex_none()
-                            .size(px(34.0))
-                            .rounded(px(9.0))
-                            .border_1()
-                            .border_color(gpui::rgba((self.palette.accent << 8) | 0x4d))
-                            .bg(gpui::rgba((self.palette.accent << 8) | 0x1c))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(source.icon(self.palette.accent, 26.0)),
-                    )
-                    .child(
-                        div()
-                            .min_w_0()
-                            .flex_1()
-                            .flex()
-                            .flex_col()
-                            .gap(px(3.0))
-                            .child(
-                                div()
-                                    .text_size(px(9.0))
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_color(rgb(MUTED))
-                                    .child(eyebrow),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_wrap()
-                                    .items_center()
-                                    .gap(px(8.0))
-                                    .child(
-                                        div()
-                                            .text_size(px(17.0))
-                                            .font_weight(FontWeight::BOLD)
-                                            .text_color(rgb(TEXT))
-                                            .child(source.title()),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(px(12.0))
-                                            .text_color(rgb(0xb1b8bb))
-                                            .child(format!("- {platform}")),
-                                    )
-                                    .child(pill(if self.state.running[i] {
-                                        "● Running · sample"
-                                    } else if self.state.runtime_ready[i] {
-                                        "● Ready · sample"
-                                    } else {
-                                        "● Setup required"
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(11.5))
-                                    .line_height(px(16.675))
-                                    .text_color(rgb(0xaeb3b2))
-                                    .max_h(px(33.35))
-                                    .overflow_hidden()
-                                    .child(desc),
-                            ),
-                    ),
-            )
-            .child(stat_grid)
-    }
-
-    fn emulator_sidebar(&self, width: f32, compact: bool, cx: &mut Context<Self>) -> gpui::Div {
-        let source = self.state.source;
-        let i = source.index();
-        let ready = self.state.runtime_ready[i];
-        let commands: Vec<(&'static str, &'static str, &'static str, bool)> = match source {
-            SharpSource::Pcsx2 => vec![
-                ("firmware", "Import BIOS", "Accepts a .bin BIOS file", ready),
-                (
-                    "link",
-                    "Download Firmware",
-                    "Open PCSX2 firmware page",
-                    true,
-                ),
-                ("link", "Find Games", "Open archive.org", true),
-                (
-                    "setup",
-                    "PCSX2 Setup",
-                    if ready {
-                        "Controllers & renderer"
-                    } else {
-                        "Install PCSX2 first"
-                    },
-                    ready,
-                ),
-                ("folder", "Add Games", "Disc image or folder", true),
-                ("refresh", "Scan Library", "Refresh metadata", true),
-            ],
-            SharpSource::Rpcs3 => vec![
-                ("firmware", "Firmware", "Install PS3UPDAT.PUP", ready),
-                (
-                    "link",
-                    "Download Firmware",
-                    "Open PlayStation support",
-                    true,
-                ),
-                ("link", "Find Games", "Open archive.org", true),
-                ("package", "Install Package", "Add an owned PKG", ready),
-                ("folder", "Add games", "Choose a library folder", true),
-                ("refresh", "Scan library", "Refresh games and artwork", true),
-            ],
-            SharpSource::ShadPs4 => vec![
-                ("folder", "Add games", "Choose dumped CUSA folders", true),
-                (
-                    "modules",
-                    "Import modules",
-                    "Console-dumped SPRX files",
-                    true,
-                ),
-                ("fonts", "Import fonts", "Console-dumped font content", true),
-                (
-                    "refresh",
-                    "Scan library",
-                    "Refresh metadata and artwork",
-                    true,
-                ),
-            ],
-            _ => vec![
-                (
-                    "folder",
-                    "Add layouts",
-                    "Reference owned eboot.bin folders",
-                    true,
-                ),
-                (
-                    "refresh",
-                    "Scan library",
-                    "Refresh bounded local metadata",
-                    true,
-                ),
-                ("link", "Official FAQ", "Open sharpemu.app", true),
-                ("link", "Compatibility", "View upstream reports", true),
-            ],
-        };
-        let mut side = div()
-            .flex_none()
-            .w(px(width))
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .gap(px(8.0));
-        for (index, (action, label, detail, enabled)) in commands.into_iter().enumerate() {
-            let icon = match action {
-                "folder" => "source-installers.svg",
-                "firmware" | "modules" => "source-pcsx2.svg",
-                "setup" => "source-empty-monitor.svg",
-                _ => "source-rpcs3.svg",
-            };
-            side = side.child(
-                div()
-                    .id(("emulator-command", index))
-                    .w_full()
-                    .min_h(px(if compact { 44.0 } else { 54.0 }))
-                    .rounded(px(11.0))
-                    .border_1()
-                    .border_color(gpui::rgba(0xffffff14))
-                    .bg(gpui::rgba(0xffffff06))
-                    .px(px(10.0))
-                    .py(px(9.0))
-                    .flex()
-                    .items_center()
-                    .gap(px(9.0))
-                    .cursor_pointer()
-                    .opacity(if enabled { 1.0 } else { 0.4 })
-                    .child(
-                        gpui::svg()
-                            .path(icon)
-                            .size(px(17.0))
-                            .flex_none()
-                            .text_color(rgb(self.palette.accent)),
-                    )
-                    .child(
-                        div()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap(px(3.0))
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_color(rgb(TEXT))
-                                    .child(label),
-                            )
-                            .children((!compact).then(|| {
-                                div()
-                                    .text_size(px(9.0))
-                                    .line_height(px(12.0))
-                                    .text_color(rgb(MUTED))
-                                    .child(detail)
-                            })),
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if !enabled {
-                            return;
-                        }
-                        match action {
-                            "setup" => {
-                                this.state.sidebar_open[i][0] = !this.state.sidebar_open[i][0]
-                            }
-                            "refresh" => this.state.act("refresh"),
-                            "link" => {
-                                this.state.notice = format!(
-                                    "{label}: external pages are disabled in this offline preview"
-                                )
-                            }
-                            _ => this.state.dialog = Some(action),
-                        };
-                        cx.notify();
-                    })),
-            );
-            if action == "setup" && self.state.sidebar_open[i][0] {
-                let mut settings = div()
-                    .w_full()
-                    .p(px(11.0))
-                    .flex()
-                    .flex_col()
-                    .gap(px(10.0))
-                    .rounded(px(8.0))
-                    .bg(rgb(PANEL));
-                for (setting, label, options) in [
-                    (0, "CONTROLLER 1", ["DualShock 2", "Keyboard", "None"]),
-                    (1, "CONTROLLER 2", ["None", "DualShock 2", "Keyboard"]),
-                    (2, "RENDERER", ["Automatic", "Metal", "Software"]),
-                ] {
-                    settings = settings.child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(5.0))
-                            .child(
-                                div()
-                                    .text_size(px(9.0))
-                                    .text_color(rgb(MUTED))
-                                    .font_weight(FontWeight::BOLD)
-                                    .child(label),
-                            )
-                            .child(
-                                self.palette
-                                    .button(
-                                        ("pcsx2-setting", setting),
-                                        format!("{}  ⌄", options[self.state.settings[i][setting]]),
-                                        false,
-                                    )
-                                    .w_full()
-                                    .justify_start()
-                                    .text_size(px(11.0))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.state.settings[i][setting] =
-                                            (this.state.settings[i][setting] + 1) % 3;
-                                        this.state.notice =
-                                            "PCSX2 preview setting changed · not saved".into();
-                                        cx.notify();
-                                    })),
-                            ),
-                    );
-                }
-                side = side.child(
-                    settings.child(
-                        div()
-                            .text_size(px(9.0))
-                            .text_color(rgb(MUTED))
-                            .child("Preview selections are not saved."),
-                    ),
-                );
-            }
-        }
-        if source == SharpSource::SharpEmu {
-            side = side.child(div().id("sharpemu-network-policy").p(px(10.0)).rounded(px(10.0)).border_1().border_color(gpui::rgba(0xffb84d3d)).bg(gpui::rgba(0xffb84d08)).flex().items_start().gap(px(8.0)).cursor_pointer()
-                .child(div().size(px(14.0)).border_1().border_color(rgb(MUTED)).rounded(px(3.0)).text_size(px(11.0)).text_color(rgb(self.palette.accent)).child(if self.state.network_opt_in[i] {"✓"} else {""}))
-                .child(div().min_w_0().flex_1().flex().flex_col().gap(px(4.0)).child(div().text_size(px(11.0)).font_weight(FontWeight::BOLD).text_color(rgb(TEXT)).child("Guest networking"))
-                    .child(div().text_size(px(9.0)).line_height(px(13.0)).text_color(rgb(MUTED)).child("Off by default. When enabled, emulated game code may create host sockets, use DNS, and contact local or internet services. Every network-enabled launch asks again. No network is used in preview.")))
-                .on_click(cx.listener(move |this, _, _, cx| {this.state.network_opt_in[i]=!this.state.network_opt_in[i]; cx.notify();})));
-        }
-        for (section, title) in [
-            (1, "Runtime & support"),
-            (
-                2,
-                if source == SharpSource::Pcsx2 {
-                    "Game locations"
-                } else {
-                    "Game folders"
-                },
-            ),
-        ] {
-            let open = self.state.sidebar_open[i][section];
-            let mut drawer = div()
-                .w_full()
-                .rounded(px(10.0))
-                .border_1()
-                .border_color(gpui::rgba(0xffffff14))
-                .overflow_hidden()
-                .bg(gpui::rgba(0xffffff04))
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .id(("emulator-sidebar-summary", section))
-                        .min_h(px(36.0))
-                        .px(px(10.0))
-                        .py(px(8.0))
-                        .flex()
-                        .items_center()
-                        .gap(px(7.0))
-                        .cursor_pointer()
-                        .child(
-                            gpui::svg()
-                                .path("source-installers.svg")
-                                .size(px(16.0))
-                                .text_color(rgb(self.palette.accent)),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .text_size(px(11.0))
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(rgb(TEXT))
-                                .child(title),
-                        )
-                        .children((section == 2).then(|| {
-                            div()
-                                .text_size(px(9.0))
-                                .text_color(rgb(MUTED))
-                                .child(if self.state.roots[i] { "1" } else { "0" })
-                        }))
-                        .child(
-                            div()
-                                .text_size(px(10.0))
-                                .text_color(rgb(MUTED))
-                                .child(if open { "⌄" } else { "›" }),
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.state.sidebar_open[i][section] =
-                                !this.state.sidebar_open[i][section];
-                            cx.notify();
-                        })),
-                );
-            if open {
-                let mut body = div().p(px(10.0)).flex().flex_col().gap(px(8.0));
-                if section == 2 {
-                    body = body.child(
-                        self.palette
-                            .button("emulator-root-add", "+  Add", false)
-                            .h(px(28.0))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.state.dialog = Some("folder");
-                                cx.notify();
-                            })),
-                    );
-                    body = body.child(div().text_size(px(10.0)).text_color(rgb(MUTED)).child(
-                        if self.state.roots[i] {
-                            "/preview/owned-game-fixture"
-                        } else if source == SharpSource::Pcsx2 {
-                            "No game locations added yet."
-                        } else {
-                            "No game folders added yet."
-                        },
-                    ));
-                    if self.state.roots[i] {
-                        body = body.child(
-                            self.palette
-                                .button("emulator-root-remove", "Remove Reference", false)
-                                .h(px(28.0))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.state.roots[i] = false;
-                                    this.state.samples[i] = false;
-                                    cx.notify();
-                                })),
-                        );
-                    }
-                } else {
-                    body = body.child(
-                        self.palette
-                            .button("emulator-check", format!("Check {}", source.title()), false)
-                            .h(px(28.0))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.state.act("refresh");
-                                cx.notify();
-                            })),
-                    );
-                    if ready {
-                        body = body
-                            .child(
-                                self.palette
-                                    .button(
-                                        "emulator-pin",
-                                        if self.state.pinned[i] {
-                                            "Unpin Version"
-                                        } else {
-                                            "Pin Current"
-                                        },
-                                        false,
-                                    )
-                                    .h(px(28.0))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.state.pinned[i] = !this.state.pinned[i];
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                self.palette
-                                    .button("emulator-rollback", "Rollback", false)
-                                    .h(px(28.0))
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.state.act("rollback runtime");
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                self.palette
-                                    .button("emulator-remove", "Remove Runtime", false)
-                                    .h(px(28.0))
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.state.dialog = Some("remove");
-                                        cx.notify();
-                                    })),
-                            );
-                    }
-                    if source == SharpSource::Pcsx2 || source == SharpSource::SharpEmu {
-                        for (index, label) in if source == SharpSource::Pcsx2 {
-                            vec!["BIOS Guide", "Disc Guide"]
-                        } else {
-                            vec!["Source & GPL License", "Official Releases"]
-                        }
-                        .into_iter()
-                        .enumerate()
-                        {
-                            body = body.child(
-                                self.palette
-                                    .button(("emulator-guide", index), label, false)
-                                    .h(px(28.0))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.state.notice = format!(
-                                            "{label}: external pages disabled in offline preview"
-                                        );
-                                        cx.notify();
-                                    })),
-                            );
-                        }
-                    }
-                }
-                drawer = drawer.child(body);
-            }
-            side = side.child(drawer);
-        }
-        side
-    }
-
     fn preview_dialog(
         &self,
         kind: &'static str,
@@ -1374,7 +682,7 @@ impl SharpPreview {
             _ => "metalsharp-logo.png",
         };
         let mut actions = div().flex().items_center().gap(px(8.0));
-        if installed && source != SharpSource::GameJolt && i < SharpSource::Pcsx2.index() {
+        if installed && source != SharpSource::GameJolt {
             actions = actions.child(
                 div()
                     .id(("card-bottle", title.as_ptr() as usize))
@@ -1425,7 +733,7 @@ impl SharpPreview {
                     cx.notify();
                 })),
         );
-        if installed && i < SharpSource::Pcsx2.index() {
+        if installed {
             if provider || source == SharpSource::GameJolt {
                 actions = actions.child(
                     self.palette
@@ -1863,24 +1171,15 @@ impl Render for SharpPreview {
                 ("storage", "Open GameJolt", false, true),
                 ("sync", "↻  Sync GameJolt", false, true),
             ],
-            SharpSource::Pcsx2 => vec![("install", "↻  Check PCSX2", true, true)],
-            SharpSource::Rpcs3 => vec![("install", "↻  Check RPCS3", true, true)],
-            SharpSource::ShadPs4 => vec![("install", "↻  Check shadPS4", true, true)],
-            SharpSource::SharpEmu => vec![("install", "↻  Check SharpEmu", true, true)],
         };
-        let live_pc = self.live.is_some() && source.index() < SharpSource::Pcsx2.index();
-        let live_emu = self.live.is_some() && source.index() >= SharpSource::Pcsx2.index();
+        let live_pc = self.live.is_some();
         let mut controls = if live_pc {
             self.live_header_controls(cx)
-        } else if live_emu {
-            self.live_emulator_header(cx)
         } else {
             div().flex().items_center()
         };
-        for (index, (action, label, primary, enabled)) in actions
-            .into_iter()
-            .enumerate()
-            .filter(|_| !live_pc && !live_emu)
+        for (index, (action, label, primary, enabled)) in
+            actions.into_iter().enumerate().filter(|_| !live_pc)
         {
             // Each string comes from a static literal above.
             let action: &'static str = match action {
@@ -1922,38 +1221,14 @@ impl Render for SharpPreview {
                 }));
             controls = controls.child(button);
         }
-        if source.index() >= SharpSource::Pcsx2.index() && installed && !live_emu {
-            let running = self.state.running[i];
-            controls = controls.child(
-                self.palette
-                    .button(
-                        "emulator-open",
-                        format!(
-                            "{} {}",
-                            if running { "Stop" } else { "Open" },
-                            source.title()
-                        ),
-                        false,
-                    )
-                    .h(px(40.0))
-                    .mr(px(12.0))
-                    .rounded(px(9.0))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.state.act(if running { "stop" } else { "play" });
-                        cx.notify();
-                    })),
-            );
-        }
         let mut source_controls = div()
             .ml_auto()
             .flex_none()
             .flex()
             .items_center()
             .gap(px(12.0));
-        if source.index() < SharpSource::Pcsx2.index() {
-            source_controls =
-                source_controls.child(self.launch_settings_control(window.viewport_size(), cx));
-        }
+        source_controls =
+            source_controls.child(self.launch_settings_control(window.viewport_size(), cx));
         controls = controls.child(source_controls.child(source_picker));
         controls = if stacked {
             controls.w_full().min_w_0()
@@ -1966,33 +1241,26 @@ impl Render for SharpPreview {
         } else {
             header = header.flex_row().items_center();
         }
-        let emulator = source.index() >= SharpSource::Pcsx2.index();
         let content_width = (width - 2.0 * (width * 0.03).clamp(22.0, 40.0)).min(
-            if emulator || source == SharpSource::Installers {
+            if source == SharpSource::Installers {
                 1180.0
             } else {
                 width
             },
         );
         let workspace_pad = (width * 0.018).clamp(14.0, 22.0);
-        let sidebar_width = if width <= 920.0 { 176.0 } else { 238.0 };
         let gap = if width <= 920.0 { 10.0 } else { 14.0 };
         // The workspace panel's 1px border also comes out of the row; without it
         // the last column overflows by 2px and wraps, leaving an empty column.
-        let library_width = content_width
-            - 2.0 * workspace_pad
-            - 2.0
-            - if emulator { sidebar_width + gap } else { 0.0 };
-        let minimum = if emulator {
-            240.0
-        } else if source == SharpSource::Installers {
+        let library_width = content_width - 2.0 * workspace_pad - 2.0;
+        let minimum = if source == SharpSource::Installers {
             260.0
         } else {
             224.0
         };
         let columns = ((library_width + 14.0) / (minimum + 14.0)).floor().max(1.0);
         let card_width = ((library_width - (columns - 1.0) * 14.0) / columns).floor();
-        let card_width = if emulator || source == SharpSource::Installers {
+        let card_width = if source == SharpSource::Installers {
             card_width.min(320.0)
         } else {
             card_width
@@ -2010,13 +1278,6 @@ impl Render for SharpPreview {
             .gap(px(16.0));
         let mut content = div().min_w_0().flex_1().flex().flex_col().gap(px(14.0));
         let mut grid = div().flex().flex_wrap().gap(px(14.));
-        if emulator {
-            content = content.child(if live_emu {
-                self.live_emulator_overview(library_width)
-            } else {
-                self.emulator_overview(library_width)
-            });
-        }
         let gate = if self.state.samples[source.index()] {
             None
         } else {
@@ -2061,23 +1322,11 @@ impl Render for SharpPreview {
                     "Place each game in its own folder inside the GameJolt directory, then sync.",
                     "Add GameJolt Folder",
                 )),
-                SharpSource::Pcsx2 | SharpSource::Rpcs3 | SharpSource::ShadPs4 => Some((
-                    "No games found",
-                    "Add a game location or folder to build your library.",
-                    "Add Games",
-                )),
-                SharpSource::SharpEmu => Some((
-                    "No layouts found",
-                    "Reference an owned eboot.bin folder to add a layout.",
-                    "Add Layouts",
-                )),
             }
         };
         if live_pc {
             content = content.child(self.live_content(card_width, cx));
-        } else if live_emu {
-            content = content.child(self.live_emulator_content(card_width, cx));
-        } else if !emulator || self.state.samples[i] {
+        } else {
             if let Some((heading, desc, _button)) = gate {
                 if source == SharpSource::Installers {
                     content = content.child(
@@ -2143,30 +1392,6 @@ impl Render for SharpPreview {
                         ("Celeste Classic", "Native · Platformer", "READY"),
                         ("Super Crate Box", "Windows · Action", "SETUP"),
                     ],
-                    SharpSource::Pcsx2 => vec![
-                        ("Gran Turismo 4", "SCUS-97328 · ISO · 4.2 GB", "PS2"),
-                        ("Shadow of the Colossus", "SCUS-97472 · ISO · 3.6 GB", "PS2"),
-                    ],
-                    SharpSource::Rpcs3 => vec![
-                        ("Demon’s Souls", "BCUS981 armas · Firmware ready", "PS3"),
-                        ("Journey", "NPEA00321 · Disc folder", "PS3"),
-                    ],
-                    SharpSource::ShadPs4 => vec![
-                        ("Bloodborne", "CUSA00900 · Update dump available", "PS4"),
-                        (
-                            "Astro’s Playroom",
-                            "CUSA20170 · Compatibility pending",
-                            "PS4",
-                        ),
-                    ],
-                    SharpSource::SharpEmu => vec![
-                        (
-                            "Sample eboot layout",
-                            "PPSA00001 · Guest networking off",
-                            "PS5",
-                        ),
-                        ("Demo package layout", "PPSA00002 · Runtime required", "PS5"),
-                    ],
                 };
                 let names = cards;
                 for (name, desc, badge) in names {
@@ -2227,14 +1452,7 @@ impl Render for SharpPreview {
             ))
             .flex()
             .gap(px(gap))
-            .child(content)
-            .children(emulator.then(|| {
-                if live_emu {
-                    self.live_emulator_sidebar(sidebar_width, width <= 920.0, cx)
-                } else {
-                    self.emulator_sidebar(sidebar_width, width <= 920.0, cx)
-                }
-            }));
+            .child(content);
         let mut workspace = workspace;
         if live_gamejolt {
             let embed_visible = self.gamejolt_embed_visible();
@@ -2483,10 +1701,6 @@ impl Render for SharpPreview {
             let modal = self.preview_dialog(kind, window.viewport_size(), cx);
             root = root.child(gpui::deferred(modal).with_priority(100));
         }
-        if let Some(action) = self.live.as_ref().and_then(|live| live.emu_confirm.clone()) {
-            let modal = self.live_emu_confirm_overlay(action, window.viewport_size(), cx);
-            root = root.child(gpui::deferred(modal).with_priority(110));
-        }
         if let Some(action) = self.live.as_ref().and_then(|live| live.confirm.clone()) {
             let modal = self.live_confirm_overlay(action, window.viewport_size(), cx);
             root = root.child(gpui::deferred(modal).with_priority(110));
@@ -2558,7 +1772,7 @@ fn dialog_copy(k: &str) -> (&'static str, &'static str, &'static str) {
         ),
         "install" => (
             "Install Runtime",
-            "Simulate the source's isolated runtime setup. No software is downloaded, installed, or executed. Firmware, games, and settings remain synthetic.",
+            "Simulate the source's isolated runtime setup. No software is downloaded, installed, or executed. Games and settings remain synthetic.",
             "Simulate setup",
         ),
         "remove" => (
@@ -2570,16 +1784,6 @@ fn dialog_copy(k: &str) -> (&'static str, &'static str, &'static str) {
             "Connect account",
             "Preview-only sign-in simulation; no credentials are requested and no provider page is opened.",
             "Simulate connection",
-        ),
-        "firmware" => (
-            "Import firmware",
-            "Select a firmware or BIOS file. Only dump content you own.",
-            "Use sample firmware",
-        ),
-        "folder" => (
-            "Add game location",
-            "Choose a folder or disc image containing games you own.",
-            "Use sample location",
         ),
         "doctor" => (
             "Launch Doctor",
@@ -2595,21 +1799,6 @@ fn dialog_copy(k: &str) -> (&'static str, &'static str, &'static str) {
             "Application details",
             "Preview metadata, installed state, version, and source information.",
             "Close details",
-        ),
-        "package" => (
-            "Install owned PKG",
-            "A local package picker would select a PKG. Preview mode never reads a file.",
-            "Simulate package selection",
-        ),
-        "modules" => (
-            "Import modules",
-            "Select console-dumped SPRX files that you own. No file is read in preview mode.",
-            "Use sample module state",
-        ),
-        "fonts" => (
-            "Import fonts",
-            "Select console-dumped font content. No file is read in preview mode.",
-            "Use sample font state",
         ),
         "bottle" => (
             "Bottle tools",
@@ -2628,9 +1817,9 @@ fn dialog_copy(k: &str) -> (&'static str, &'static str, &'static str) {
 mod tests {
     use super::*;
     #[test]
-    fn all_eight_sources_are_selectable_and_have_distinct_ids() {
+    fn all_four_sources_are_selectable_and_have_distinct_ids() {
         let ids: std::collections::HashSet<_> = SharpSource::ALL.iter().map(|s| s.id()).collect();
-        assert_eq!(ids.len(), 8);
+        assert_eq!(ids.len(), 4);
         for s in SharpSource::ALL {
             let mut state = PreviewState::default();
             state.choose(s);
@@ -2649,9 +1838,6 @@ mod tests {
         assert!(s.running[0]);
         s.act("stop");
         assert!(!s.running[0]);
-        s.act("bios");
-        assert!(s.bios_ready[0]);
-        assert!(!s.network_opt_in[0]);
     }
     #[test]
     fn source_switch_keeps_provider_state_independent() {
@@ -2682,34 +1868,5 @@ mod tests {
         state.confirm_dialog("game-remove");
         assert!(!state.game_installed[2].contains("Control"));
         assert!(state.game_removed[2].contains("Control"));
-    }
-    #[test]
-    fn runtime_removal_preserves_synthetic_user_data_and_other_sources() {
-        let mut state = PreviewState::default();
-        state.choose(SharpSource::Pcsx2);
-        state.confirm_dialog("install");
-        state.confirm_dialog("firmware");
-        state.confirm_dialog("folder");
-        state.settings[4][0] = 2;
-        state.running_app[4] = Some("Gran Turismo 4");
-        state.act("play");
-        state.confirm_dialog("remove");
-        assert!(!state.installed[4] && !state.runtime_ready[4] && !state.running[4]);
-        assert!(state.running_app[4].is_none());
-        assert!(state.bios_ready[4] && state.roots[4] && state.samples[4]);
-        assert_eq!(state.settings[4][0], 2);
-        assert!(!state.installed[5] && !state.bios_ready[5] && !state.roots[5]);
-    }
-    #[test]
-    fn samples_settings_and_guest_network_are_source_scoped() {
-        let mut s = PreviewState::default();
-        s.choose(SharpSource::Pcsx2);
-        s.act("sample");
-        s.settings[4][0] = 2;
-        s.choose(SharpSource::SharpEmu);
-        s.network_opt_in[7] = true;
-        assert!(s.samples[4] && s.network_opt_in[7]);
-        assert_eq!(s.settings[4][0], 2);
-        assert_eq!(s.settings[7][0], 0);
     }
 }

@@ -1,7 +1,7 @@
 # MetalSharp Architecture
 **Updated:** 2026-10-28
 
-How MetalSharp launches games, what it installs, and where state lives. Build instructions are in [development.md](development.md) and [building-wine.md](building-wine.md); emulator providers are in [emulators.md](emulators.md).
+How MetalSharp launches games, what it installs, and where state lives. Build instructions are in [development.md](development.md) and [building-wine.md](building-wine.md).
 
 MetalSharp 1.0.0 comes in two builds from the same source. The backend picks its build at compile time (`make VARIANT=fex` defines `MS_BACKEND_VARIANT`), and the app follows the backend's `variant` in `GET /status`:
 

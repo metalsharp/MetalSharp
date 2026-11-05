@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Removed
+
+- **Console emulators** — PCSX2, RPCS3, shadPS4 and SharpEmu are gone from the Sharp Library, with their backend routes. On the first start after the update, the backend deletes their data folder, `~/.metalsharp/emulators` (runtimes, firmware, saves and any games stored there). Symlinks in it are removed without touching what they point to. Installers, GOG, Epic and GameJolt are unchanged.
+
 ## v1.0.0 — 2026-10-28
 
 MetalSharp 1.0.0 comes in two builds from one release. Both share the app and its updater:

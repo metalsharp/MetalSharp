@@ -25,7 +25,7 @@ Click **Play** on the Library page. MetalSharp picks a graphics route automatica
 
 ## Other Stores and Programs
 
-The **Sharp Library** holds Windows apps, launchers, installers, and non-Steam games. It has tabs for Epic, GOG, Game Jolt, and [emulators](emulators.md). For Ubisoft Connect, see the [Ubisoft Connect guide](ubisoft-connect.md).
+The **Sharp Library** holds Windows apps, launchers, installers, and non-Steam games. It has tabs for Epic, GOG, and Game Jolt. For Ubisoft Connect, see the [Ubisoft Connect guide](ubisoft-connect.md).
 
 - **Install Windows Program** takes an `.exe` or `.msi`. MetalSharp imports it directly, or runs the installer in its own bottle and picks up the installed app.
 - Rename an app with the pencil next to its title, and change its cover with **Change Image** (JPEG, PNG, or WebP).

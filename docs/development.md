@@ -68,7 +68,7 @@ The backend honors `METALSHARP_HOME` (default `~/.metalsharp`) and serves HTTP o
 ## Test
 
 ```bash
-make -C app/src-c test        # HTTP smoke, JSON, migration, SIGPIPE, emulator update transactions
+make -C app/src-c test        # HTTP smoke, JSON, migration, SIGPIPE
 make -C app/src-c VARIANT=fex BUILD_DIR="$PWD/app/src-c/build-fex" test   # the Arm64 FEX build's suite
 make -C app/src-c asan-test   # same under sanitizers
 cargo test --manifest-path app-gpui/Cargo.toml
