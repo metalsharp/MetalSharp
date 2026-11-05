@@ -11,6 +11,7 @@
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/steam.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/store_launcher.h"
 #include "metalsharp_backend/wine_runtime.h"
 #include <ctype.h>
 #include <dirent.h>
@@ -516,6 +517,27 @@ static const char* connect_lane(void) {
     return ms_wine_is_fex() ? "dxmt" : "d3dmetal";
 }
 
+static void connect_apply_env(const char* home, const void* context) {
+    ms_steam_apply_graphics_route(home, (const char*)context);
+}
+
+/* MetalSharp Wine (the fex build) starts Connect the way it starts the Battle.net client: upc.exe
+ * with no switches, from its own folder, on its lane and nothing else. */
+static pid_t spawn_launcher_direct(const char* home, const char* wine, const char* prefix, const char* launcher,
+                                   const char* pipeline) {
+    char* dir = strdup(launcher);
+    char* slash = dir ? strrchr(dir, '/') : NULL;
+    char* argv[] = {(char*)wine, (char*)launcher, NULL};
+    pid_t pid = 0;
+    if (slash)
+        *slash = '\0';
+    if (!dir ||
+        !ms_store_run_wine(home, prefix, slash ? dir : NULL, argv, connect_apply_env, pipeline, false, NULL, &pid))
+        pid = -1;
+    free(dir);
+    return pid;
+}
+
 static bool spawn_launcher(const char* home, const char* launcher, const char* pipeline, unsigned game_appid) {
     char* wine = ubisoft_wine(home);
     char* prefix = ubisoft_prefix(home);
@@ -528,27 +550,32 @@ static bool spawn_launcher(const char* home, const char* launcher, const char* p
         free(pidfile);
         return false;
     }
-    seed_connect_gpu(home, wine, prefix);
-    pid = fork();
-    if (pid == 0) {
-        char* args[2 + sizeof(UBISOFT_CONNECT_ARGS) / sizeof(UBISOFT_CONNECT_ARGS[0]) + 1];
-        size_t argc = 0;
-        args[argc++] = wine;
-        args[argc++] = (char*)launcher;
-        /* The x86_64 runtime's CEF needs these; MetalSharp Wine's launcher policy gives Connect what
-         * it needs (--in-process-gpu), and -cef-single-process stalled it at startup there. */
-        for (size_t i = 0; !ms_wine_is_fex() && i < sizeof(UBISOFT_CONNECT_ARGS) / sizeof(UBISOFT_CONNECT_ARGS[0]); i++)
-            args[argc++] = (char*)UBISOFT_CONNECT_ARGS[i];
-        args[argc] = NULL;
-        (void)setpgid(0, 0);
-        (void)chdir(prefix);
-        setenv("WINEPREFIX", prefix, 1);
-        setenv("WINEDEBUG", "-all", 1);
-        setenv("MS_FWD_COMPAT_GL_CTX", "1", 1);
-        ms_steam_apply_launch_preferences(home);
-        ms_steam_apply_graphics_route(home, pipeline ? pipeline : connect_lane());
-        execv(wine, args);
-        _exit(127);
+    if (ms_wine_is_fex()) {
+        pid = spawn_launcher_direct(home, wine, prefix, launcher, pipeline ? pipeline : connect_lane());
+    } else {
+        seed_connect_gpu(home, wine, prefix);
+        pid = fork();
+        if (pid == 0) {
+            char* args[2 + sizeof(UBISOFT_CONNECT_ARGS) / sizeof(UBISOFT_CONNECT_ARGS[0]) + 1];
+            size_t argc = 0;
+            args[argc++] = wine;
+            args[argc++] = (char*)launcher;
+            /* The x86_64 runtime's CEF needs these. */
+            for (size_t i = 0; i < sizeof(UBISOFT_CONNECT_ARGS) / sizeof(UBISOFT_CONNECT_ARGS[0]); i++)
+                args[argc++] = (char*)UBISOFT_CONNECT_ARGS[i];
+            args[argc] = NULL;
+            (void)setpgid(0, 0);
+            (void)chdir(prefix);
+            setenv("WINEPREFIX", prefix, 1);
+            setenv("WINEDEBUG", "-all", 1);
+            setenv("MS_FWD_COMPAT_GL_CTX", "1", 1);
+            ms_steam_apply_launch_preferences(home);
+            ms_steam_apply_graphics_route(home, pipeline ? pipeline : connect_lane());
+            execv(wine, args);
+            _exit(127);
+        }
+        if (pid > 0)
+            (void)setpgid(pid, pid);
     }
     if (pid < 0) {
         free(wine);
@@ -556,7 +583,6 @@ static bool spawn_launcher(const char* home, const char* launcher, const char* p
         free(pidfile);
         return false;
     }
-    (void)setpgid(pid, pid);
     file = fopen(pidfile, "wb");
     if (file) {
         fprintf(file, "%ld\n", (long)pid);
