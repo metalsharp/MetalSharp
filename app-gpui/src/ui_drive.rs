@@ -32,6 +32,26 @@ pub(super) fn folder_name(page: LibraryPage) -> String {
     format!("MetalSharp {} Games", page.label())
 }
 
+/// GOG and Epic downloads go straight into the folder; the other launchers
+/// install games themselves, so the folder appears to them as a drive.
+fn drive_description(page: LibraryPage) -> String {
+    let folder = folder_name(page);
+    let drive = match page {
+        LibraryPage::Ubisoft => Some(("Ubisoft Connect", "Y:")),
+        LibraryPage::BattleNet => Some(("Battle.net", "Y:")),
+        LibraryPage::Rockstar => Some(("the Rockstar Games Launcher", "R:")),
+        _ => None,
+    };
+    match drive {
+        Some((launcher, letter)) => format!(
+            "MetalSharp creates a \"{folder}\" folder on the drive you pick. In {launcher} it is drive {letter}: choose it when installing a game."
+        ),
+        None => format!(
+            "MetalSharp creates a \"{folder}\" folder on the drive you pick, installs games there and launches them from it."
+        ),
+    }
+}
+
 fn free_space(bytes: u64) -> String {
     let gb = bytes as f64 / 1_000_000_000.0;
     if gb >= 1000.0 {
@@ -253,10 +273,7 @@ impl MetalSharpApp {
                     .text_size(px(layout.scaled(12.5)))
                     .line_height(px(layout.scaled(18.0)))
                     .text_color(rgb(0xaeb3b2))
-                    .child(format!(
-                        "MetalSharp creates a \"{}\" folder on the drive you pick, installs games there and launches them from it.",
-                        folder_name(prompt.page)
-                    )),
+                    .child(drive_description(prompt.page)),
             )
             .child(rows)
             .child(

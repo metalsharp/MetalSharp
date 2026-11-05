@@ -40,6 +40,7 @@
 #include "metalsharp_backend/ubisoft.h"
 #include "metalsharp_backend/rockstar.h"
 #include "metalsharp_backend/battlenet.h"
+#include "metalsharp_backend/library_locations.h"
 #include "metalsharp_backend/updater.h"
 #include "metalsharp_backend/wine_runtime.h"
 
@@ -994,6 +995,22 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, 200, body);
         return true;
     }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/library-locations") == 0) {
+        body = ms_library_locations_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/library-locations/set") == 0) {
+        int status = 500;
+        body = ms_library_locations_set_json(context->metalsharp_home, (const char*)request->body,
+                                             request->body_length, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/ubisoft/status") == 0) {
         body = ms_ubisoft_status_json(context->metalsharp_home);
         if (body == NULL)
@@ -1468,7 +1485,20 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         return true;
     }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/gog/install") == 0) {
-        body = ms_gog_action_json(context->metalsharp_home, "install", request->body, request->body_length);
+        /* Without an installPath, the game goes into the GOG library location. */
+        int status = 200;
+        size_t install_length = 0;
+        char* failure = NULL;
+        char* install = ms_library_install_request(context->metalsharp_home, "gog", (const char*)request->body,
+                                                   request->body_length, &install_length, &status, &failure);
+        if (!install) {
+            if (failure == NULL)
+                return false;
+            set_json_response(response, status, failure);
+            return true;
+        }
+        body = ms_gog_action_json(context->metalsharp_home, "install", (const unsigned char*)install, install_length);
+        free(install);
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);
@@ -1770,7 +1800,20 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         return true;
     }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/epic/install") == 0) {
-        body = ms_epic_install_json(context->metalsharp_home, request->body, request->body_length);
+        /* Without an installPath, the game goes into the Epic library location. */
+        int status = 200;
+        size_t install_length = 0;
+        char* failure = NULL;
+        char* install = ms_library_install_request(context->metalsharp_home, "epic", (const char*)request->body,
+                                                   request->body_length, &install_length, &status, &failure);
+        if (!install) {
+            if (failure == NULL)
+                return false;
+            set_json_response(response, status, failure);
+            return true;
+        }
+        body = ms_epic_install_json(context->metalsharp_home, (const unsigned char*)install, install_length);
+        free(install);
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);

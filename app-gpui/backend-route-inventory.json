@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generator": "app-gpui/inventory-backend-routes.py",
   "router": "app/src-c/runtime/backend.c",
-  "router_sha256": "c2ef91cc6bd2e8c0ee89d4ffc38e2aa9accb7a06e264a21d62ed5a1cb3811232",
+  "router_sha256": "2e5781de07985223a9450aee14f33274e5a888962261f738a7c479a84f473f73",
   "limitations": [
     "This is a migration discovery inventory, not a full C/Rust parser or a parity report.",
     "Dynamic/prefix routes and unmatched comparisons require manual expansion.",
@@ -15,7 +15,7 @@
       "method": "POST",
       "path": "/battlenet/launch",
       "router_lines": [
-        2176
+        2219
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -26,7 +26,7 @@
       "method": "POST",
       "path": "/battlenet/launch-game",
       "router_lines": [
-        2192
+        2235
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -37,12 +37,12 @@
       "method": "GET",
       "path": "/battlenet/library",
       "router_lines": [
-        1032
+        1049
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1097,
+          "line": 1100,
           "kind": "literal-candidate"
         }
       ],
@@ -54,7 +54,7 @@
       "method": "POST",
       "path": "/battlenet/save-executable",
       "router_lines": [
-        2201
+        2244
       ],
       "literal_references": [
         {
@@ -71,7 +71,7 @@
       "method": "POST",
       "path": "/battlenet/save-pipeline",
       "router_lines": [
-        2210
+        2253
       ],
       "literal_references": [
         {
@@ -88,7 +88,7 @@
       "method": "GET",
       "path": "/battlenet/status",
       "router_lines": [
-        1025
+        1042
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -99,7 +99,7 @@
       "method": "POST",
       "path": "/battlenet/stop",
       "router_lines": [
-        2184
+        2227
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -110,7 +110,7 @@
       "method": "GET",
       "path": "/bottles",
       "router_lines": [
-        1958
+        2001
       ],
       "literal_references": [
         {
@@ -127,7 +127,7 @@
       "method": "GET",
       "path": "/bottles/compatibility-matrix",
       "router_lines": [
-        1973
+        2016
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -138,7 +138,7 @@
       "method": "GET",
       "path": "/bottles/profiles",
       "router_lines": [
-        1966
+        2009
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -149,7 +149,7 @@
       "method": "GET",
       "path": "/bottles/redist-sources",
       "router_lines": [
-        1980
+        2023
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -160,7 +160,7 @@
       "method": "POST",
       "path": "/bottles/relaunch-installer",
       "router_lines": [
-        1872
+        1915
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -171,7 +171,7 @@
       "method": "GET",
       "path": "/bottles/route-contracts",
       "router_lines": [
-        1987
+        2030
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -182,7 +182,7 @@
       "method": "POST",
       "path": "/cache/clear",
       "router_lines": [
-        855
+        856
       ],
       "literal_references": [
         {
@@ -204,7 +204,7 @@
       "method": "GET",
       "path": "/cache/size",
       "router_lines": [
-        862
+        863
       ],
       "literal_references": [
         {
@@ -226,7 +226,7 @@
       "method": "GET",
       "path": "/config",
       "router_lines": [
-        359
+        360
       ],
       "literal_references": [
         {
@@ -266,37 +266,37 @@
         },
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 2221,
+          "line": 2272,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 2332,
+          "line": 2383,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1727,
+          "line": 1743,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1834,
+          "line": 1850,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1860,
+          "line": 1876,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1940,
+          "line": 1956,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1963,
+          "line": 1979,
           "kind": "literal-candidate"
         }
       ],
@@ -308,7 +308,7 @@
       "method": "POST",
       "path": "/config",
       "router_lines": [
-        366
+        367
       ],
       "literal_references": [
         {
@@ -348,37 +348,37 @@
         },
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 2221,
+          "line": 2272,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 2332,
+          "line": 2383,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1727,
+          "line": 1743,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1834,
+          "line": 1850,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1860,
+          "line": 1876,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1940,
+          "line": 1956,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1963,
+          "line": 1979,
           "kind": "literal-candidate"
         }
       ],
@@ -390,7 +390,7 @@
       "method": "POST",
       "path": "/diagnostics/binding-contract/validate",
       "router_lines": [
-        1334
+        1351
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -401,7 +401,7 @@
       "method": "GET",
       "path": "/diagnostics/cache-doctor",
       "router_lines": [
-        1254
+        1271
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -412,7 +412,7 @@
       "method": "POST",
       "path": "/diagnostics/command-replay/validate",
       "router_lines": [
-        1342
+        1359
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -423,7 +423,7 @@
       "method": "GET",
       "path": "/diagnostics/fna/classify",
       "router_lines": [
-        1262
+        1279
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -434,7 +434,7 @@
       "method": "GET",
       "path": "/diagnostics/fna/explain",
       "router_lines": [
-        1270
+        1287
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -445,7 +445,7 @@
       "method": "GET",
       "path": "/diagnostics/fna/signals",
       "router_lines": [
-        1278
+        1295
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -456,7 +456,7 @@
       "method": "GET",
       "path": "/diagnostics/launch",
       "router_lines": [
-        1286
+        1303
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -467,7 +467,7 @@
       "method": "GET",
       "path": "/diagnostics/launch/timing",
       "router_lines": [
-        1294
+        1311
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -478,7 +478,7 @@
       "method": "GET",
       "path": "/diagnostics/pipeline/dry-run",
       "router_lines": [
-        1302
+        1319
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -489,7 +489,7 @@
       "method": "GET",
       "path": "/diagnostics/pso-manifests",
       "router_lines": [
-        1310
+        1327
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -500,7 +500,7 @@
       "method": "GET",
       "path": "/diagnostics/runtime-artifacts",
       "router_lines": [
-        1318
+        1335
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -511,7 +511,7 @@
       "method": "GET",
       "path": "/diagnostics/wineboot-state",
       "router_lines": [
-        1326
+        1343
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -522,17 +522,17 @@
       "method": "GET",
       "path": "/framerate",
       "router_lines": [
-        389
+        390
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1751,
+          "line": 1767,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1918,
+          "line": 1934,
           "kind": "literal-candidate"
         }
       ],
@@ -544,17 +544,17 @@
       "method": "POST",
       "path": "/framerate",
       "router_lines": [
-        396
+        397
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1751,
+          "line": 1767,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1918,
+          "line": 1934,
           "kind": "literal-candidate"
         }
       ],
@@ -566,7 +566,7 @@
       "method": "GET",
       "path": "/game/dual-info",
       "router_lines": [
-        1131
+        1148
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -577,7 +577,7 @@
       "method": "POST",
       "path": "/game/launch-auto",
       "router_lines": [
-        2313
+        2356
       ],
       "literal_references": [
         {
@@ -619,7 +619,7 @@
       "method": "POST",
       "path": "/game/prepare",
       "router_lines": [
-        2295
+        2338
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -630,7 +630,7 @@
       "method": "POST",
       "path": "/game/resolve-routing",
       "router_lines": [
-        1123
+        1140
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -641,17 +641,17 @@
       "method": "GET",
       "path": "/game/running",
       "router_lines": [
-        2322
+        2365
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 867,
+          "line": 870,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1547,
+          "line": 1559,
           "kind": "literal-candidate"
         }
       ],
@@ -663,12 +663,12 @@
       "method": "GET",
       "path": "/gamejolt",
       "router_lines": [
-        1568
+        1598
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1840,
+          "line": 1891,
           "kind": "literal-candidate"
         }
       ],
@@ -680,7 +680,7 @@
       "method": "GET",
       "path": "/gamejolt/cover",
       "router_lines": [
-        1619
+        1649
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -691,12 +691,12 @@
       "method": "POST",
       "path": "/gamejolt/engine",
       "router_lines": [
-        1554
+        1584
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 2103,
+          "line": 2154,
           "kind": "literal-candidate"
         }
       ],
@@ -708,12 +708,12 @@
       "method": "POST",
       "path": "/gamejolt/launch",
       "router_lines": [
-        1582
+        1612
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 2006,
+          "line": 2057,
           "kind": "literal-candidate"
         }
       ],
@@ -725,7 +725,7 @@
       "method": "POST",
       "path": "/gamejolt/name",
       "router_lines": [
-        1547
+        1577
       ],
       "literal_references": [
         {
@@ -742,12 +742,12 @@
       "method": "GET",
       "path": "/gamejolt/running",
       "router_lines": [
-        1589
+        1619
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1971,
+          "line": 2022,
           "kind": "literal-candidate"
         }
       ],
@@ -759,7 +759,7 @@
       "method": "POST",
       "path": "/gamejolt/status",
       "router_lines": [
-        1612
+        1642
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -770,12 +770,12 @@
       "method": "POST",
       "path": "/gamejolt/stop",
       "router_lines": [
-        1596
+        1626
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 2037,
+          "line": 2088,
           "kind": "literal-candidate"
         }
       ],
@@ -787,12 +787,12 @@
       "method": "POST",
       "path": "/gamejolt/stop-all",
       "router_lines": [
-        1604
+        1634
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 865,
+          "line": 868,
           "kind": "literal-candidate"
         }
       ],
@@ -804,17 +804,17 @@
       "method": "GET",
       "path": "/gamejolt/storage",
       "router_lines": [
-        1533
+        1563
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1866,
+          "line": 1917,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1936,
+          "line": 1987,
           "kind": "literal-candidate"
         }
       ],
@@ -826,17 +826,17 @@
       "method": "POST",
       "path": "/gamejolt/storage",
       "router_lines": [
-        1540
+        1570
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1866,
+          "line": 1917,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1936,
+          "line": 1987,
           "kind": "literal-candidate"
         }
       ],
@@ -848,17 +848,17 @@
       "method": "POST",
       "path": "/gamejolt/sync",
       "router_lines": [
-        1575
+        1605
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1884,
+          "line": 1935,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 783,
+          "line": 786,
           "kind": "literal-candidate"
         }
       ],
@@ -870,12 +870,12 @@
       "method": "POST",
       "path": "/gamejolt/uninstall",
       "router_lines": [
-        1561
+        1591
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 2065,
+          "line": 2116,
           "kind": "literal-candidate"
         }
       ],
@@ -887,12 +887,12 @@
       "method": "POST",
       "path": "/games/force-quit",
       "router_lines": [
-        2338
+        2381
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 887,
+          "line": 890,
           "kind": "literal-candidate"
         }
       ],
@@ -904,7 +904,7 @@
       "method": "GET",
       "path": "/goldberg/status",
       "router_lines": [
-        1139
+        1156
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -915,12 +915,12 @@
       "method": "POST",
       "path": "/goldberg/toggle",
       "router_lines": [
-        1147
+        1164
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1993,
+          "line": 2009,
           "kind": "literal-candidate"
         }
       ],
@@ -932,7 +932,7 @@
       "method": "POST",
       "path": "/kernel-translation/anti-debug/add-sanitize-rule",
       "router_lines": [
-        1209
+        1226
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -943,7 +943,7 @@
       "method": "POST",
       "path": "/kernel-translation/anti-debug/check-results",
       "router_lines": [
-        1173
+        1190
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -954,7 +954,7 @@
       "method": "POST",
       "path": "/kernel-translation/anti-debug/filesystem-check",
       "router_lines": [
-        1227
+        1244
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -965,7 +965,7 @@
       "method": "POST",
       "path": "/kernel-translation/anti-debug/full-breakpoint-map",
       "router_lines": [
-        1191
+        1208
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -976,7 +976,7 @@
       "method": "POST",
       "path": "/kernel-translation/anti-debug/hw-breakpoint-map",
       "router_lines": [
-        1182
+        1199
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -987,7 +987,7 @@
       "method": "POST",
       "path": "/kernel-translation/anti-debug/module-sanitize",
       "router_lines": [
-        1200
+        1217
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -998,7 +998,7 @@
       "method": "POST",
       "path": "/kernel-translation/anti-debug/run-all-checks",
       "router_lines": [
-        1164
+        1181
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1009,7 +1009,7 @@
       "method": "POST",
       "path": "/kernel-translation/anti-debug/seed-demo",
       "router_lines": [
-        1245
+        1262
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1020,7 +1020,7 @@
       "method": "POST",
       "path": "/kernel-translation/anti-debug/simulate-check",
       "router_lines": [
-        1155
+        1172
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1031,7 +1031,7 @@
       "method": "POST",
       "path": "/kernel-translation/anti-debug/status-survey",
       "router_lines": [
-        1236
+        1253
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1042,7 +1042,7 @@
       "method": "POST",
       "path": "/kernel-translation/anti-debug/timing-analysis",
       "router_lines": [
-        1218
+        1235
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1053,7 +1053,7 @@
       "method": "POST",
       "path": "/kernel-translation/apc/allocate-trampoline",
       "router_lines": [
-        617
+        618
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1064,7 +1064,7 @@
       "method": "POST",
       "path": "/kernel-translation/apc/get-thread-context",
       "router_lines": [
-        632
+        633
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1075,7 +1075,7 @@
       "method": "POST",
       "path": "/kernel-translation/apc/inject-sequence",
       "router_lines": [
-        648
+        649
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1086,7 +1086,7 @@
       "method": "POST",
       "path": "/kernel-translation/apc/queue",
       "router_lines": [
-        596
+        597
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1097,7 +1097,7 @@
       "method": "POST",
       "path": "/kernel-translation/apc/queue-status",
       "router_lines": [
-        655
+        656
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1108,7 +1108,7 @@
       "method": "POST",
       "path": "/kernel-translation/apc/set-thread-context",
       "router_lines": [
-        640
+        641
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1119,7 +1119,7 @@
       "method": "POST",
       "path": "/kernel-translation/apc/suspend-thread",
       "router_lines": [
-        625
+        626
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1130,7 +1130,7 @@
       "method": "POST",
       "path": "/kernel-translation/apc/test-alert",
       "router_lines": [
-        603
+        604
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1141,7 +1141,7 @@
       "method": "POST",
       "path": "/kernel-translation/apc/trampoline-status",
       "router_lines": [
-        662
+        663
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1152,7 +1152,7 @@
       "method": "POST",
       "path": "/kernel-translation/apc/wait-alertable",
       "router_lines": [
-        610
+        611
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1163,7 +1163,7 @@
       "method": "POST",
       "path": "/kernel-translation/driver/create-device",
       "router_lines": [
-        746
+        747
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1174,7 +1174,7 @@
       "method": "POST",
       "path": "/kernel-translation/driver/decode-ioctl",
       "router_lines": [
-        783
+        784
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1185,7 +1185,7 @@
       "method": "POST",
       "path": "/kernel-translation/driver/dispatch-irp",
       "router_lines": [
-        761
+        762
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1196,7 +1196,7 @@
       "method": "POST",
       "path": "/kernel-translation/driver/extension-template",
       "router_lines": [
-        805
+        806
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1207,7 +1207,7 @@
       "method": "POST",
       "path": "/kernel-translation/driver/list",
       "router_lines": [
-        739
+        740
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1218,7 +1218,7 @@
       "method": "POST",
       "path": "/kernel-translation/driver/list-devices",
       "router_lines": [
-        754
+        755
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1229,7 +1229,7 @@
       "method": "POST",
       "path": "/kernel-translation/driver/list-ioctls",
       "router_lines": [
-        790
+        791
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1240,7 +1240,7 @@
       "method": "POST",
       "path": "/kernel-translation/driver/list-irps",
       "router_lines": [
-        768
+        769
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1251,7 +1251,7 @@
       "method": "POST",
       "path": "/kernel-translation/driver/load",
       "router_lines": [
-        725
+        726
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1262,7 +1262,7 @@
       "method": "POST",
       "path": "/kernel-translation/driver/register-ioctl",
       "router_lines": [
-        775
+        776
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1273,7 +1273,7 @@
       "method": "POST",
       "path": "/kernel-translation/driver/seed-demo",
       "router_lines": [
-        813
+        814
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1284,7 +1284,7 @@
       "method": "POST",
       "path": "/kernel-translation/driver/type-mapping-survey",
       "router_lines": [
-        797
+        798
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1295,7 +1295,7 @@
       "method": "POST",
       "path": "/kernel-translation/driver/unload",
       "router_lines": [
-        732
+        733
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1306,7 +1306,7 @@
       "method": "POST",
       "path": "/kernel-translation/handle/close",
       "router_lines": [
-        547
+        548
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1317,7 +1317,7 @@
       "method": "POST",
       "path": "/kernel-translation/handle/create",
       "router_lines": [
-        540
+        541
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1328,7 +1328,7 @@
       "method": "POST",
       "path": "/kernel-translation/handle/duplicate",
       "router_lines": [
-        554
+        555
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1339,7 +1339,7 @@
       "method": "POST",
       "path": "/kernel-translation/handle/enumerate",
       "router_lines": [
-        568
+        569
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1350,7 +1350,7 @@
       "method": "POST",
       "path": "/kernel-translation/handle/query",
       "router_lines": [
-        561
+        562
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1361,7 +1361,7 @@
       "method": "POST",
       "path": "/kernel-translation/handle/seed-demo",
       "router_lines": [
-        589
+        590
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1372,7 +1372,7 @@
       "method": "POST",
       "path": "/kernel-translation/handle/system-info",
       "router_lines": [
-        575
+        576
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1383,7 +1383,7 @@
       "method": "POST",
       "path": "/kernel-translation/handle/table-status",
       "router_lines": [
-        582
+        583
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1394,7 +1394,7 @@
       "method": "POST",
       "path": "/kernel-translation/integrity/list-modules",
       "router_lines": [
-        710
+        711
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1405,7 +1405,7 @@
       "method": "POST",
       "path": "/kernel-translation/integrity/query-process-signing",
       "router_lines": [
-        678
+        679
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1416,7 +1416,7 @@
       "method": "POST",
       "path": "/kernel-translation/integrity/query-signing-level",
       "router_lines": [
-        670
+        671
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1427,7 +1427,7 @@
       "method": "POST",
       "path": "/kernel-translation/integrity/register-macho-module",
       "router_lines": [
-        694
+        695
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1438,7 +1438,7 @@
       "method": "POST",
       "path": "/kernel-translation/integrity/register-pe-module",
       "router_lines": [
-        686
+        687
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1449,7 +1449,7 @@
       "method": "POST",
       "path": "/kernel-translation/integrity/seed-demo",
       "router_lines": [
-        718
+        719
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1460,7 +1460,7 @@
       "method": "POST",
       "path": "/kernel-translation/integrity/set-cached-signing-level",
       "router_lines": [
-        702
+        703
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1471,7 +1471,7 @@
       "method": "POST",
       "path": "/kill",
       "router_lines": [
-        2329
+        2372
       ],
       "literal_references": [
         {
@@ -1481,12 +1481,12 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 881,
+          "line": 884,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1587,
+          "line": 1599,
           "kind": "literal-candidate"
         }
       ],
@@ -1498,7 +1498,7 @@
       "method": "POST",
       "path": "/launch",
       "router_lines": [
-        2304
+        2347
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1509,7 +1509,7 @@
       "method": "POST",
       "path": "/launcher/evidence",
       "router_lines": [
-        1350
+        1367
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1518,9 +1518,48 @@
     },
     {
       "method": "GET",
+      "path": "/library-locations",
+      "router_lines": [
+        998
+      ],
+      "literal_references": [
+        {
+          "file": "app-gpui/src/ui_drive.rs",
+          "line": 51,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_drive.rs",
+          "line": 86,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/library-locations/set",
+      "router_lines": [
+        1005
+      ],
+      "literal_references": [
+        {
+          "file": "app-gpui/src/ui_drive.rs",
+          "line": 121,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
       "path": "/logs",
       "router_lines": [
-        869
+        870
       ],
       "literal_references": [
         {
@@ -1547,7 +1586,7 @@
       "method": "GET",
       "path": "/logs/crash-reports",
       "router_lines": [
-        883
+        884
       ],
       "literal_references": [
         {
@@ -1569,7 +1608,7 @@
       "method": "GET",
       "path": "/logs/stream",
       "router_lines": [
-        876
+        877
       ],
       "literal_references": [
         {
@@ -1586,7 +1625,7 @@
       "method": "GET",
       "path": "/metalfx/state",
       "router_lines": [
-        374
+        375
       ],
       "literal_references": [
         {
@@ -1596,12 +1635,12 @@
         },
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 2252,
+          "line": 2303,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1765,
+          "line": 1781,
           "kind": "literal-candidate"
         }
       ],
@@ -1613,7 +1652,7 @@
       "method": "POST",
       "path": "/metalfx/toggle",
       "router_lines": [
-        381
+        382
       ],
       "literal_references": [
         {
@@ -1623,12 +1662,12 @@
         },
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 2295,
+          "line": 2346,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1808,
+          "line": 1824,
           "kind": "literal-candidate"
         }
       ],
@@ -1640,8 +1679,8 @@
       "method": "GET",
       "path": "/mtsp/default-rules",
       "router_lines": [
-        834,
-        1085
+        835,
+        1102
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1652,7 +1691,7 @@
       "method": "POST",
       "path": "/mtsp/doctor",
       "router_lines": [
-        1115
+        1132
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1663,8 +1702,8 @@
       "method": "GET",
       "path": "/mtsp/launch-shape",
       "router_lines": [
-        841,
-        1092
+        842,
+        1109
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1675,8 +1714,8 @@
       "method": "GET",
       "path": "/mtsp/pipelines",
       "router_lines": [
-        848,
-        1078
+        849,
+        1095
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1687,7 +1726,7 @@
       "method": "POST",
       "path": "/mtsp/prepare",
       "router_lines": [
-        1099
+        1116
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1698,7 +1737,7 @@
       "method": "POST",
       "path": "/mtsp/recipe",
       "router_lines": [
-        1107
+        1124
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1709,7 +1748,7 @@
       "method": "POST",
       "path": "/processes/force-kill",
       "router_lines": [
-        2346
+        2389
       ],
       "literal_references": [
         {
@@ -1731,7 +1770,7 @@
       "method": "POST",
       "path": "/rockstar/launch",
       "router_lines": [
-        2133
+        2176
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1742,7 +1781,7 @@
       "method": "POST",
       "path": "/rockstar/launch-game",
       "router_lines": [
-        2149
+        2192
       ],
       "literal_references": [
         {
@@ -1759,12 +1798,12 @@
       "method": "GET",
       "path": "/rockstar/library",
       "router_lines": [
-        1018
+        1035
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1096,
+          "line": 1099,
           "kind": "literal-candidate"
         }
       ],
@@ -1776,7 +1815,7 @@
       "method": "POST",
       "path": "/rockstar/save-executable",
       "router_lines": [
-        2158
+        2201
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1787,7 +1826,7 @@
       "method": "POST",
       "path": "/rockstar/save-pipeline",
       "router_lines": [
-        2167
+        2210
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1798,7 +1837,7 @@
       "method": "GET",
       "path": "/rockstar/status",
       "router_lines": [
-        1011
+        1028
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1809,7 +1848,7 @@
       "method": "POST",
       "path": "/rockstar/stop",
       "router_lines": [
-        2141
+        2184
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1820,7 +1859,7 @@
       "method": "GET",
       "path": "/runtime/host-abi",
       "router_lines": [
-        352
+        353
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1831,12 +1870,12 @@
       "method": "GET",
       "path": "/scan",
       "router_lines": [
-        974
+        975
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1114,
+          "line": 1117,
           "kind": "literal-candidate"
         }
       ],
@@ -1848,8 +1887,8 @@
       "method": "GET",
       "path": "/setup/agility-versions",
       "router_lines": [
-        447,
-        820
+        448,
+        821
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1860,8 +1899,8 @@
       "method": "GET",
       "path": "/setup/dependencies",
       "router_lines": [
-        440,
-        827
+        441,
+        828
       ],
       "literal_references": [
         {
@@ -1878,7 +1917,7 @@
       "method": "GET",
       "path": "/setup/device-name",
       "router_lines": [
-        419
+        420
       ],
       "literal_references": [
         {
@@ -1888,7 +1927,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2800,
+          "line": 2816,
           "kind": "literal-candidate"
         }
       ],
@@ -1900,7 +1939,7 @@
       "method": "POST",
       "path": "/setup/install-all",
       "router_lines": [
-        462
+        463
       ],
       "literal_references": [
         {
@@ -1915,7 +1954,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2477,
+          "line": 2493,
           "kind": "literal-candidate"
         }
       ],
@@ -1927,7 +1966,7 @@
       "method": "POST",
       "path": "/setup/install-deps",
       "router_lines": [
-        454
+        455
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1938,7 +1977,7 @@
       "method": "GET",
       "path": "/setup/install-progress",
       "router_lines": [
-        426
+        427
       ],
       "literal_references": [
         {
@@ -1948,7 +1987,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2518,
+          "line": 2534,
           "kind": "literal-candidate"
         }
       ],
@@ -1960,7 +1999,7 @@
       "method": "POST",
       "path": "/setup/install-vcpp-x64",
       "router_lines": [
-        524
+        525
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1971,7 +2010,7 @@
       "method": "POST",
       "path": "/setup/install-vcpp-x86",
       "router_lines": [
-        532
+        533
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1982,7 +2021,7 @@
       "method": "GET",
       "path": "/setup/installing",
       "router_lines": [
-        433
+        434
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -1993,7 +2032,7 @@
       "method": "POST",
       "path": "/setup/save",
       "router_lines": [
-        411
+        412
       ],
       "literal_references": [
         {
@@ -2013,7 +2052,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2862,
+          "line": 2878,
           "kind": "literal-candidate"
         }
       ],
@@ -2025,7 +2064,7 @@
       "method": "GET",
       "path": "/setup/state",
       "router_lines": [
-        404
+        405
       ],
       "literal_references": [
         {
@@ -2035,12 +2074,12 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 458,
+          "line": 461,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 578,
+          "line": 581,
           "kind": "literal-candidate"
         }
       ],
@@ -2052,7 +2091,7 @@
       "method": "GET",
       "path": "/setup/vcpp-status",
       "router_lines": [
-        470
+        471
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -2063,7 +2102,7 @@
       "method": "GET",
       "path": "/sharp-library",
       "router_lines": [
-        1693
+        1723
       ],
       "literal_references": [
         {
@@ -2080,7 +2119,7 @@
       "method": "GET",
       "path": "/sharp-library/cover",
       "router_lines": [
-        1656
+        1686
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -2091,7 +2130,7 @@
       "method": "POST",
       "path": "/sharp-library/doctor",
       "router_lines": [
-        1893
+        1936
       ],
       "literal_references": [
         {
@@ -2108,7 +2147,7 @@
       "method": "POST",
       "path": "/sharp-library/epic/auth",
       "router_lines": [
-        1735
+        1765
       ],
       "literal_references": [
         {
@@ -2125,12 +2164,12 @@
       "method": "POST",
       "path": "/sharp-library/epic/cancel",
       "router_lines": [
-        1786
+        1829
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1555,
+          "line": 1606,
           "kind": "literal-candidate"
         }
       ],
@@ -2142,17 +2181,17 @@
       "method": "GET",
       "path": "/sharp-library/epic/games",
       "router_lines": [
-        1714
+        1744
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1224,
+          "line": 1262,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1510,
+          "line": 1561,
           "kind": "literal-candidate"
         }
       ],
@@ -2164,12 +2203,12 @@
       "method": "POST",
       "path": "/sharp-library/epic/initialize",
       "router_lines": [
-        1793
+        1836
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1595,
+          "line": 1646,
           "kind": "literal-candidate"
         }
       ],
@@ -2181,12 +2220,12 @@
       "method": "POST",
       "path": "/sharp-library/epic/install",
       "router_lines": [
-        1772
+        1802
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1449,
+          "line": 1487,
           "kind": "literal-candidate"
         }
       ],
@@ -2198,12 +2237,12 @@
       "method": "POST",
       "path": "/sharp-library/epic/install-tool",
       "router_lines": [
-        1728
+        1758
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1302,
+          "line": 1340,
           "kind": "literal-candidate"
         }
       ],
@@ -2215,12 +2254,12 @@
       "method": "POST",
       "path": "/sharp-library/epic/logout",
       "router_lines": [
-        1758
+        1788
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1351,
+          "line": 1389,
           "kind": "literal-candidate"
         }
       ],
@@ -2232,12 +2271,12 @@
       "method": "POST",
       "path": "/sharp-library/epic/play",
       "router_lines": [
-        1807
+        1850
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1653,
+          "line": 1704,
           "kind": "literal-candidate"
         }
       ],
@@ -2249,12 +2288,12 @@
       "method": "POST",
       "path": "/sharp-library/epic/progress",
       "router_lines": [
-        1779
+        1822
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1482,
+          "line": 1533,
           "kind": "literal-candidate"
         }
       ],
@@ -2266,12 +2305,12 @@
       "method": "GET",
       "path": "/sharp-library/epic/running",
       "router_lines": [
-        1721
+        1751
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1274,
+          "line": 1312,
           "kind": "literal-candidate"
         }
       ],
@@ -2283,12 +2322,12 @@
       "method": "POST",
       "path": "/sharp-library/epic/save-executable",
       "router_lines": [
-        1800
+        1843
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1754,
+          "line": 1805,
           "kind": "literal-candidate"
         }
       ],
@@ -2300,17 +2339,17 @@
       "method": "GET",
       "path": "/sharp-library/epic/status",
       "router_lines": [
-        1707
+        1737
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1207,
+          "line": 1245,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1380,
+          "line": 1418,
           "kind": "literal-candidate"
         }
       ],
@@ -2322,12 +2361,12 @@
       "method": "POST",
       "path": "/sharp-library/epic/stop",
       "router_lines": [
-        1814
+        1857
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1688,
+          "line": 1739,
           "kind": "literal-candidate"
         }
       ],
@@ -2339,12 +2378,12 @@
       "method": "POST",
       "path": "/sharp-library/epic/stop-all",
       "router_lines": [
-        1821
+        1864
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 888,
+          "line": 891,
           "kind": "literal-candidate"
         }
       ],
@@ -2356,17 +2395,17 @@
       "method": "POST",
       "path": "/sharp-library/epic/sync",
       "router_lines": [
-        1765
+        1795
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1222,
+          "line": 1260,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1400,
+          "line": 1438,
           "kind": "literal-candidate"
         }
       ],
@@ -2378,7 +2417,7 @@
       "method": "GET",
       "path": "/sharp-library/epic/thegamesdb-api-key",
       "router_lines": [
-        1742
+        1772
       ],
       "literal_references": [
         {
@@ -2398,7 +2437,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2923,
+          "line": 2939,
           "kind": "literal-candidate"
         }
       ],
@@ -2410,7 +2449,7 @@
       "method": "POST",
       "path": "/sharp-library/epic/thegamesdb-api-key",
       "router_lines": [
-        1749
+        1779
       ],
       "literal_references": [
         {
@@ -2430,7 +2469,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2923,
+          "line": 2939,
           "kind": "literal-candidate"
         }
       ],
@@ -2442,12 +2481,12 @@
       "method": "POST",
       "path": "/sharp-library/epic/uninstall",
       "router_lines": [
-        1828
+        1871
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1721,
+          "line": 1772,
           "kind": "literal-candidate"
         }
       ],
@@ -2459,7 +2498,7 @@
       "method": "POST",
       "path": "/sharp-library/gog/auth-code",
       "router_lines": [
-        1442
+        1459
       ],
       "literal_references": [
         {
@@ -2476,7 +2515,7 @@
       "method": "GET",
       "path": "/sharp-library/gog/games",
       "router_lines": [
-        1428
+        1445
       ],
       "literal_references": [
         {
@@ -2498,7 +2537,7 @@
       "method": "POST",
       "path": "/sharp-library/gog/import",
       "router_lines": [
-        1477
+        1507
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -2509,7 +2548,7 @@
       "method": "POST",
       "path": "/sharp-library/gog/initialize-prefix",
       "router_lines": [
-        1435
+        1452
       ],
       "literal_references": [
         {
@@ -2526,7 +2565,7 @@
       "method": "POST",
       "path": "/sharp-library/gog/install",
       "router_lines": [
-        1470
+        1487
       ],
       "literal_references": [
         {
@@ -2543,7 +2582,7 @@
       "method": "POST",
       "path": "/sharp-library/gog/logout",
       "router_lines": [
-        1449
+        1466
       ],
       "literal_references": [
         {
@@ -2560,12 +2599,12 @@
       "method": "POST",
       "path": "/sharp-library/gog/play",
       "router_lines": [
-        1505
+        1535
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1071,
+          "line": 1109,
           "kind": "literal-candidate"
         }
       ],
@@ -2577,12 +2616,12 @@
       "method": "POST",
       "path": "/sharp-library/gog/progress",
       "router_lines": [
-        1484
+        1514
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1017,
+          "line": 1055,
           "kind": "literal-candidate"
         }
       ],
@@ -2594,7 +2633,7 @@
       "method": "POST",
       "path": "/sharp-library/gog/remove-prefix",
       "router_lines": [
-        1456
+        1473
       ],
       "literal_references": [
         {
@@ -2611,12 +2650,12 @@
       "method": "POST",
       "path": "/sharp-library/gog/save-executable",
       "router_lines": [
-        1498
+        1528
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1765,
+          "line": 1816,
           "kind": "literal-candidate"
         }
       ],
@@ -2628,12 +2667,12 @@
       "method": "POST",
       "path": "/sharp-library/gog/set-engine",
       "router_lines": [
-        1491
+        1521
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1184,
+          "line": 1222,
           "kind": "literal-candidate"
         }
       ],
@@ -2645,7 +2684,7 @@
       "method": "GET",
       "path": "/sharp-library/gog/status",
       "router_lines": [
-        1421
+        1438
       ],
       "literal_references": [
         {
@@ -2667,12 +2706,12 @@
       "method": "POST",
       "path": "/sharp-library/gog/stop",
       "router_lines": [
-        1512
+        1542
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1104,
+          "line": 1142,
           "kind": "literal-candidate"
         }
       ],
@@ -2684,12 +2723,12 @@
       "method": "POST",
       "path": "/sharp-library/gog/stop-all",
       "router_lines": [
-        1519
+        1549
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 889,
+          "line": 892,
           "kind": "literal-candidate"
         }
       ],
@@ -2701,7 +2740,7 @@
       "method": "POST",
       "path": "/sharp-library/gog/sync",
       "router_lines": [
-        1463
+        1480
       ],
       "literal_references": [
         {
@@ -2718,12 +2757,12 @@
       "method": "POST",
       "path": "/sharp-library/gog/uninstall",
       "router_lines": [
-        1526
+        1556
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/sharp_live.rs",
-          "line": 1136,
+          "line": 1174,
           "kind": "literal-candidate"
         }
       ],
@@ -2735,7 +2774,7 @@
       "method": "POST",
       "path": "/sharp-library/import-bottle-app",
       "router_lines": [
-        1865
+        1908
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -2746,7 +2785,7 @@
       "method": "POST",
       "path": "/sharp-library/install",
       "router_lines": [
-        1700
+        1730
       ],
       "literal_references": [
         {
@@ -2763,7 +2802,7 @@
       "method": "POST",
       "path": "/sharp-library/launch",
       "router_lines": [
-        1886
+        1929
       ],
       "literal_references": [
         {
@@ -2780,7 +2819,7 @@
       "method": "POST",
       "path": "/sharp-library/rename",
       "router_lines": [
-        1900
+        1943
       ],
       "literal_references": [
         {
@@ -2797,7 +2836,7 @@
       "method": "GET",
       "path": "/sharp-library/running",
       "router_lines": [
-        1835
+        1878
       ],
       "literal_references": [
         {
@@ -2814,7 +2853,7 @@
       "method": "POST",
       "path": "/sharp-library/set-cover",
       "router_lines": [
-        1907
+        1950
       ],
       "literal_references": [
         {
@@ -2831,7 +2870,7 @@
       "method": "POST",
       "path": "/sharp-library/set-cover-position",
       "router_lines": [
-        1914
+        1957
       ],
       "literal_references": [
         {
@@ -2848,7 +2887,7 @@
       "method": "POST",
       "path": "/sharp-library/set-engine",
       "router_lines": [
-        1929
+        1972
       ],
       "literal_references": [
         {
@@ -2865,7 +2904,7 @@
       "method": "POST",
       "path": "/sharp-library/set-launch-args",
       "router_lines": [
-        1922
+        1965
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -2876,7 +2915,7 @@
       "method": "POST",
       "path": "/sharp-library/stop",
       "router_lines": [
-        1849
+        1892
       ],
       "literal_references": [
         {
@@ -2893,7 +2932,7 @@
       "method": "POST",
       "path": "/sharp-library/stop-all",
       "router_lines": [
-        1857
+        1900
       ],
       "literal_references": [
         {
@@ -2903,7 +2942,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 864,
+          "line": 867,
           "kind": "literal-candidate"
         }
       ],
@@ -2915,7 +2954,7 @@
       "method": "POST",
       "path": "/sharp-library/track-running",
       "router_lines": [
-        1842
+        1885
       ],
       "literal_references": [
         {
@@ -2932,7 +2971,7 @@
       "method": "POST",
       "path": "/sharp-library/uninstall",
       "router_lines": [
-        1879
+        1922
       ],
       "literal_references": [
         {
@@ -2949,7 +2988,7 @@
       "method": "GET",
       "path": "/status",
       "router_lines": [
-        341
+        342
       ],
       "literal_references": [
         {
@@ -2969,22 +3008,22 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 538,
+          "line": 541,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 721,
+          "line": 724,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3053,
+          "line": 3069,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3877,
+          "line": 3893,
           "kind": "literal-candidate"
         },
         {
@@ -3001,12 +3040,12 @@
       "method": "GET",
       "path": "/steam/api-key",
       "router_lines": [
-        1050
+        1067
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 565,
+          "line": 568,
           "kind": "literal-candidate"
         }
       ],
@@ -3018,7 +3057,7 @@
       "method": "POST",
       "path": "/steam/bridge-start",
       "router_lines": [
-        2010
+        2053
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -3029,7 +3068,7 @@
       "method": "GET",
       "path": "/steam/bridge-status",
       "router_lines": [
-        1064
+        1081
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -3040,7 +3079,7 @@
       "method": "POST",
       "path": "/steam/compatdata",
       "router_lines": [
-        2018
+        2061
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -3051,7 +3090,7 @@
       "method": "POST",
       "path": "/steam/d3d12-runtime-doctor",
       "router_lines": [
-        2061
+        2104
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -3062,7 +3101,7 @@
       "method": "POST",
       "path": "/steam/ensure-launch-ready",
       "router_lines": [
-        982
+        983
       ],
       "literal_references": [
         {
@@ -3072,7 +3111,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2847,
+          "line": 2863,
           "kind": "literal-candidate"
         }
       ],
@@ -3084,7 +3123,7 @@
       "method": "POST",
       "path": "/steam/install",
       "router_lines": [
-        1994
+        2037
       ],
       "literal_references": [
         {
@@ -3094,7 +3133,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2657,
+          "line": 2673,
           "kind": "literal-candidate"
         }
       ],
@@ -3106,7 +3145,7 @@
       "method": "POST",
       "path": "/steam/install-game",
       "router_lines": [
-        2026
+        2069
       ],
       "literal_references": [
         {
@@ -3123,7 +3162,7 @@
       "method": "POST",
       "path": "/steam/install-recipe-deps",
       "router_lines": [
-        2354
+        2397
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -3134,7 +3173,7 @@
       "method": "GET",
       "path": "/steam/is-running",
       "router_lines": [
-        1057
+        1074
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -3145,7 +3184,7 @@
       "method": "POST",
       "path": "/steam/launch",
       "router_lines": [
-        2069
+        2112
       ],
       "literal_references": [
         {
@@ -3165,7 +3204,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2231,
+          "line": 2247,
           "kind": "literal-candidate"
         }
       ],
@@ -3177,7 +3216,7 @@
       "method": "POST",
       "path": "/steam/launch-game",
       "router_lines": [
-        2257
+        2300
       ],
       "literal_references": [
         {
@@ -3224,7 +3263,7 @@
       "method": "POST",
       "path": "/steam/launch-offline",
       "router_lines": [
-        2044
+        2087
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -3235,12 +3274,12 @@
       "method": "GET",
       "path": "/steam/library",
       "router_lines": [
-        1039
+        1056
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1086,
+          "line": 1089,
           "kind": "literal-candidate"
         }
       ],
@@ -3252,7 +3291,7 @@
       "method": "POST",
       "path": "/steam/mac-install",
       "router_lines": [
-        2230
+        2273
       ],
       "literal_references": [
         {
@@ -3269,7 +3308,7 @@
       "method": "POST",
       "path": "/steam/mac-launch",
       "router_lines": [
-        2219
+        2262
       ],
       "literal_references": [
         {
@@ -3286,7 +3325,7 @@
       "method": "POST",
       "path": "/steam/mac-launch-game",
       "router_lines": [
-        2266
+        2309
       ],
       "literal_references": [
         {
@@ -3318,7 +3357,7 @@
       "method": "POST",
       "path": "/steam/mac-stop",
       "router_lines": [
-        2239
+        2282
       ],
       "literal_references": [
         {
@@ -3335,7 +3374,7 @@
       "method": "POST",
       "path": "/steam/runtime-doctor",
       "router_lines": [
-        2053
+        2096
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -3346,7 +3385,7 @@
       "method": "POST",
       "path": "/steam/save-api-key",
       "router_lines": [
-        2284
+        2327
       ],
       "literal_references": [
         {
@@ -3361,7 +3400,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2880,
+          "line": 2896,
           "kind": "literal-candidate"
         }
       ],
@@ -3373,7 +3412,7 @@
       "method": "POST",
       "path": "/steam/save-executable",
       "router_lines": [
-        2248
+        2291
       ],
       "literal_references": [
         {
@@ -3400,17 +3439,17 @@
       "method": "GET",
       "path": "/steam/status",
       "router_lines": [
-        990
+        991
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 906,
+          "line": 909,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2620,
+          "line": 2636,
           "kind": "literal-candidate"
         }
       ],
@@ -3422,7 +3461,7 @@
       "method": "POST",
       "path": "/steam/stop",
       "router_lines": [
-        2081
+        2124
       ],
       "literal_references": [
         {
@@ -3442,17 +3481,17 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2266,
+          "line": 2282,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2763,
+          "line": 2779,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3453,
+          "line": 3469,
           "kind": "literal-candidate"
         }
       ],
@@ -3464,12 +3503,12 @@
       "method": "GET",
       "path": "/steam/stop-targets",
       "router_lines": [
-        2002
+        2045
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2732,
+          "line": 2748,
           "kind": "literal-candidate"
         }
       ],
@@ -3481,7 +3520,7 @@
       "method": "POST",
       "path": "/steam/uninstall-game",
       "router_lines": [
-        2035
+        2078
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -3492,7 +3531,7 @@
       "method": "POST",
       "path": "/steam/view-game",
       "router_lines": [
-        2275
+        2318
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -3503,12 +3542,12 @@
       "method": "GET",
       "path": "/steam/watch-steamapps",
       "router_lines": [
-        1071
+        1088
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1046,
+          "line": 1049,
           "kind": "literal-candidate"
         }
       ],
@@ -3520,7 +3559,7 @@
       "method": "POST",
       "path": "/steamcmd/cancel",
       "router_lines": [
-        1407
+        1424
       ],
       "literal_references": [
         {
@@ -3537,7 +3576,7 @@
       "method": "POST",
       "path": "/steamcmd/install",
       "router_lines": [
-        1393
+        1410
       ],
       "literal_references": [
         {
@@ -3554,12 +3593,12 @@
       "method": "GET",
       "path": "/steamcmd/installs",
       "router_lines": [
-        1400
+        1417
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 155,
+          "line": 157,
           "kind": "literal-candidate"
         },
         {
@@ -3576,7 +3615,7 @@
       "method": "GET",
       "path": "/steamcmd/libraries",
       "router_lines": [
-        1365
+        1382
       ],
       "literal_references": [
         {
@@ -3593,7 +3632,7 @@
       "method": "POST",
       "path": "/steamcmd/login",
       "router_lines": [
-        1372
+        1389
       ],
       "literal_references": [
         {
@@ -3610,7 +3649,7 @@
       "method": "POST",
       "path": "/steamcmd/login-cancel",
       "router_lines": [
-        1386
+        1403
       ],
       "literal_references": [
         {
@@ -3627,7 +3666,7 @@
       "method": "POST",
       "path": "/steamcmd/login-code",
       "router_lines": [
-        1379
+        1396
       ],
       "literal_references": [
         {
@@ -3644,7 +3683,7 @@
       "method": "GET",
       "path": "/steamcmd/status",
       "router_lines": [
-        1358
+        1375
       ],
       "literal_references": [
         {
@@ -3666,7 +3705,7 @@
       "method": "POST",
       "path": "/steamcmd/stop-all",
       "router_lines": [
-        1414
+        1431
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -3677,7 +3716,7 @@
       "method": "POST",
       "path": "/streaming/install",
       "router_lines": [
-        484
+        485
       ],
       "literal_references": [
         {
@@ -3692,7 +3731,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3609,
+          "line": 3625,
           "kind": "literal-candidate"
         }
       ],
@@ -3704,7 +3743,7 @@
       "method": "POST",
       "path": "/streaming/launch",
       "router_lines": [
-        492
+        493
       ],
       "literal_references": [
         {
@@ -3719,7 +3758,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3637,
+          "line": 3653,
           "kind": "literal-candidate"
         }
       ],
@@ -3731,7 +3770,7 @@
       "method": "POST",
       "path": "/streaming/pin",
       "router_lines": [
-        508
+        509
       ],
       "literal_references": [
         {
@@ -3746,7 +3785,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3704,
+          "line": 3720,
           "kind": "literal-candidate"
         }
       ],
@@ -3758,7 +3797,7 @@
       "method": "GET",
       "path": "/streaming/status",
       "router_lines": [
-        477
+        478
       ],
       "literal_references": [
         {
@@ -3768,7 +3807,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3534,
+          "line": 3550,
           "kind": "literal-candidate"
         }
       ],
@@ -3780,7 +3819,7 @@
       "method": "POST",
       "path": "/streaming/stop",
       "router_lines": [
-        500
+        501
       ],
       "literal_references": [
         {
@@ -3795,7 +3834,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3677,
+          "line": 3693,
           "kind": "literal-candidate"
         }
       ],
@@ -3807,7 +3846,7 @@
       "method": "POST",
       "path": "/streaming/unpair-all",
       "router_lines": [
-        516
+        517
       ],
       "literal_references": [
         {
@@ -3822,7 +3861,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3730,
+          "line": 3746,
           "kind": "literal-candidate"
         }
       ],
@@ -3834,12 +3873,12 @@
       "method": "POST",
       "path": "/ubisoft/launch",
       "router_lines": [
-        2090
+        2133
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2327,
+          "line": 2343,
           "kind": "literal-candidate"
         }
       ],
@@ -3851,7 +3890,7 @@
       "method": "POST",
       "path": "/ubisoft/launch-game",
       "router_lines": [
-        2106
+        2149
       ],
       "literal_references": [
         {
@@ -3873,12 +3912,12 @@
       "method": "GET",
       "path": "/ubisoft/library",
       "router_lines": [
-        1004
+        1021
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1095,
+          "line": 1098,
           "kind": "literal-candidate"
         }
       ],
@@ -3890,7 +3929,7 @@
       "method": "POST",
       "path": "/ubisoft/save-executable",
       "router_lines": [
-        2115
+        2158
       ],
       "literal_references": [
         {
@@ -3907,7 +3946,7 @@
       "method": "POST",
       "path": "/ubisoft/save-pipeline",
       "router_lines": [
-        2124
+        2167
       ],
       "literal_references": [
         {
@@ -3924,12 +3963,12 @@
       "method": "GET",
       "path": "/ubisoft/status",
       "router_lines": [
-        997
+        1014
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 924,
+          "line": 927,
           "kind": "literal-candidate"
         }
       ],
@@ -3941,12 +3980,12 @@
       "method": "POST",
       "path": "/ubisoft/stop",
       "router_lines": [
-        2098
+        2141
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2301,
+          "line": 2317,
           "kind": "literal-candidate"
         }
       ],
@@ -3958,7 +3997,7 @@
       "method": "GET",
       "path": "/update/check",
       "router_lines": [
-        890
+        891
       ],
       "literal_references": [
         {
@@ -3968,12 +4007,12 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2973,
+          "line": 2989,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3053,
+          "line": 3069,
           "kind": "literal-candidate"
         },
         {
@@ -3990,12 +4029,12 @@
       "method": "POST",
       "path": "/update/cleanup",
       "router_lines": [
-        967
+        968
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3461,
+          "line": 3477,
           "kind": "literal-candidate"
         }
       ],
@@ -4007,7 +4046,7 @@
       "method": "GET",
       "path": "/update/dmg-path",
       "router_lines": [
-        955
+        956
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -4018,17 +4057,17 @@
       "method": "GET",
       "path": "/update/migrate/check",
       "router_lines": [
-        911
+        912
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3890,
+          "line": 3906,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3898,
+          "line": 3914,
           "kind": "literal-candidate"
         }
       ],
@@ -4040,12 +4079,12 @@
       "method": "GET",
       "path": "/update/migrate/progress",
       "router_lines": [
-        918
+        919
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3407,
+          "line": 3423,
           "kind": "literal-candidate"
         }
       ],
@@ -4057,7 +4096,7 @@
       "method": "GET",
       "path": "/update/migrate/report",
       "router_lines": [
-        925
+        926
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -4068,12 +4107,12 @@
       "method": "POST",
       "path": "/update/migrate/start",
       "router_lines": [
-        948
+        949
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3362,
+          "line": 3378,
           "kind": "literal-candidate"
         }
       ],
@@ -4085,12 +4124,12 @@
       "method": "GET",
       "path": "/update/progress",
       "router_lines": [
-        904
+        905
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3212,
+          "line": 3228,
           "kind": "literal-candidate"
         }
       ],
@@ -4102,12 +4141,12 @@
       "method": "POST",
       "path": "/update/start",
       "router_lines": [
-        897
+        898
       ],
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3178,
+          "line": 3194,
           "kind": "literal-candidate"
         }
       ],
@@ -4119,7 +4158,7 @@
       "method": "GET",
       "path": "/welcome/fex",
       "router_lines": [
-        933
+        934
       ],
       "literal_references": [
         {
@@ -4136,7 +4175,7 @@
       "method": "POST",
       "path": "/welcome/fex/dismiss",
       "router_lines": [
-        940
+        941
       ],
       "literal_references": [
         {
@@ -4153,7 +4192,7 @@
       "method": "POST",
       "path": "/wine-mono/install",
       "router_lines": [
-        1944
+        1987
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -4164,7 +4203,7 @@
       "method": "POST",
       "path": "/wine-mono/reset",
       "router_lines": [
-        1951
+        1994
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -4175,7 +4214,7 @@
       "method": "GET",
       "path": "/wine-mono/status",
       "router_lines": [
-        1936
+        1979
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -4187,61 +4226,61 @@
     {
       "path_or_prefix": "/art/grid/",
       "comparison": "strncmp",
-      "router_line": 349,
+      "router_line": 350,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/bottles/",
       "comparison": "strncmp",
-      "router_line": 2362,
+      "router_line": 2405,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/d3dmetal/bottles/",
       "comparison": "strncmp",
-      "router_line": 2372,
+      "router_line": 2415,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/integration/",
       "comparison": "strncmp",
-      "router_line": 2382,
+      "router_line": 2425,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/thread/",
       "comparison": "strncmp",
-      "router_line": 2392,
+      "router_line": 2435,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/es-live/",
       "comparison": "strncmp",
-      "router_line": 2402,
+      "router_line": 2445,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/es/",
       "comparison": "strncmp",
-      "router_line": 2416,
+      "router_line": 2459,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/ob/",
       "comparison": "strncmp",
-      "router_line": 2426,
+      "router_line": 2469,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/",
       "comparison": "strncmp",
-      "router_line": 2436,
+      "router_line": 2479,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/ipc/",
       "comparison": "strncmp",
-      "router_line": 2437,
+      "router_line": 2480,
       "status": "manual-review"
     }
   ]

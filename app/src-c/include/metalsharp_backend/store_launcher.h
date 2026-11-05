@@ -60,9 +60,10 @@ bool ms_store_download(const char* url, const char* destination);
 bool ms_store_run_wine(const char* home, const char* prefix, const char* cwd, char* const argv[],
                        ms_store_apply_env apply_env, const void* env_context, bool wait, int* status, pid_t* pid);
 /* Prefix init as ubisoft.c's: MetalSharp Wine converts it (fex), wineboot -u builds it once (regular),
- * and a writable external volume becomes Y:. */
-bool ms_store_initialize_prefix(const char* home, const char* prefix, const char* label, char* error,
-                                size_t error_size);
+ * then launcher's library location (library_locations.h) gets its drive letter, or, with none
+ * saved, a writable external volume becomes Y:. */
+bool ms_store_initialize_prefix(const char* home, const char* prefix, const char* launcher, const char* label,
+                                char* error, size_t error_size);
 /* Y: -> volume, keeping a user's existing working Y: mapping. */
 bool ms_store_ensure_drive_mapping(const char* prefix, const char* volume);
 /* wineserver -k on the prefix; a prefix with no server counts as stopped. */

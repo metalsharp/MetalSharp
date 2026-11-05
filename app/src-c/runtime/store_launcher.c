@@ -7,6 +7,7 @@
 #include "metalsharp_backend/game_executable.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/library_locations.h"
 #include "metalsharp_backend/steam.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/wine_runtime.h"
@@ -323,44 +324,6 @@ static void apply_route_env(const char* home, const void* context) {
     ms_steam_apply_graphics_route(home, (const char*)context);
 }
 
-static char* find_external_volume(void) {
-    DIR* directory = opendir("/Volumes");
-    struct dirent* entry;
-    char* best = NULL;
-    uint64_t best_free = 0;
-    if (!directory)
-        return NULL;
-    while ((entry = readdir(directory)) != NULL) {
-        char *candidate, resolved[PATH_MAX];
-        struct statfs volume;
-        uint64_t available;
-        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..") || !strcasecmp(entry->d_name, "Recovery") ||
-            !strcasecmp(entry->d_name, "Macintosh HD") || entry->d_name[0] == '.')
-            continue;
-        candidate = ms_store_path_join("/Volumes", entry->d_name);
-        if (!candidate)
-            continue;
-        if (realpath(candidate, resolved) && statfs(resolved, &volume) == 0 &&
-            !strncmp(volume.f_mntonname, "/Volumes/", 9) && strcmp(volume.f_mntonname, "/Volumes/Recovery") &&
-            !(volume.f_flags & MNT_RDONLY) && access(resolved, W_OK | X_OK) == 0) {
-            uint64_t block_size = volume.f_bsize > 0 ? (uint64_t)volume.f_bsize : 0;
-            uint64_t blocks = volume.f_bavail > 0 ? (uint64_t)volume.f_bavail : 0;
-            available = block_size && blocks > UINT64_MAX / block_size ? UINT64_MAX : blocks * block_size;
-            if (!best || available > best_free) {
-                char* replacement = strdup(resolved);
-                if (replacement) {
-                    free(best);
-                    best = replacement;
-                    best_free = available;
-                }
-            }
-        }
-        free(candidate);
-    }
-    closedir(directory);
-    return best;
-}
-
 bool ms_store_ensure_drive_mapping(const char* prefix, const char* volume) {
     char *dosdevices = ms_store_path_join(prefix, "dosdevices"), *drive = NULL;
     struct stat st;
@@ -392,8 +355,8 @@ done:
     return ok;
 }
 
-bool ms_store_initialize_prefix(const char* home, const char* prefix, const char* label, char* error,
-                                size_t error_size) {
+bool ms_store_initialize_prefix(const char* home, const char* prefix, const char* launcher, const char* label,
+                                char* error, size_t error_size) {
     char* wine = ms_store_wine(home);
     char* reg = prefix ? ms_store_path_join(prefix, "system.reg") : NULL;
     struct stat st;
@@ -413,7 +376,8 @@ bool ms_store_initialize_prefix(const char* home, const char* prefix, const char
             snprintf(error, error_size, "Wine could not initialize the %s prefix", label);
     }
     if (ok) {
-        char* external_volume = find_external_volume();
+        char* external_volume =
+            launcher && ms_library_location_apply(home, launcher) ? NULL : ms_library_best_external_volume();
         if (external_volume && !ms_store_ensure_drive_mapping(prefix, external_volume)) {
             snprintf(error, error_size, "Could not map the external volume to %s's Y: drive", label);
             ok = false;

@@ -152,6 +152,14 @@ epic_initialize_invalid=$(curl --silent --fail --request POST --header 'Content-
 printf '%s' "$epic_initialize_invalid" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and "pipeline" in v["error"]'
 epic_stop_all=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' --unix-socket "$sock" "http://localhost/sharp-library/epic/stop-all")
 printf '%s' "$epic_stop_all" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["stopped"] == 0'
+library_locations=$(curl --silent --fail --unix-socket "$sock" "http://localhost/library-locations")
+printf '%s' "$library_locations" | python3 -c 'import json, os, sys; v=json.load(sys.stdin); assert v["ok"] and v["volumes"][0]["id"] == "internal" and v["volumes"][0]["root"] == os.environ["HOME"] + "/Games" and all(v["locations"][k] is None for k in ("ubisoft", "battlenet", "rockstar", "gog", "epic"))'
+epic_needs_location=$(curl --silent --request POST --header 'Content-Type: application/json' --data '{"appName":"SmokeEpic"}' --write-out '\n%{http_code}' --unix-socket "$sock" "http://localhost/sharp-library/epic/install")
+printf '%s' "$epic_needs_location" | python3 -c 'import json, sys; body, code = sys.stdin.read().rsplit("\n", 1); v=json.loads(body); assert code == "409" and not v["ok"] and v["needs_location"] and v["error"] == "Choose where Epic games go first"'
+library_bad=$(curl --silent --output /dev/null --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{"launcher":"gog","volume":"/Volumes/Not Connected"}' --unix-socket "$sock" "http://localhost/library-locations/set")
+[ "$library_bad" = "400" ] || { echo "library-locations/set with an unknown drive returned $library_bad"; exit 1; }
+library_set=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"launcher":"gog","volume":"internal"}' --unix-socket "$sock" "http://localhost/library-locations/set")
+printf '%s' "$library_set" | python3 -c 'import json, os, sys; v=json.load(sys.stdin); assert v["ok"] and v["path"] == os.environ["HOME"] + "/Games/MetalSharp GOG Games" and os.path.isdir(v["path"])'
 mkdir -p "$home/GameJolt/Smoke Windows Game/bin" "$home/GameJolt/Smoke Mac.app"
 printf 'smoke' > "$home/GameJolt/Smoke Windows Game/bin/game.exe"
 printf 'cover' > "$home/GameJolt/Smoke Windows Game/cover.png"

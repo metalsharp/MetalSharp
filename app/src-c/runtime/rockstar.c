@@ -2,6 +2,7 @@
  * Steam also puts it on a Steam copy's first run), started without Steam, and the games it
  * installs. Steam copies of Rockstar titles keep their own path (steam_actions.c). */
 #include "metalsharp_backend/rockstar.h"
+#include "metalsharp_backend/library_locations.h"
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/store_launcher.h"
@@ -312,6 +313,9 @@ static bool rockstar_prepare_prefix(const char* home, char* error, size_t error_
     /* The prefix MetalSharp Wine converted in setup: nothing to do there unless it is still x86_64. */
     else if (ms_wine_is_fex())
         ok = ms_wine_fex_convert_prefix(home, prefix, error, error_size);
+    /* The folder chosen for Rockstar games becomes R: in the Steam prefix. */
+    if (ok)
+        (void)ms_library_location_apply(home, "rockstar");
     free(registry);
     free(prefix);
     return ok;

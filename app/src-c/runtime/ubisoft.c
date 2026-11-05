@@ -7,6 +7,7 @@
 #include "metalsharp_backend/game_executable.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/library_locations.h"
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/steam.h"
 #include "metalsharp_backend/steam_actions.h"
@@ -384,44 +385,6 @@ static bool run_child_wait(const char* executable, char* const argv[], const cha
     return waited == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
-static char* find_external_volume(void) {
-    DIR* directory = opendir("/Volumes");
-    struct dirent* entry;
-    char* best = NULL;
-    uint64_t best_free = 0;
-    if (!directory)
-        return NULL;
-    while ((entry = readdir(directory)) != NULL) {
-        char *candidate, resolved[PATH_MAX];
-        struct statfs volume;
-        uint64_t available;
-        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..") || !strcasecmp(entry->d_name, "Recovery") ||
-            !strcasecmp(entry->d_name, "Macintosh HD") || entry->d_name[0] == '.')
-            continue;
-        candidate = path_join("/Volumes", entry->d_name);
-        if (!candidate)
-            continue;
-        if (realpath(candidate, resolved) && statfs(resolved, &volume) == 0 &&
-            !strncmp(volume.f_mntonname, "/Volumes/", 9) && strcmp(volume.f_mntonname, "/Volumes/Recovery") &&
-            !(volume.f_flags & MNT_RDONLY) && access(resolved, W_OK | X_OK) == 0) {
-            uint64_t block_size = volume.f_bsize > 0 ? (uint64_t)volume.f_bsize : 0;
-            uint64_t blocks = volume.f_bavail > 0 ? (uint64_t)volume.f_bavail : 0;
-            available = block_size && blocks > UINT64_MAX / block_size ? UINT64_MAX : blocks * block_size;
-            if (!best || available > best_free) {
-                char* replacement = strdup(resolved);
-                if (replacement) {
-                    free(best);
-                    best = replacement;
-                    best_free = available;
-                }
-            }
-        }
-        free(candidate);
-    }
-    closedir(directory);
-    return best;
-}
-
 static bool ensure_ubisoft_drive_mapping(const char* prefix, const char* volume) {
     char *dosdevices = path_join(prefix, "dosdevices"), *drive = NULL;
     struct stat st;
@@ -485,7 +448,9 @@ static bool initialize_prefix(const char* home, char* error, size_t error_size) 
             return false;
         }
     }
-    char* external_volume = find_external_volume();
+    /* A library location chosen for Ubisoft games becomes Y:; without one, the external volume
+     * with the most free space does, as before. */
+    char* external_volume = ms_library_location_apply(home, "ubisoft") ? NULL : ms_library_best_external_volume();
     if (external_volume && !ensure_ubisoft_drive_mapping(prefix, external_volume)) {
         snprintf(error, error_size, "Could not map the external volume to Ubisoft Connect's Y: drive");
         free(external_volume);

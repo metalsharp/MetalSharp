@@ -257,7 +257,7 @@ static void battlenet_apply_env(const char* home, const void* context) {
 
 static bool battlenet_initialize_prefix(const char* home, char* error, size_t error_size) {
     char* prefix = battlenet_prefix(home);
-    bool ok = prefix && ms_store_initialize_prefix(home, prefix, "Battle.net", error, error_size);
+    bool ok = prefix && ms_store_initialize_prefix(home, prefix, "battlenet", "Battle.net", error, error_size);
     free(prefix);
     return ok;
 }

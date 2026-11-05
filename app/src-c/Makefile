@@ -17,6 +17,7 @@ WINE_RUNTIME_TEST ?= $(BUILD_DIR)/wine-runtime-test
 MTSP_RULES_TEST ?= $(BUILD_DIR)/mtsp-rules-test
 SETUP_VARIANT_TEST ?= $(BUILD_DIR)/setup-variant-test
 STORE_LAUNCHERS_TEST ?= $(BUILD_DIR)/store-launchers-test
+LIBRARY_LOCATIONS_TEST ?= $(BUILD_DIR)/library-locations-test
 # A MetalSharp-Wine.app for the fex facade test; without one it checks only the mapping.
 METALSHARP_WINE_APP ?=
 
@@ -60,6 +61,7 @@ SOURCES := \
 	runtime/steamcmd.c \
 	runtime/ubisoft.c \
 	runtime/store_launcher.c \
+	runtime/library_locations.c \
 	runtime/rockstar.c \
 	runtime/battlenet.c \
 	runtime/game.c \
@@ -115,9 +117,10 @@ test: test-$(VARIANT)
 # The FEX build's suite (make VARIANT=fex BUILD_DIR=... test): its backend and the tests that hold for
 # MetalSharp Wine. The route, smoke, VC++ seeding, runtime-ready and update-download tests describe
 # the regular build's x86_64 runtime and run in test-regular.
-test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(STORE_LAUNCHERS_TEST)
+test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(STORE_LAUNCHERS_TEST) $(LIBRARY_LOCATIONS_TEST)
 	@"$(SETUP_VARIANT_TEST)"
 	@home="$$(mktemp -d)"; "$(STORE_LAUNCHERS_TEST)" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
+	@dir="$$(mktemp -d)"; "$(LIBRARY_LOCATIONS_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
 	@"$(JSON_TEST)"
 	@cd "$(PROJECT_ROOT)" && METALSHARP_HOME= "$(abspath $(MTSP_RULES_TEST))"
 	@"$(MIGRATION_TEST)"
@@ -129,9 +132,10 @@ test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EX
 	@bash "$(PROJECT_ROOT)/app/updater/tests/build_switch_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@python3 "$(CURDIR)/tests/steam_process_test.py" "$(TARGET)"
 
-test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(BUILD_DIR)/runtime-routes-test $(STORE_LAUNCHERS_TEST)
+test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(BUILD_DIR)/runtime-routes-test $(STORE_LAUNCHERS_TEST) $(LIBRARY_LOCATIONS_TEST)
 	@"$(SETUP_VARIANT_TEST)"
 	@home="$$(mktemp -d)"; "$(STORE_LAUNCHERS_TEST)" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
+	@dir="$$(mktemp -d)"; "$(LIBRARY_LOCATIONS_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
 	@cd "$(PROJECT_ROOT)" && METALSHARP_HOME= "$(abspath $(MTSP_RULES_TEST))"
 	@home="$$(mktemp -d)"; "$(BUILD_DIR)/runtime-routes-test" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
 	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; HOME="$$test_home" METALSHARP_HOME="$$ms_home" "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc
@@ -167,6 +171,11 @@ asan-test:
 		rm -rf "$$test_home" "$$ms_home"; \
 		[ $$attempt -eq 3 ] && exit 1; attempt=$$((attempt + 1)); \
 	done
+
+# Volumes come from a folder standing in for /Volumes, and HOME from the test's own folder.
+$(LIBRARY_LOCATIONS_TEST): runtime/library_locations.c runtime/json.c runtime/json_writer.c tests/library_locations_test.c include/metalsharp_backend/library_locations.h
+	@mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/library_locations.c runtime/json.c runtime/json_writer.c tests/library_locations_test.c
 
 $(JSON_TEST): runtime/json.c runtime/json_writer.c tests/json_test.c include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
 	@mkdir -p "$(@D)"

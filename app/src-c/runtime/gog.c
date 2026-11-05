@@ -2,6 +2,7 @@
 #include "metalsharp_backend/game_executable.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/library_locations.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/wine_runtime.h"
@@ -955,7 +956,9 @@ static bool safe_gog_install_path(const char* path, const char* home) {
     safe = strcmp(resolved, "/") != 0 && strcmp(resolved, home) != 0 &&
            !(realpath(home, resolved_home) && !strcmp(resolved, resolved_home)) &&
            strcmp(resolved, "/Applications") != 0 && strcmp(resolved, "/Users") != 0 &&
-           strcmp(resolved, "/Volumes") != 0;
+           strcmp(resolved, "/Volumes") != 0 &&
+           /* nor <user home>/Games or a MetalSharp launcher folder, which hold other games */
+           !ms_library_is_managed_root(resolved);
     free(resolved);
     return safe;
 }

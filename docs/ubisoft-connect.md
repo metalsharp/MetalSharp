@@ -8,7 +8,7 @@
    <img width="370" alt="Launch Ubisoft in the dropdown" src="https://github.com/user-attachments/assets/aba24c45-a35b-49ad-bfb9-e34f9de0a094" />
    <img width="370" alt="Stop Ubisoft in the dropdown" src="https://github.com/user-attachments/assets/d32c82f1-468c-4622-a1fa-6dde3265dfc2" />
 
-3. **Install games.** Sign in and install a game. External drives show up in Ubisoft Connect as drive `Y:`. To install to one, click **Change Location**, choose the drive shown as `/`, go to `Volumes/<drive name>/`, and create a `Ubisoft` folder.
+3. **Install games.** Sign in and install a game. To install into the folder you chose for Ubisoft games, click **Change Location** and choose drive `Y:` (see [Where Games Go](user-guide.md#where-games-go)). Without a chosen folder, the external drive with the most free space shows up as `Y:`.
 
    <img width="370" alt="Change Location" src="https://github.com/user-attachments/assets/44c1cbfe-ff46-4878-a2e4-49245b7059fb" />
    <img width="370" alt="Select the drive" src="https://github.com/user-attachments/assets/688a0584-1884-4be9-9144-0a06121a7333" />
