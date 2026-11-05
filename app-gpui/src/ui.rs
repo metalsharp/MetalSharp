@@ -1559,8 +1559,8 @@ impl MetalSharpApp {
             0.0
         };
         let content_viewport = gpui::size(viewport.width - px(sidebar_width), viewport.height);
-        // Pages run up under the transparent header and the launcher row.
-        let top_inset = layout.header_height + self.page_toolbar_height(layout);
+        // Pages run up under the transparent header.
+        let top_inset = layout.header_height;
         self.page_top_inset = top_inset;
         if self.search_input.is_none() {
             let input = cx.new(crate::search_input::SearchInput::new);
@@ -1748,11 +1748,17 @@ impl MetalSharpApp {
                             )),
                     ),
             )
+            .children(self.render_launcher_group(
+                layout,
+                steam_menu,
+                f32::from(content_viewport.width) >= 980.0,
+                cx,
+            ))
             .child(if show_search {
                 div()
                     .flex_1()
                     .min_w_0()
-                    .px(px(layout.scaled(20.0)))
+                    .px(px(layout.scaled(10.0)))
                     .flex()
                     .justify_center()
                     .child(
@@ -1791,6 +1797,7 @@ impl MetalSharpApp {
             } else {
                 div().flex_1()
             })
+            .children(self.render_view_toggle(layout, cx))
             .child(
                 div()
                     .relative()
@@ -1822,7 +1829,6 @@ impl MetalSharpApp {
         let sidebar = self
             .sidebar_open
             .then(|| self.render_sidebar(layout, sidebar_width, cx));
-        let toolbar = self.render_page_toolbar(layout, steam_menu, cx);
 
         let body = match self.active_tab {
             LibraryTab::Play => self.render_library_play(content_viewport, cx),
@@ -1877,8 +1883,7 @@ impl MetalSharpApp {
                             .h_full()
                             .flex()
                             .flex_col()
-                            .child(body)
-                            .children(toolbar),
+                            .child(body),
                     )
                     .child(header),
             )
@@ -1891,16 +1896,6 @@ impl MetalSharpApp {
             .children(self.streaming_open.then(|| {
                 gpui::deferred(self.render_streaming_overlay(viewport, cx)).with_priority(100)
             }))
-    }
-
-    /// Height of the per-page launcher row under the header, or 0 when the
-    /// page has none.
-    fn page_toolbar_height(&self, layout: LibraryLayout) -> f32 {
-        if self.page_launcher().is_some() || self.page.has_collection() {
-            layout.control_height + layout.scaled(14.0)
-        } else {
-            0.0
-        }
     }
 
     /// The page's launcher button: (action, label, icon, busy).
@@ -2099,143 +2094,139 @@ impl MetalSharpApp {
             .child(item(LibraryPage::Logs, LibraryPage::LAUNCHERS.len(), cx))
     }
 
-    /// Launcher button and Library/Collection toggle under the header.
-    fn render_page_toolbar(
+    /// The page's launcher button (and Steam's options), left of the search
+    /// field in the header. Narrow windows show its icon only.
+    fn render_launcher_group(
         &self,
         layout: LibraryLayout,
         steam_menu: Option<gpui::Deferred>,
+        show_label: bool,
         cx: &mut Context<Self>,
     ) -> Option<gpui::Div> {
-        let launcher = self.page_launcher();
-        if launcher.is_none() && !self.page.has_collection() {
+        let (action, label, icon, busy) = self.page_launcher()?;
+        let border = rgba(0xe7eaec4d);
+        let fill = rgba(0x0c0f10b8);
+        let is_steam = action == LauncherAction::Steam;
+        Some(
+            div()
+                .relative()
+                .flex()
+                .flex_none()
+                .child(
+                    div()
+                        .id("library-launcher-button")
+                        .h(px(layout.control_height))
+                        .flex()
+                        .items_center()
+                        .gap(px(layout.scaled(8.0)))
+                        .px(px(layout.scaled(if show_label { 15.0 } else { 11.0 })))
+                        .rounded_l(px(layout.scaled(8.0)))
+                        .when(!is_steam, |d| d.rounded_r(px(layout.scaled(8.0))))
+                        .border_1()
+                        .border_color(border)
+                        .bg(fill)
+                        .text_size(px(layout.scaled(13.0)))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(rgb(0xffffff))
+                        .when(busy, |d| d.opacity(0.7))
+                        .when(!busy, |d| {
+                            d.cursor_pointer().hover(|style| style.bg(rgba(0x1a1e22d0)))
+                        })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if !busy {
+                                this.run_launcher_action(action, cx);
+                            }
+                        }))
+                        .child(control_icon(icon, layout.scaled(17.0), 0xffffff))
+                        .children(show_label.then_some(label)),
+                )
+                .children(is_steam.then(|| {
+                    div()
+                        .id("library-steam-options-toggle")
+                        .h(px(layout.control_height))
+                        .w(px(layout.control_height))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_r(px(layout.scaled(8.0)))
+                        .border_1()
+                        .border_l_0()
+                        .border_color(border)
+                        .bg(fill)
+                        .cursor_pointer()
+                        .hover(|style| style.bg(rgba(0x1a1e22d0)))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            let open = !this.steam_options_open;
+                            this.close_library_menus();
+                            this.steam_options_open = open;
+                            cx.notify();
+                        }))
+                        .child(control_icon(
+                            "launch-settings.svg",
+                            layout.scaled(19.0),
+                            0xffffff,
+                        ))
+                }))
+                .children(steam_menu),
+        )
+    }
+
+    /// Library/Collection switch, right of the search field in the header.
+    fn render_view_toggle(
+        &self,
+        layout: LibraryLayout,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Div> {
+        if !self.page.has_collection() {
             return None;
         }
         let border = rgba(0xe7eaec4d);
         let fill = rgba(0x0c0f10b8);
-        let mut row = div()
-            .absolute()
-            .top(px(layout.header_height))
-            .left(px(layout.page_padding))
-            .right(px(layout.page_padding))
-            .h(px(layout.control_height))
-            .flex()
-            .items_center()
-            .gap(px(layout.scaled(10.0)));
-        if let Some((action, label, icon, busy)) = launcher {
-            let is_steam = action == LauncherAction::Steam;
-            row = row.child(
-                div()
-                    .relative()
-                    .flex()
-                    .flex_none()
-                    .child(
-                        div()
-                            .id("library-launcher-button")
-                            .h(px(layout.control_height))
-                            .flex()
-                            .items_center()
-                            .gap(px(layout.scaled(8.0)))
-                            .px(px(layout.scaled(15.0)))
-                            .rounded_l(px(layout.scaled(8.0)))
-                            .when(!is_steam, |d| d.rounded_r(px(layout.scaled(8.0))))
-                            .border_1()
-                            .border_color(border)
-                            .bg(fill)
-                            .text_size(px(layout.scaled(13.0)))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgb(0xffffff))
-                            .when(busy, |d| d.opacity(0.7))
-                            .when(!busy, |d| {
-                                d.cursor_pointer().hover(|style| style.bg(rgba(0x1a1e22d0)))
-                            })
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if !busy {
-                                    this.run_launcher_action(action, cx);
-                                }
-                            }))
-                            .child(control_icon(icon, layout.scaled(17.0), 0xffffff))
-                            .child(label),
-                    )
-                    .children(is_steam.then(|| {
-                        div()
-                            .id("library-steam-options-toggle")
-                            .h(px(layout.control_height))
-                            .w(px(layout.control_height))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_r(px(layout.scaled(8.0)))
-                            .border_1()
-                            .border_l_0()
-                            .border_color(border)
-                            .bg(fill)
-                            .cursor_pointer()
-                            .hover(|style| style.bg(rgba(0x1a1e22d0)))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                let open = !this.steam_options_open;
-                                this.close_library_menus();
-                                this.steam_options_open = open;
-                                cx.notify();
-                            }))
-                            .child(control_icon(
-                                "launch-settings.svg",
-                                layout.scaled(19.0),
-                                0xffffff,
-                            ))
-                    }))
-                    .children(steam_menu),
-            );
-        }
-        if self.page.has_collection() {
-            let collection = matches!(
-                self.active_tab,
-                LibraryTab::Collection | LibraryTab::SharpLibrary
-            );
-            let segment = |id: &'static str, label: &'static str, on: bool, value: bool| {
-                div()
-                    .id(id)
-                    .h_full()
-                    .flex()
-                    .items_center()
-                    .px(px(layout.scaled(14.0)))
-                    .rounded(px(layout.scaled(6.0)))
-                    .text_size(px(layout.scaled(12.5)))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgb(if on { 0xffffff } else { 0xaab4c4 }))
-                    .when(on, |d| d.bg(rgba(0xffffff26)))
-                    .cursor_pointer()
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.set_page_collection(value, cx)),
-                    )
-                    .child(label)
-            };
-            row = row.child(
-                div()
-                    .flex_none()
-                    .h(px(layout.control_height))
-                    .flex()
-                    .items_center()
-                    .gap(px(2.0))
-                    .p(px(3.0))
-                    .rounded(px(layout.scaled(8.0)))
-                    .border_1()
-                    .border_color(border)
-                    .bg(fill)
-                    .child(segment(
-                        "library-view-library",
-                        "Library",
-                        !collection,
-                        false,
-                    ))
-                    .child(segment(
-                        "library-view-collection",
-                        "Collection",
-                        collection,
-                        true,
-                    )),
-            );
-        }
-        Some(row)
+        let collection = matches!(
+            self.active_tab,
+            LibraryTab::Collection | LibraryTab::SharpLibrary
+        );
+        let segment = |id: &'static str, label: &'static str, on: bool, value: bool| {
+            div()
+                .id(id)
+                .h_full()
+                .flex()
+                .items_center()
+                .px(px(layout.scaled(14.0)))
+                .rounded(px(layout.scaled(6.0)))
+                .text_size(px(layout.scaled(12.5)))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(rgb(if on { 0xffffff } else { 0xaab4c4 }))
+                .when(on, |d| d.bg(rgba(0xffffff26)))
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _, _, cx| this.set_page_collection(value, cx)))
+                .child(label)
+        };
+        Some(
+            div()
+                .flex_none()
+                .h(px(layout.control_height))
+                .flex()
+                .items_center()
+                .gap(px(2.0))
+                .p(px(3.0))
+                .rounded(px(layout.scaled(8.0)))
+                .border_1()
+                .border_color(border)
+                .bg(fill)
+                .child(segment(
+                    "library-view-library",
+                    "Library",
+                    !collection,
+                    false,
+                ))
+                .child(segment(
+                    "library-view-collection",
+                    "Collection",
+                    collection,
+                    true,
+                )),
+        )
     }
 
     /// App.vue update banner.
@@ -2805,18 +2796,6 @@ impl MetalSharpApp {
             .flex()
             .items_center()
             .overflow_hidden()
-            .bg(rgb(0x242629))
-            .children(hero_art.map(|art| {
-                crate::artwork::art_img(art)
-                    .w_full()
-                    .h_full()
-                    .absolute()
-                    .top(px(0.0))
-                    .right(px(0.0))
-                    .bottom(px(0.0))
-                    .left(px(0.0))
-                    .object_fit(ObjectFit::Cover)
-            }))
             // Scrim only where the title and Play button sit; the rest of the
             // art shows at full brightness.
             .child(
@@ -2830,19 +2809,6 @@ impl MetalSharpApp {
                         90.0,
                         linear_color_stop(rgba(0x060809e8), 0.0),
                         linear_color_stop(rgba(0x06080900), 0.72),
-                    )),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .right(px(0.0))
-                    .bottom(px(0.0))
-                    .left(px(0.0))
-                    .h(px(hero_height * 0.65))
-                    .bg(linear_gradient(
-                        180.0,
-                        linear_color_stop(rgba(self.theme.page_bg() << 8), 0.0),
-                        linear_color_stop(rgb(self.theme.page_bg()), 1.0),
                     )),
             )
             // Keeps the header and launcher row legible over bright art.
@@ -3316,11 +3282,6 @@ impl MetalSharpApp {
             .flex_none()
             .px(px(layout.page_padding))
             .pt(px(layout.scaled(if layout.compact { 8.0 } else { 12.0 })))
-            .bg(linear_gradient(
-                180.0,
-                linear_color_stop(rgba(self.theme.page_bg() << 8), 0.0),
-                linear_color_stop(rgb(self.theme.page_bg()), 1.0),
-            ))
             .child(
                 div()
                     .w_full()
@@ -3430,14 +3391,53 @@ impl MetalSharpApp {
                     ),
             );
 
+        // The art runs from the top of the window down behind the dock's
+        // heading and fades out across the cards, so it frames the page
+        // instead of stopping above the dock.
+        let art_height = hero_height
+            + layout.scaled(if layout.compact { 36.0 } else { 44.0 })
+            + card_height * 0.55;
+        let page_bg = self.theme.page_bg();
+        let backdrop = div()
+            .absolute()
+            .top(px(0.0))
+            .left(px(0.0))
+            .right(px(0.0))
+            .h(px(art_height))
+            .overflow_hidden()
+            .bg(rgb(0x242629))
+            .children(hero_art.map(|art| {
+                crate::artwork::art_img(art)
+                    .absolute()
+                    .top(px(0.0))
+                    .left(px(0.0))
+                    .size_full()
+                    .object_fit(ObjectFit::Cover)
+            }))
+            .child(
+                div()
+                    .absolute()
+                    .left(px(0.0))
+                    .right(px(0.0))
+                    .bottom(px(0.0))
+                    .h(px(art_height * 0.45))
+                    .bg(linear_gradient(
+                        180.0,
+                        linear_color_stop(rgba(page_bg << 8), 0.0),
+                        linear_color_stop(rgb(page_bg), 1.0),
+                    )),
+            );
+
         div()
             .id("library-play-scroll")
+            .relative()
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
-            .bg(rgb(self.theme.page_bg()))
+            .bg(rgb(page_bg))
             .flex()
             .flex_col()
+            .child(backdrop)
             .child(hero)
             .child(dock)
     }

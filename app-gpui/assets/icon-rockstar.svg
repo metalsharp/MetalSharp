@@ -1,3 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="m12 3 2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.5l-5.4 3 1.2-6-4.5-4.2 6.1-.7z" />
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <!-- Rockstar-style badge (original drawing): a rounded square with a bold R and a star at its foot. -->
+  <defs>
+    <mask id="rockstar-r">
+      <rect width="24" height="24" fill="#fff" />
+      <path d="M6.6 17.2V6.6h5.1c2.3 0 3.8 1.3 3.8 3.3 0 1.5-.8 2.6-2.1 3.1l2.3 4.2" fill="none" stroke="#000" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M6.6 11.6h4.6" stroke="#000" stroke-width="2.3" stroke-linecap="round" />
+      <path d="m17.6 13.4.8 1.7 1.8.2-1.4 1.2.4 1.8-1.6-.9-1.6.9.4-1.8-1.4-1.2 1.8-.2z" fill="#000" />
+    </mask>
+  </defs>
+  <rect x="2" y="2" width="20" height="20" rx="4.2" fill="currentColor" mask="url(#rockstar-r)" />
 </svg>
