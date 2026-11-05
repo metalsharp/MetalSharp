@@ -417,7 +417,7 @@ impl MetalSharpApp {
             LibraryPage::Rockstar => {
                 "This removes the Rockstar Games Launcher from the Steam prefix. Steam, and Rockstar games you own on Steam, stay as they are.".to_owned()
             }
-            LibraryPage::Gog => "This removes the GOG prefix and signs you out.".to_owned(),
+            LibraryPage::Gog => "This removes the GOG prefix. Your GOG sign-in stays, so setting it up again skips Login.".to_owned(),
             LibraryPage::Epic => {
                 "This removes the Epic prefixes and Legendary's sign-in, so the page starts over at Create Prefix.".to_owned()
             }

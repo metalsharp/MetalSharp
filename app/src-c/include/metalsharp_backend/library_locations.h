@@ -93,6 +93,27 @@ ms_library_drive_result ms_library_map_drive(const char* prefix, char letter, co
  * Returns whether a location is saved for launcher; a volume that is not mounted is skipped. */
 bool ms_library_location_apply(const char* home, const char* launcher);
 
+/* Uninstalling a launcher (launcher_uninstall.c). */
+typedef enum {
+    MS_LIBRARY_FOLDER_NONE = 0,  /* no location saved */
+    MS_LIBRARY_FOLDER_ABSENT,    /* saved, valid, and the folder is not there */
+    MS_LIBRARY_FOLDER_DELETABLE, /* the folder may be deleted */
+    MS_LIBRARY_FOLDER_REFUSED,   /* it may not: error says why */
+} ms_library_folder_check;
+
+/* Whether launcher's saved folder may be deleted: its name is exactly "MetalSharp <Name> Games" for
+ * launcher, its parent is the root it was saved on (<user home>/Games, or a /Volumes/<Drive> mount
+ * point that is mounted now), it is a real folder (lstat: no link), it resolves to that same place,
+ * and it does not hold the MetalSharp home. path gets the saved path (also when refused). */
+ms_library_folder_check ms_library_location_check_deletable(const char* home, const char* launcher, char* path,
+                                                            size_t path_size, char* error, size_t error_size);
+/* Removes the drive letter MetalSharp mapped for launcher, only while it is still a link to the
+ * recorded target, and forgets the mapping (the location stays saved). Returns whether a link went;
+ * removed gets its path. */
+bool ms_library_location_unmap_drive(const char* home, const char* launcher, char* removed, size_t removed_size);
+/* Forgets launcher's saved location. */
+bool ms_library_location_forget(const char* home, const char* launcher);
+
 /* GET /library-locations. */
 char* ms_library_locations_json(const char* home);
 /* POST /library-locations/set. */

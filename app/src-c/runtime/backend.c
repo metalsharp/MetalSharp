@@ -41,6 +41,7 @@
 #include "metalsharp_backend/rockstar.h"
 #include "metalsharp_backend/battlenet.h"
 #include "metalsharp_backend/library_locations.h"
+#include "metalsharp_backend/launcher_uninstall.h"
 #include "metalsharp_backend/updater.h"
 #include "metalsharp_backend/wine_runtime.h"
 
@@ -1006,6 +1007,16 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         int status = 500;
         body = ms_library_locations_set_json(context->metalsharp_home, (const char*)request->body,
                                              request->body_length, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/launchers/uninstall") == 0) {
+        int status = 500;
+        ms_log_event(context->metalsharp_home, "Uninstalling a launcher...");
+        body = ms_launcher_uninstall_json(context->metalsharp_home, (const char*)request->body, request->body_length,
+                                          &status);
         if (body == NULL)
             return false;
         set_json_response(response, status, body);

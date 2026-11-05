@@ -621,6 +621,137 @@ bool ms_library_location_apply(const char* home, const char* launcher) {
     return true;
 }
 
+/* ---- uninstalling a launcher ---- */
+
+static bool path_within_resolved(const char* path, const char* root) {
+    size_t n = strlen(root);
+    while (n > 1 && root[n - 1] == '/')
+        n--;
+    return !strncmp(path, root, n) && (path[n] == '\0' || path[n] == '/');
+}
+
+static void set_message(char* error, size_t error_size, const char* message, const char* path) {
+    if (error && error_size)
+        snprintf(error, error_size, "%s%s%s", message, path ? ": " : "", path ? path : "");
+}
+
+ms_library_folder_check ms_library_location_check_deletable(const char* home, const char* launcher, char* path,
+                                                            size_t path_size, char* error, size_t error_size) {
+    const library_launcher* entry = find_launcher(launcher);
+    ms_library_location location;
+    ms_library_volume volume;
+    char parent[sizeof(location.path)], expected_root[PATH_MAX], resolved_parent[PATH_MAX],
+        resolved_folder[PATH_MAX], resolved_home[PATH_MAX], joined[PATH_MAX * 2];
+    char* slash;
+    struct stat st;
+    if (path && path_size)
+        path[0] = '\0';
+    if (!entry || !home || !ms_library_location_get(home, launcher, &location, NULL))
+        return MS_LIBRARY_FOLDER_NONE;
+    if (path && path_size)
+        snprintf(path, path_size, "%s", location.path);
+    snprintf(parent, sizeof(parent), "%s", location.path);
+    slash = strrchr(parent, '/');
+    if (!slash || slash == parent || strcmp(slash + 1, entry->folder)) {
+        set_message(error, error_size, "The saved games folder is not MetalSharp's folder for this launcher",
+                    location.path);
+        return MS_LIBRARY_FOLDER_REFUSED;
+    }
+    *slash = '\0';
+    /* Its parent is the root the choice was made on: <user home>/Games, or a mount point right under
+     * the volumes root (/Volumes/<Drive>) that is mounted now. */
+    if (!strcmp(location.volume, "internal")) {
+        char* internal = ms_library_internal_root();
+        bool same = internal && !strcmp(internal, parent);
+        snprintf(expected_root, sizeof(expected_root), "%s", internal ? internal : "");
+        free(internal);
+        if (!same) {
+            set_message(error, error_size, "The saved games folder is not in the Games folder", location.path);
+            return MS_LIBRARY_FOLDER_REFUSED;
+        }
+    } else {
+        const char* root = ms_library_volumes_root();
+        size_t n = strlen(root);
+        if (strcmp(location.volume, parent) || strncmp(parent, root, n) || parent[n] != '/' || !parent[n + 1] ||
+            strchr(parent + n + 1, '/')) {
+            set_message(error, error_size, "The saved games folder is not at the top of a drive", location.path);
+            return MS_LIBRARY_FOLDER_REFUSED;
+        }
+        if (!find_volume(location.volume, &volume)) {
+            set_message(error, error_size, "The drive with the games folder is not connected", location.volume);
+            return MS_LIBRARY_FOLDER_REFUSED;
+        }
+        snprintf(expected_root, sizeof(expected_root), "%s", parent);
+    }
+    if (lstat(location.path, &st) != 0) {
+        if (errno == ENOENT)
+            return MS_LIBRARY_FOLDER_ABSENT;
+        set_message(error, error_size, "Could not check the games folder", location.path);
+        return MS_LIBRARY_FOLDER_REFUSED;
+    }
+    if (S_ISLNK(st.st_mode) || !S_ISDIR(st.st_mode)) {
+        set_message(error, error_size, "The games folder is a link or not a folder", location.path);
+        return MS_LIBRARY_FOLDER_REFUSED;
+    }
+    /* Resolved, it is still <root>/<folder name>, and it does not hold MetalSharp's own data. */
+    if (!realpath(expected_root, resolved_parent) || !realpath(location.path, resolved_folder) ||
+        (size_t)snprintf(joined, sizeof(joined), "%s/%s", resolved_parent, entry->folder) >= sizeof(joined) ||
+        strcmp(joined, resolved_folder)) {
+        set_message(error, error_size, "The games folder is not where it was saved", location.path);
+        return MS_LIBRARY_FOLDER_REFUSED;
+    }
+    if (realpath(home, resolved_home) && path_within_resolved(resolved_home, resolved_folder)) {
+        set_message(error, error_size, "The games folder holds MetalSharp's data", location.path);
+        return MS_LIBRARY_FOLDER_REFUSED;
+    }
+    return MS_LIBRARY_FOLDER_DELETABLE;
+}
+
+bool ms_library_location_unmap_drive(const char* home, const char* launcher, char* removed, size_t removed_size) {
+    const library_launcher* entry = find_launcher(launcher);
+    library_store store;
+    ms_library_location* location;
+    char* prefix;
+    size_t index;
+    if (removed && removed_size)
+        removed[0] = '\0';
+    if (!entry || !home || !entry->prefix)
+        return false;
+    index = (size_t)(entry - LAUNCHERS);
+    store_load(home, &store);
+    location = &store.entries[index];
+    if (!store.present[index] || !location->drive[0])
+        return false;
+    prefix = join(home, entry->prefix);
+    /* Only the link MetalSharp made: the recorded letter, still pointing at the recorded folder. */
+    if (prefix && location->drive_target[0] && is_dir(prefix) &&
+        drive_is_link_to(prefix, location->drive, location->drive_target)) {
+        unmap_drive(prefix, location->drive);
+        if (removed && removed_size)
+            snprintf(removed, removed_size, "%s/dosdevices/%s", prefix, location->drive);
+    }
+    free(prefix);
+    location->drive[0] = '\0';
+    location->drive_target[0] = '\0';
+    (void)store_save(home, &store);
+    return removed && removed_size && removed[0];
+}
+
+bool ms_library_location_forget(const char* home, const char* launcher) {
+    const library_launcher* entry = find_launcher(launcher);
+    library_store store;
+    size_t index;
+    if (!entry || !home)
+        return false;
+    index = (size_t)(entry - LAUNCHERS);
+    store_load(home, &store);
+    if (!store.present[index])
+        return true;
+    store.present[index] = false;
+    memset(&store.entries[index], 0, sizeof(store.entries[index]));
+    return store_save(home, &store);
+}
+
 /* ---- routes ---- */
 
 static char* failure_json(const char* message, bool needs_location) {

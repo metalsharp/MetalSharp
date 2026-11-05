@@ -66,6 +66,17 @@ Battle.net runs in its own prefix (`~/.metalsharp/prefix-battlenet`) on the same
 2. **Start and stop.** Stop shuts down the whole Battle.net prefix, including its games.
 3. **Play.** Installed Blizzard and Activision games show up in the library. Pick a launch route and press **Play**. MetalSharp starts Battle.net if it isn't running and asks it to start the game, so sign in first. On the x86_64 build, a Battle.net already running on another route restarts on the game's route.
 
+### Uninstalling a launcher
+
+Uninstalling a launcher stops it and its games first. If something won't stop, nothing is removed. Quit it and try again.
+
+- **Ubisoft Connect and Battle.net** lose their whole prefix, cache, per-game settings and saved executable choices.
+- **Rockstar Games Launcher** loses only its own folders in the Steam prefix (the launcher, Social Club and its ProgramData folder), its cache, per-game settings and the `R:` drive MetalSharp mapped. Steam, your Steam games and Rockstar games installed through Steam are not touched. The launcher's registry entries in the Steam prefix stay; they're harmless.
+- **GOG** loses its prefix and saved executable choices. You stay signed in.
+- **Epic** loses its game bottles, Legendary and its sign-in, so the page starts over at setup.
+
+Your games folder (see [Where Games Go](#where-games-go)) is kept unless you choose to delete it, and a reinstall uses it again. MetalSharp deletes it only if it's still the launcher's own `MetalSharp <Name> Games` folder in `~/Games` or at the top of a connected drive, and not a link. Games installed anywhere else are never deleted.
+
 ## Game Settings
 
 The gear on the Library hero opens the selected game's settings. On both builds: MetalFX upscaling (off by default), msync and Steam-Emu. On the x86_64 build: controller input and x87 acceleration. On the Arm64 FEX build: the Metal HUD and a frame rate limit (30, 60 or off) for the Mullion and VKD3D-Proton lanes. **Settings** on the Arm64 FEX build also has a ray tracing switch for the VKD3D-Proton lane.
