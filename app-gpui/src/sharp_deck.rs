@@ -23,6 +23,8 @@ pub struct DeckGame {
     pub engine: Option<String>,
     /// Its saved or detected launch executable (GOG, Epic), for the game settings panel.
     pub executable: Option<String>,
+    /// The engines the hero's picker offers for it; None hides the picker (a native game).
+    pub engine_options: Option<Vec<(String, String)>>,
 }
 
 /// GOG's and Epic's graphics engines on this build, as the Collection view lists them.
@@ -82,8 +84,12 @@ impl SharpPreview {
                 installed: true,
                 progress: None,
                 art_key: format!("sharp-app-{id}"),
-                engine: None,
+                engine: Some(match text(app, "engine") {
+                    "" => "auto".to_owned(),
+                    engine => engine.to_owned(),
+                }),
                 executable: None,
+                engine_options: Some(super::sharp_live::app_engine_options()),
             });
         }
         for game in live
@@ -101,8 +107,12 @@ impl SharpPreview {
                 installed: true,
                 progress: None,
                 art_key: format!("sharp-gamejolt-{id}"),
-                engine: None,
+                engine: Some(text(game, "engine"))
+                    .filter(|engine| !engine.is_empty() && !flag(game, "native"))
+                    .map(str::to_owned),
                 executable: None,
+                engine_options: (!flag(game, "native"))
+                    .then(|| super::sharp_live::gamejolt_engine_options(game)),
             });
         }
         // Every owned GOG and Epic game, installed or not, like the
@@ -125,6 +135,7 @@ impl SharpPreview {
                 executable: Some(text(game, "executablePath"))
                     .filter(|path| !path.is_empty())
                     .map(str::to_owned),
+                engine_options: Some(sharp_engine_options()),
             });
         }
         for game in &live.epic_games {
@@ -147,6 +158,7 @@ impl SharpPreview {
                 executable: Some(text(game, "executable"))
                     .filter(|path| !path.is_empty())
                     .map(str::to_owned),
+                engine_options: Some(sharp_engine_options()),
             });
         }
         games.retain(|game| !game.id.is_empty());
@@ -256,7 +268,7 @@ impl SharpPreview {
         cx.notify();
     }
 
-    /// The hero's graphics picker on a deck page (GOG, Epic): saves the engine like the
+    /// The hero's graphics picker on a deck page (GOG, Epic, Windows Programs): saves the engine like the
     /// Collection view. An installed Epic game without its bottle yet gets one with the engine.
     pub fn deck_set_engine(
         &mut self,
@@ -266,6 +278,8 @@ impl SharpPreview {
         cx: &mut Context<Self>,
     ) {
         match source {
+            "windows" => self.set_app_engine(id.to_owned(), engine, cx),
+            "gamejolt" => self.set_gamejolt_engine(id.to_owned(), engine, cx),
             "gog" => self.set_gog_engine(id.to_owned(), engine, cx),
             "epic" => {
                 self.update_epic_bottle(id.to_owned(), "pipeline", engine, cx);

@@ -636,8 +636,7 @@ impl SharpPreview {
                     }
                     body = body.child(actions);
                     if open {
-                        let mut options = vec![("auto".to_owned(), "Auto".to_owned())];
-                        options.extend(engine_options());
+                        let options = super::sharp_live::app_engine_options();
                         let engine_id = id.clone();
                         let cover_id = id.clone();
                         let asset_app = app.clone();
@@ -1277,36 +1276,7 @@ impl SharpPreview {
                     }
                     body = body.child(actions);
                     if !native {
-                        let options: Vec<(String, String)> = game
-                            .get("available_pipelines")
-                            .and_then(Value::as_array)
-                            .map(|list| {
-                                list.iter()
-                                    .map(|p| (s(p, "id").to_owned(), s(p, "name").to_owned()))
-                                    .filter(|(id, _)| !id.is_empty())
-                                    .collect()
-                            })
-                            .filter(|list: &Vec<(String, String)>| !list.is_empty())
-                            .map(|list| {
-                                if crate::variant::is_fex() {
-                                    crate::variant::fex_options(list)
-                                } else {
-                                    list
-                                }
-                            })
-                            .unwrap_or_else(|| {
-                                if crate::variant::is_fex() {
-                                    return engine_options()
-                                        .into_iter()
-                                        .filter(|(id, _)| id != "fna_arm64")
-                                        .collect();
-                                }
-                                ["d3dmetal", "vkd3d", "dxmt", "dxmt_32", "d3d9"]
-                                    .iter()
-                                    .filter_map(|id| ENGINE_OPTIONS.iter().find(|(i, _)| i == id))
-                                    .map(|(i, l)| ((*i).to_owned(), (*l).to_owned()))
-                                    .collect()
-                            });
+                        let options = super::sharp_live::gamejolt_engine_options(&game);
                         let engine_id = id.clone();
                         body = body.child(self.bottle_panel(
                             "GRAPHICS BACKEND",

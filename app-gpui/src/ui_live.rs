@@ -1515,6 +1515,7 @@ impl MetalSharpApp {
                     external_id: Some(entry.id),
                     art_key: Some(entry.art_key),
                     preferred_pipeline: entry.engine,
+                    deck_engine_options: entry.engine_options,
                     executable_path: entry.executable,
                     needs_install: !entry.installed,
                     ..Default::default()
@@ -2179,11 +2180,12 @@ impl MetalSharpApp {
         if !self.live.enabled {
             return;
         }
-        // GOG and Epic keep each game's engine in the Sharp Library (GOG's engines file, Epic's
-        // bottle).
+        // GOG, Epic and the Windows Programs keep each game's engine in the Sharp Library (GOG's
+        // engines file, Epic's bottle, the app's or Game Jolt game's entry).
         if let Some(source) = match game.page() {
             LibraryPage::Gog => Some("gog"),
             LibraryPage::Epic => Some("epic"),
+            LibraryPage::WindowsPrograms => game.source.as_deref(),
             _ => None,
         } {
             let (Some(id), Some(sharp)) = (game.external_id.clone(), self.sharp_preview.clone())

@@ -3048,6 +3048,11 @@ impl MetalSharpApp {
         let bottle_settings = game.external_id.is_none();
         let game_controls =
             bottle_settings || matches!(game.page(), LibraryPage::Gog | LibraryPage::Epic);
+        // The graphics picker also shows for Windows Programs that run on an engine.
+        let pipeline_picker = !game.has_native_build
+            && (game_controls
+                || (game.page() == LibraryPage::WindowsPrograms
+                    && game.deck_engine_options.is_some()));
         let pipeline_label = library_model::game_pipeline_options(&game)
             .into_iter()
             .find(|(id, _)| *id == self.live.selected_pipeline)
@@ -3282,52 +3287,48 @@ impl MetalSharpApp {
                                                 0xf0f0ee,
                                             ))
                                     }))
-                                    .children((game_controls && !game.has_native_build).then(
-                                        || {
-                                            div()
-                                                .relative()
-                                                .flex_none()
-                                                .child(
-                                                    div()
-                                                        .id("library-pipeline-select")
-                                                        .h(px(layout.scaled(42.0)))
-                                                        .flex()
-                                                        .items_center()
-                                                        .gap(px(layout.scaled(9.0)))
-                                                        .px(px(layout.scaled(13.0)))
-                                                        .rounded(px(layout.scaled(8.0)))
-                                                        .border_1()
-                                                        .border_color(rgba(0xe7eaec4d))
-                                                        .bg(rgba(0x0c0f10b8))
-                                                        .text_size(px(layout.scaled(12.0)))
-                                                        .text_color(rgb(0xf0f0ee))
-                                                        .cursor_pointer()
-                                                        .on_click(cx.listener(|this, _, _, cx| {
-                                                            if this.live.pipeline_saving {
-                                                                return;
-                                                            }
-                                                            let open = !this.pipeline_menu_open;
-                                                            this.close_library_menus();
-                                                            this.pipeline_menu_open = open;
-                                                            cx.notify();
-                                                        }))
-                                                        .child(pipeline_label.clone())
-                                                        .child(if self.live.pipeline_saving {
-                                                            div()
-                                                                .child("Saving…")
-                                                                .into_any_element()
-                                                        } else {
-                                                            control_icon(
-                                                                "icon-chevron-down.svg",
-                                                                layout.scaled(18.0),
-                                                                0xf0f0ee,
-                                                            )
-                                                            .into_any_element()
-                                                        }),
-                                                )
-                                                .children(pipeline_menu)
-                                        },
-                                    ))
+                                    .children(pipeline_picker.then(|| {
+                                        div()
+                                            .relative()
+                                            .flex_none()
+                                            .child(
+                                                div()
+                                                    .id("library-pipeline-select")
+                                                    .h(px(layout.scaled(42.0)))
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap(px(layout.scaled(9.0)))
+                                                    .px(px(layout.scaled(13.0)))
+                                                    .rounded(px(layout.scaled(8.0)))
+                                                    .border_1()
+                                                    .border_color(rgba(0xe7eaec4d))
+                                                    .bg(rgba(0x0c0f10b8))
+                                                    .text_size(px(layout.scaled(12.0)))
+                                                    .text_color(rgb(0xf0f0ee))
+                                                    .cursor_pointer()
+                                                    .on_click(cx.listener(|this, _, _, cx| {
+                                                        if this.live.pipeline_saving {
+                                                            return;
+                                                        }
+                                                        let open = !this.pipeline_menu_open;
+                                                        this.close_library_menus();
+                                                        this.pipeline_menu_open = open;
+                                                        cx.notify();
+                                                    }))
+                                                    .child(pipeline_label.clone())
+                                                    .child(if self.live.pipeline_saving {
+                                                        div().child("Saving…").into_any_element()
+                                                    } else {
+                                                        control_icon(
+                                                            "icon-chevron-down.svg",
+                                                            layout.scaled(18.0),
+                                                            0xf0f0ee,
+                                                        )
+                                                        .into_any_element()
+                                                    }),
+                                            )
+                                            .children(pipeline_menu)
+                                    }))
                                     .children(game_controls.then(|| {
                                         div().relative().flex_none().child(
                                             div()

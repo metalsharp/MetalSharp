@@ -34,6 +34,47 @@ pub(super) fn engine_options() -> Vec<(String, String)> {
     }
 }
 
+/// A Sharp Library app's engine choices: Auto, then this build's engines.
+pub(super) fn app_engine_options() -> Vec<(String, String)> {
+    let mut options = vec![("auto".to_owned(), "Auto".to_owned())];
+    options.extend(engine_options());
+    options
+}
+
+/// A Game Jolt game's engine choices: the pipelines its entry lists, or this build's
+/// Direct3D engines.
+pub(super) fn gamejolt_engine_options(game: &Value) -> Vec<(String, String)> {
+    game.get("available_pipelines")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .map(|p| (s(p, "id").to_owned(), s(p, "name").to_owned()))
+                .filter(|(id, _)| !id.is_empty())
+                .collect()
+        })
+        .filter(|list: &Vec<(String, String)>| !list.is_empty())
+        .map(|list| {
+            if crate::variant::is_fex() {
+                crate::variant::fex_options(list)
+            } else {
+                list
+            }
+        })
+        .unwrap_or_else(|| {
+            if crate::variant::is_fex() {
+                return engine_options()
+                    .into_iter()
+                    .filter(|(id, _)| id != "fna_arm64")
+                    .collect();
+            }
+            ["d3dmetal", "vkd3d", "dxmt", "dxmt_32", "d3d9"]
+                .iter()
+                .filter_map(|id| ENGINE_OPTIONS.iter().find(|(i, _)| i == id))
+                .map(|(i, l)| ((*i).to_owned(), (*l).to_owned()))
+                .collect()
+        })
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum SharpConfirm {
     UninstallApp(String, String),

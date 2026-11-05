@@ -39,6 +39,9 @@ pub struct PipelineOption {
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct LibGame {
+    /// A Sharp Library entry's engine choices (GOG, Epic, Windows Programs), from its deck entry.
+    #[serde(skip)]
+    pub deck_engine_options: Option<Vec<(String, String)>>,
     #[serde(default, deserialize_with = "lenient_u64")]
     pub appid: u64,
     #[serde(default)]
@@ -428,6 +431,9 @@ pub fn game_pipeline_options(game: &LibGame) -> Vec<(String, String)> {
 }
 
 fn game_pipeline_options_for(game: &LibGame, fex: bool) -> Vec<(String, String)> {
+    if let Some(options) = &game.deck_engine_options {
+        return options.clone();
+    }
     if fex {
         let options: Vec<(String, String)> = if game.is_launcher_game() {
             game.available_pipelines
@@ -444,9 +450,6 @@ fn game_pipeline_options_for(game: &LibGame, fex: bool) -> Vec<(String, String)>
         };
         // The backend runs D3DMetal and GPTK on VKD3D-Proton and D3D9 on DXVK here: show each lane once.
         return crate::variant::fex_options(options);
-    }
-    if matches!(game.page(), LibraryPage::Gog | LibraryPage::Epic) {
-        return crate::sharp_preview::sharp_deck::sharp_engine_options();
     }
     if !game.is_launcher_game() {
         return PIPELINE_OPTIONS
