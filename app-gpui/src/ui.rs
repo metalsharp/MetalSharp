@@ -1480,18 +1480,25 @@ impl MetalSharpApp {
             });
         }
         if self.sharp_preview.is_none() {
-            self.sharp_preview = Some(cx.new(|cx| {
+            let sharp = cx.new(|cx| {
                 let mut sharp = crate::sharp_preview::SharpPreview::new();
                 sharp.asset_root = asset_path("");
                 sharp.attach_live(cx);
                 sharp
-            }));
+            });
+            cx.observe(&sharp, |this, sharp, cx| this.sync_deck_games(sharp, cx))
+                .detach();
+            self.sharp_preview = Some(sharp);
+            self.sync_sharp_source(cx);
         }
         if let Some(sharp) = &self.sharp_preview {
             let palette = self.theme.page_palette();
-            let active = self.active_tab == LibraryTab::SharpLibrary;
+            // The GOG, Epic and Windows Programs decks also need its data.
+            let active =
+                self.active_tab == LibraryTab::SharpLibrary || self.page.sharp_source().is_some();
             // App-level overlays cover the page; the native GameJolt view must hide.
-            let obscured = self.settings_open
+            let obscured = self.active_tab != LibraryTab::SharpLibrary
+                || self.settings_open
                 || self.streaming_open
                 || self.live.update_dialog.is_some()
                 || self.live.fex_welcome_page.is_some();
@@ -2693,7 +2700,11 @@ impl MetalSharpApp {
         let theme = self.theme;
         let accent = theme.accent();
         let is_running = self.is_running(game.appid);
-        let launching = self.live.launching == Some(game.appid);
+        let launching =
+            self.live.launching == Some(game.appid) || self.live.deck_busy.contains(&game.appid);
+        // Graphics, game settings and artwork apply to Steam and Ubisoft games;
+        // Sharp Library entries keep theirs in Collection.
+        let bottle_settings = game.external_id.is_none();
         let pipeline_label = library_model::game_pipeline_options(&game)
             .into_iter()
             .find(|(id, _)| *id == self.live.selected_pipeline)
@@ -2887,7 +2898,7 @@ impl MetalSharpApp {
                                     .flex()
                                     .items_center()
                                     .gap(px(layout.scaled(9.0)))
-                                    .children((!game.is_ubisoft()).then(|| {
+                                    .children((bottle_settings && !game.is_ubisoft()).then(|| {
                                         div()
                                             .id("library-art-manager")
                                             .h(px(layout.scaled(42.0)))
@@ -2911,50 +2922,54 @@ impl MetalSharpApp {
                                                 0xf0f0ee,
                                             ))
                                     }))
-                                    .children((!game.has_native_build).then(|| {
-                                        div()
-                                            .relative()
-                                            .flex_none()
-                                            .child(
-                                                div()
-                                                    .id("library-pipeline-select")
-                                                    .h(px(layout.scaled(42.0)))
-                                                    .flex()
-                                                    .items_center()
-                                                    .gap(px(layout.scaled(9.0)))
-                                                    .px(px(layout.scaled(13.0)))
-                                                    .rounded(px(layout.scaled(8.0)))
-                                                    .border_1()
-                                                    .border_color(rgba(0xe7eaec4d))
-                                                    .bg(rgba(0x0c0f10b8))
-                                                    .text_size(px(layout.scaled(12.0)))
-                                                    .text_color(rgb(0xf0f0ee))
-                                                    .cursor_pointer()
-                                                    .on_click(cx.listener(|this, _, _, cx| {
-                                                        if this.live.pipeline_saving {
-                                                            return;
-                                                        }
-                                                        let open = !this.pipeline_menu_open;
-                                                        this.close_library_menus();
-                                                        this.pipeline_menu_open = open;
-                                                        cx.notify();
-                                                    }))
-                                                    .child("Graphics")
-                                                    .child(pipeline_label.clone())
-                                                    .child(if self.live.pipeline_saving {
-                                                        div().child("Saving…").into_any_element()
-                                                    } else {
-                                                        control_icon(
-                                                            "icon-chevron-down.svg",
-                                                            layout.scaled(18.0),
-                                                            0xf0f0ee,
-                                                        )
-                                                        .into_any_element()
-                                                    }),
-                                            )
-                                            .children(pipeline_menu)
-                                    }))
-                                    .child(
+                                    .children((bottle_settings && !game.has_native_build).then(
+                                        || {
+                                            div()
+                                                .relative()
+                                                .flex_none()
+                                                .child(
+                                                    div()
+                                                        .id("library-pipeline-select")
+                                                        .h(px(layout.scaled(42.0)))
+                                                        .flex()
+                                                        .items_center()
+                                                        .gap(px(layout.scaled(9.0)))
+                                                        .px(px(layout.scaled(13.0)))
+                                                        .rounded(px(layout.scaled(8.0)))
+                                                        .border_1()
+                                                        .border_color(rgba(0xe7eaec4d))
+                                                        .bg(rgba(0x0c0f10b8))
+                                                        .text_size(px(layout.scaled(12.0)))
+                                                        .text_color(rgb(0xf0f0ee))
+                                                        .cursor_pointer()
+                                                        .on_click(cx.listener(|this, _, _, cx| {
+                                                            if this.live.pipeline_saving {
+                                                                return;
+                                                            }
+                                                            let open = !this.pipeline_menu_open;
+                                                            this.close_library_menus();
+                                                            this.pipeline_menu_open = open;
+                                                            cx.notify();
+                                                        }))
+                                                        .child("Graphics")
+                                                        .child(pipeline_label.clone())
+                                                        .child(if self.live.pipeline_saving {
+                                                            div()
+                                                                .child("Saving…")
+                                                                .into_any_element()
+                                                        } else {
+                                                            control_icon(
+                                                                "icon-chevron-down.svg",
+                                                                layout.scaled(18.0),
+                                                                0xf0f0ee,
+                                                            )
+                                                            .into_any_element()
+                                                        }),
+                                                )
+                                                .children(pipeline_menu)
+                                        },
+                                    ))
+                                    .children(bottle_settings.then(|| {
                                         div()
                                             .relative()
                                             .flex_none()
@@ -2984,8 +2999,8 @@ impl MetalSharpApp {
                                                         0xf0f0ee,
                                                     )),
                                             )
-                                            .children(game_settings_menu),
-                                    ),
+                                            .children(game_settings_menu)
+                                    })),
                             ),
                     ),
             );

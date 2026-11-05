@@ -5,6 +5,8 @@ use std::{
     path::PathBuf,
 };
 
+#[path = "sharp_deck.rs"]
+pub mod sharp_deck;
 #[path = "sharp_live.rs"]
 mod sharp_live;
 #[path = "sharp_live_view.rs"]

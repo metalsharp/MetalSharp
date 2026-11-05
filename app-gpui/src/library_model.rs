@@ -90,6 +90,12 @@ pub struct LibGame {
     /// Bundled preview artwork (offline preview only).
     #[serde(skip)]
     pub preview_art: Option<(&'static str, &'static str)>,
+    /// Sharp Library id of a GOG, Epic, Windows program or GameJolt entry.
+    #[serde(skip)]
+    pub external_id: Option<String>,
+    /// Artwork cache key resolved by the Sharp Library.
+    #[serde(skip)]
+    pub art_key: Option<String>,
 }
 
 impl LibGame {
@@ -238,6 +244,21 @@ pub fn merge_libraries(steam: Vec<LibGame>, ubisoft: Vec<LibGame>) -> Vec<LibGam
         game
     }));
     games
+}
+
+/// App id for a Sharp Library entry: the source in the top four bits keeps it
+/// clear of Steam and Ubisoft ids and of the other sources.
+pub fn external_appid(source: &str, id: &str) -> u64 {
+    let tag: u64 = match source {
+        "windows" => 0x9,
+        "gamejolt" => 0xa,
+        "gog" => 0xb,
+        _ => 0xc,
+    };
+    let hash = id.bytes().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    });
+    (tag << 60) | (hash & ((1 << 60) - 1))
 }
 
 fn parse_time(value: &Option<String>) -> i64 {
@@ -517,6 +538,15 @@ mod tests {
         );
         assert_ne!(merged[1].key(), merged[4].key());
         assert_eq!(merged[3].ubisoft_id.as_deref(), Some("5"));
+    }
+
+    #[test]
+    fn external_ids_stay_apart_by_source() {
+        let gog = external_appid("gog", "1207658924");
+        assert_eq!(gog, external_appid("gog", "1207658924"));
+        assert_ne!(gog, external_appid("epic", "1207658924"));
+        assert_eq!(gog >> 60, 0xb);
+        assert!(external_appid("windows", "sharp_1") > u64::from(u32::MAX));
     }
 
     #[test]

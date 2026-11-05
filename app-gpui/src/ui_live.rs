@@ -121,6 +121,11 @@ pub(super) struct LiveState {
     pub fex_welcome_page: Option<usize>,
     pub running: HashMap<u64, u64>,
     pub launching: Option<u64>,
+    /// Installed GOG, Epic, Windows program and GameJolt entries from the
+    /// Sharp Library, with their running and launching state.
+    pub deck_games: Vec<LibGame>,
+    pub deck_running: HashSet<u64>,
+    pub deck_busy: HashSet<u64>,
     running_poll_in_flight: bool,
     pub selected_pipeline: String,
     pub pipeline_saving: bool,
@@ -208,6 +213,9 @@ impl Default for LiveState {
             fex_welcome_page: None,
             running: HashMap::new(),
             launching: None,
+            deck_games: Vec::new(),
+            deck_running: HashSet::new(),
+            deck_busy: HashSet::new(),
             running_poll_in_flight: false,
             selected_pipeline: "auto".into(),
             pipeline_saving: false,
@@ -1070,6 +1078,7 @@ impl MetalSharpApp {
             .live
             .library
             .iter()
+            .chain(&self.live.deck_games)
             .filter(|game| game.page() == page)
             .cloned()
             .collect();
@@ -1123,6 +1132,10 @@ impl MetalSharpApp {
     }
 
     pub(super) fn request_art(&self, game: &LibGame, cx: &mut Context<Self>) {
+        // The Sharp Library resolves its own entries' artwork.
+        if game.art_key.is_some() {
+            return;
+        }
         let Some(cache) = crate::artwork::cache(cx) else {
             return;
         };
@@ -1245,6 +1258,9 @@ impl MetalSharpApp {
         if let Some((cover, hero_art)) = game.preview_art {
             return Some(asset_path(if hero { hero_art } else { cover }));
         }
+        if let Some(key) = &game.art_key {
+            return crate::artwork::cache(cx)?.read(cx).path(key);
+        }
         let source = if game.is_ubisoft() {
             "ubisoft"
         } else {
@@ -1267,7 +1283,51 @@ impl MetalSharpApp {
     // ─────────────────────── running / play / stop ───────────────────────
 
     pub(super) fn is_running(&self, appid: u64) -> bool {
-        self.live.running.contains_key(&appid)
+        self.live.running.contains_key(&appid) || self.live.deck_running.contains(&appid)
+    }
+
+    /// Mirror the Sharp Library's installed games into the deck pages.
+    pub(super) fn sync_deck_games(
+        &mut self,
+        sharp: gpui::Entity<crate::sharp_preview::SharpPreview>,
+        cx: &mut Context<Self>,
+    ) {
+        let entries = sharp.read(cx).deck_games();
+        let mut running = HashSet::new();
+        let mut busy = HashSet::new();
+        let games: Vec<LibGame> = entries
+            .into_iter()
+            .map(|entry| {
+                let appid = library_model::external_appid(entry.source, &entry.id);
+                if entry.running {
+                    running.insert(appid);
+                }
+                if entry.busy {
+                    busy.insert(appid);
+                }
+                LibGame {
+                    appid,
+                    name: entry.name,
+                    installed: true,
+                    source: Some(entry.source.to_owned()),
+                    external_id: Some(entry.id),
+                    art_key: Some(entry.art_key),
+                    ..Default::default()
+                }
+            })
+            .collect();
+        let changed = games != self.live.deck_games;
+        if changed || running != self.live.deck_running || busy != self.live.deck_busy {
+            self.live.deck_running = running;
+            self.live.deck_busy = busy;
+            if changed {
+                self.live.deck_games = games;
+                if self.page.sharp_source().is_some() {
+                    self.rebuild_display_games(cx);
+                }
+            }
+            cx.notify();
+        }
     }
 
     fn refresh_running_games(&mut self, cx: &mut Context<Self>) {
@@ -1341,6 +1401,23 @@ impl MetalSharpApp {
     /// LibraryView `launchGame` (Play doubles as Stop while running).
     pub(super) fn launch_game(&mut self, game: LibGame, cx: &mut Context<Self>) {
         if !self.live.enabled {
+            return;
+        }
+        if let (Some(id), Some(sharp)) = (game.external_id.clone(), self.sharp_preview.clone()) {
+            if self.live.deck_busy.contains(&game.appid) {
+                return;
+            }
+            let running = self.is_running(game.appid);
+            let source = game.source.clone().unwrap_or_default();
+            sharp.update(cx, |sharp, cx| sharp.deck_toggle(&source, &id, running, cx));
+            if !running {
+                let now = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0);
+                self.live.play_history.insert(game.appid.to_string(), now);
+                self.save_ui_state(cx);
+            }
             return;
         }
         if self.is_running(game.appid) {
