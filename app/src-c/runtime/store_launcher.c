@@ -897,6 +897,15 @@ void ms_store_write_game_json(ms_json_writer* w, const char* home, const ms_stor
         ms_json_writer_null(w);
     ms_json_writer_key(w, "icon_pending");
     ms_json_writer_bool(w, icon_pending);
+    {
+        char* card = provider->card_art ? provider->card_art(home, game) : NULL;
+        ms_json_writer_key(w, "card_art_path");
+        if (card)
+            ms_json_writer_string(w, card);
+        else
+            ms_json_writer_null(w);
+        free(card);
+    }
     ms_json_writer_key(w, "bottle_id");
     ms_json_writer_string(w, bottle);
     ms_json_writer_key(w, "launch_method");

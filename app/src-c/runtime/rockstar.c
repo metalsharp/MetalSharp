@@ -105,7 +105,7 @@ static char* rockstar_client_executable(const ms_store_game* game, const char* l
 }
 
 static const ms_store_provider ROCKSTAR_PROVIDER = {
-    "rockstar", "rockstar_id", "Rockstar", ROCKSTAR_PIPELINE, rockstar_appid, rockstar_find_executable};
+    "rockstar", "rockstar_id", "Rockstar", ROCKSTAR_PIPELINE, rockstar_appid, rockstar_find_executable, NULL};
 
 /* Software\[Wow6432Node\]Rockstar Games\<Title>: the title, or NULL for another key. */
 static const char* rockstar_title_key(const char* key) {

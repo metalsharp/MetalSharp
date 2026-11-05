@@ -464,6 +464,17 @@ static void test_battlenet(const char* home) {
         free(prefix);
     }
 
+    /* Battle.net's catalog cache: a fragment for fenris naming its key art by hash, and the art. */
+    fixture(home,
+            "prefix-battlenet/drive_c/users/me/AppData/Local/Battle.net/Cache/10/90/"
+            "1090fdcb0000000000000000000000aa",
+            "{\"installs\":{\"fenris\":{},\"fenris_beta\":{}},\"products\":[{\"base\":"
+            "{\"key_art\":\"fenris#FENRIS_KEY_ART\"}}],\"files\":{\"default\":{\"fenris#FENRIS_KEY_ART\":"
+            "{\"hash\":\"f00dfeed0000000000000000000000bb\",\"name\":\"resources/fenris/key_art.png\"}}}}");
+    fixture(home,
+            "prefix-battlenet/drive_c/users/me/AppData/Local/Battle.net/Cache/f0/0d/"
+            "f00dfeed0000000000000000000000bb",
+            "\x89PNG");
     raw = ms_battlenet_library_json(home);
     root = parse(raw);
     games = ms_json_object_get(root, "games");
@@ -475,6 +486,8 @@ static void test_battlenet(const char* home) {
            string_is(game, "launch_method", "battlenet") &&
            string_ends_with(game, "executable_path", "/Diablo IV/Diablo IV.exe"));
     assert(number(game, "appid") == battlenet_appid("fenris"));
+    assert(string_ends_with(game, "card_art_path",
+                            "/Battle.net/Cache/f0/0d/f00dfeed0000000000000000000000bb"));
     {
         char bottle[64];
         snprintf(bottle, sizeof(bottle), "battlenet_%u", battlenet_appid("fenris"));
@@ -482,6 +495,8 @@ static void test_battlenet(const char* home) {
     }
     game = game_with(games, "battlenet_id", "call-of-duty");
     assert(game && string_ends_with(game, "executable_path", "/Games/Call of Duty/_retail_/cod.exe"));
+    /* No uid, so no catalog art. */
+    assert(ms_json_type_of(ms_json_object_get(game, "card_art_path")) == MS_JSON_NULL);
     ms_json_free(root);
     free(raw);
     {

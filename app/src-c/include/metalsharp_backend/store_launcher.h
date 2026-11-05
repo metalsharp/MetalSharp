@@ -28,6 +28,8 @@ typedef struct ms_store_provider {
     unsigned (*appid)(const char* id);
     /* The executable the library shows and a launch starts (malloc'd), when no override is saved. */
     char* (*find_executable)(const ms_store_game* game);
+    /* The launcher's own card art for an installed game (malloc'd host path), or NULL. Optional. */
+    char* (*card_art)(const char* home, const ms_store_game* game);
 } ms_store_provider;
 
 /* A Wine process MetalSharp started: its pid, process group and command line (Windows path). */

@@ -1312,7 +1312,15 @@ impl MetalSharpApp {
             .filter(|u| !u.is_empty())
             .map(C::Url)
             .collect();
-            let mut card = urls.clone();
+            // The launcher's own cover art (Battle.net's key art) comes first for
+            // the card; the wide hero prefers SteamGridDB and falls back to it.
+            let launcher_art = game
+                .card_art_path
+                .clone()
+                .filter(|path| !path.is_empty())
+                .map(C::LocalFile);
+            let mut card: Vec<C> = launcher_art.clone().into_iter().collect();
+            card.extend(urls.clone());
             card.push(C::SteamGridDb {
                 name: game.name.clone(),
                 hero: false,
@@ -1323,6 +1331,7 @@ impl MetalSharpApp {
                 name: game.name.clone(),
                 hero: true,
             });
+            hero.extend(launcher_art);
             hero.extend(embedded);
             (card, hero)
         } else if game.is_shortcut() {
@@ -1378,7 +1387,10 @@ impl MetalSharpApp {
             (card, hero)
         };
         let source = game.page().storage_id();
-        let ubisoft_icon_ready = game.is_launcher_game() && game.embedded_icon_path.is_some();
+        // Art that arrived after an earlier miss (an extracted icon, or the
+        // launcher's cached cover) gets another try.
+        let ubisoft_icon_ready = game.is_launcher_game()
+            && (game.embedded_icon_path.is_some() || game.card_art_path.is_some());
         cache.update(cx, |cache, cx| {
             if ubisoft_icon_ready {
                 // The extracted EXE icon arrived after an earlier miss: retry.

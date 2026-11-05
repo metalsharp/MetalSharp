@@ -71,6 +71,9 @@ pub struct LibGame {
     pub icon_pending: bool,
     #[serde(default, deserialize_with = "lenient_string")]
     pub ubisoft_artwork_url: Option<String>,
+    /// The launcher's own cover art on disk (Battle.net's cached key art).
+    #[serde(default, deserialize_with = "lenient_string")]
+    pub card_art_path: Option<String>,
     #[serde(default, deserialize_with = "lenient_bool")]
     pub has_native_build: bool,
     #[serde(default, deserialize_with = "lenient_string")]

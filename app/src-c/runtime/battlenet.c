@@ -1,11 +1,13 @@
 /* Battle.net in its own prefix (prefix-battlenet) on MetalSharp Wine, as Ubisoft Connect runs in
  * prefix-ubisoft, and the Blizzard and Activision games it installs. */
 #include "metalsharp_backend/battlenet.h"
+#include "metalsharp_backend/json.h"
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/store_launcher.h"
 #include "metalsharp_backend/wine_runtime.h"
 #include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <limits.h>
 #include <pthread.h>
@@ -127,8 +129,124 @@ static char* battlenet_find_executable(const ms_store_game* game) {
     return found;
 }
 
-static const ms_store_provider BATTLENET_PROVIDER = {
-    "battlenet", "battlenet_id", "Battle.net", BATTLENET_PIPELINE, battlenet_appid, battlenet_find_executable};
+/* A cached catalog fragment (Battle.net's own JSON, a few hundred KB at most). */
+static ms_json* battlenet_read_fragment(const char* path) {
+    struct stat info;
+    if (stat(path, &info) != 0 || !S_ISREG(info.st_mode) || info.st_size < 2 || info.st_size > 4 * 1024 * 1024)
+        return NULL;
+    FILE* file = fopen(path, "rb");
+    if (!file)
+        return NULL;
+    char* data = malloc((size_t)info.st_size + 1);
+    size_t length = data ? fread(data, 1, (size_t)info.st_size, file) : 0;
+    fclose(file);
+    ms_json* json = NULL;
+    if (data && length > 1 && data[0] == '{') {
+        data[length] = '\0';
+        json = ms_json_parse(data, length, NULL, 0);
+    }
+    free(data);
+    return json;
+}
+
+/* The key art a catalog fragment names for uid, as its cache file under cache_dir (malloc'd). */
+static char* battlenet_fragment_key_art(const ms_json* fragment, const char* uid, const char* cache_dir) {
+    const ms_json* installs = ms_json_object_get(fragment, "installs");
+    const ms_json* products = ms_json_object_get(fragment, "products");
+    if (!installs || !ms_json_object_get(installs, uid) || !products)
+        return NULL;
+    const ms_json* base = ms_json_object_get(ms_json_array_get(products, 0), "base");
+    char* key = NULL;
+    char* hash = NULL;
+    char* path = NULL;
+    if (!ms_json_as_string(ms_json_object_get(base, "key_art"), &key))
+        return NULL;
+    const ms_json* files = ms_json_object_get(ms_json_object_get(fragment, "files"), "default");
+    if (ms_json_as_string(ms_json_object_get(ms_json_object_get(files, key), "hash"), &hash) && strlen(hash) == 32) {
+        char relative[48];
+        snprintf(relative, sizeof(relative), "%.2s/%.2s/%s", hash, hash + 2, hash);
+        path = ms_store_path_join(cache_dir, relative);
+        if (path && !ms_store_is_file(path)) {
+            free(path);
+            path = NULL;
+        }
+    }
+    free(key);
+    free(hash);
+    return path;
+}
+
+/* Battle.net caches its catalog and art under AppData\Local\Battle.net\Cache\xx\yy\<md5>: JSON
+ * fragments list a product's install uids and name its key art (a 600x800 cover with the logo) by
+ * the art file's hash. The newest fragment that has art for the game's uid wins. */
+static char* battlenet_card_art(const char* home, const ms_store_game* game) {
+    char* prefix = game && game->uid[0] ? battlenet_prefix(home) : NULL;
+    char* users = prefix ? ms_store_path_join(prefix, "drive_c/users") : NULL;
+    DIR* user_dir = users ? opendir(users) : NULL;
+    char* best = NULL;
+    time_t best_time = 0;
+    struct dirent* user;
+    while (user_dir && (user = readdir(user_dir))) {
+        if (user->d_name[0] == '.')
+            continue;
+        char cache[PATH_MAX];
+        snprintf(cache, sizeof(cache), "%s/%s/AppData/Local/Battle.net/Cache", users, user->d_name);
+        DIR* level1 = opendir(cache);
+        struct dirent* a;
+        while (level1 && (a = readdir(level1))) {
+            if (strlen(a->d_name) != 2)
+                continue;
+            char dir1[PATH_MAX];
+            snprintf(dir1, sizeof(dir1), "%s/%s", cache, a->d_name);
+            DIR* level2 = opendir(dir1);
+            struct dirent* b;
+            while (level2 && (b = readdir(level2))) {
+                if (strlen(b->d_name) != 2)
+                    continue;
+                char dir2[PATH_MAX];
+                snprintf(dir2, sizeof(dir2), "%s/%s", dir1, b->d_name);
+                DIR* level3 = opendir(dir2);
+                struct dirent* c;
+                while (level3 && (c = readdir(level3))) {
+                    if (strlen(c->d_name) != 32)
+                        continue;
+                    char file[PATH_MAX];
+                    struct stat info;
+                    snprintf(file, sizeof(file), "%s/%s", dir2, c->d_name);
+                    if (stat(file, &info) != 0 || (best && info.st_mtime <= best_time))
+                        continue;
+                    ms_json* fragment = battlenet_read_fragment(file);
+                    char* art = fragment ? battlenet_fragment_key_art(fragment, game->uid, cache) : NULL;
+                    ms_json_free(fragment);
+                    if (art) {
+                        free(best);
+                        best = art;
+                        best_time = info.st_mtime;
+                    }
+                }
+                if (level3)
+                    closedir(level3);
+            }
+            if (level2)
+                closedir(level2);
+        }
+        if (level1)
+            closedir(level1);
+    }
+    if (user_dir)
+        closedir(user_dir);
+    free(users);
+    free(prefix);
+    return best;
+}
+
+static const ms_store_provider BATTLENET_PROVIDER = {"battlenet",
+                                                     "battlenet_id",
+                                                     "Battle.net",
+                                                     BATTLENET_PIPELINE,
+                                                     battlenet_appid,
+                                                     battlenet_find_executable,
+                                                     battlenet_card_art};
 
 /* --uid=<uid> in an UninstallString (Blizzard Uninstaller.exe ... --uid=fenris ...). */
 static bool battlenet_uid_from_uninstall(const char* uninstall, char* uid, size_t uid_size) {

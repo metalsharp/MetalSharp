@@ -59,7 +59,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 600,
+          "line": 603,
           "kind": "literal-candidate"
         }
       ],
@@ -76,7 +76,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 593,
+          "line": 596,
           "kind": "literal-candidate"
         }
       ],
@@ -276,27 +276,27 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1743,
+          "line": 1755,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1850,
+          "line": 1862,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1876,
+          "line": 1888,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1956,
+          "line": 1968,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1979,
+          "line": 1991,
           "kind": "literal-candidate"
         }
       ],
@@ -358,27 +358,27 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1743,
+          "line": 1755,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1850,
+          "line": 1862,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1876,
+          "line": 1888,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1956,
+          "line": 1968,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1979,
+          "line": 1991,
           "kind": "literal-candidate"
         }
       ],
@@ -527,12 +527,12 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1767,
+          "line": 1779,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1934,
+          "line": 1946,
           "kind": "literal-candidate"
         }
       ],
@@ -549,12 +549,12 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1767,
+          "line": 1779,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1934,
+          "line": 1946,
           "kind": "literal-candidate"
         }
       ],
@@ -597,17 +597,17 @@
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 486,
+          "line": 489,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 683,
+          "line": 686,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 688,
+          "line": 691,
           "kind": "literal-candidate"
         }
       ],
@@ -651,7 +651,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1559,
+          "line": 1571,
           "kind": "literal-candidate"
         }
       ],
@@ -920,7 +920,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2009,
+          "line": 2021,
           "kind": "literal-candidate"
         }
       ],
@@ -1486,7 +1486,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1599,
+          "line": 1611,
           "kind": "literal-candidate"
         }
       ],
@@ -1662,7 +1662,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1781,
+          "line": 1793,
           "kind": "literal-candidate"
         }
       ],
@@ -1689,7 +1689,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 1824,
+          "line": 1836,
           "kind": "literal-candidate"
         }
       ],
@@ -1808,7 +1808,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 586,
+          "line": 589,
           "kind": "literal-candidate"
         }
       ],
@@ -1949,7 +1949,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2816,
+          "line": 2828,
           "kind": "literal-candidate"
         }
       ],
@@ -1976,7 +1976,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2493,
+          "line": 2505,
           "kind": "literal-candidate"
         }
       ],
@@ -2009,7 +2009,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2534,
+          "line": 2546,
           "kind": "literal-candidate"
         }
       ],
@@ -2074,7 +2074,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2878,
+          "line": 2890,
           "kind": "literal-candidate"
         }
       ],
@@ -2459,7 +2459,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2939,
+          "line": 2951,
           "kind": "literal-candidate"
         }
       ],
@@ -2491,7 +2491,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2939,
+          "line": 2951,
           "kind": "literal-candidate"
         }
       ],
@@ -3040,12 +3040,12 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3069,
+          "line": 3081,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3893,
+          "line": 3905,
           "kind": "literal-candidate"
         },
         {
@@ -3133,7 +3133,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2863,
+          "line": 2875,
           "kind": "literal-candidate"
         }
       ],
@@ -3155,7 +3155,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2673,
+          "line": 2685,
           "kind": "literal-candidate"
         }
       ],
@@ -3226,7 +3226,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2247,
+          "line": 2259,
           "kind": "literal-candidate"
         }
       ],
@@ -3258,22 +3258,22 @@
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 484,
+          "line": 487,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 541,
+          "line": 544,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 547,
+          "line": 550,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 681,
+          "line": 684,
           "kind": "literal-candidate"
         }
       ],
@@ -3362,12 +3362,12 @@
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 482,
+          "line": 485,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 693,
+          "line": 696,
           "kind": "literal-candidate"
         }
       ],
@@ -3422,7 +3422,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2896,
+          "line": 2908,
           "kind": "literal-candidate"
         }
       ],
@@ -3444,12 +3444,12 @@
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 135,
+          "line": 138,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 606,
+          "line": 609,
           "kind": "literal-candidate"
         }
       ],
@@ -3471,7 +3471,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2636,
+          "line": 2648,
           "kind": "literal-candidate"
         }
       ],
@@ -3503,17 +3503,17 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2282,
+          "line": 2294,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2779,
+          "line": 2791,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3469,
+          "line": 3481,
           "kind": "literal-candidate"
         }
       ],
@@ -3530,7 +3530,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2748,
+          "line": 2760,
           "kind": "literal-candidate"
         }
       ],
@@ -3753,7 +3753,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3625,
+          "line": 3637,
           "kind": "literal-candidate"
         }
       ],
@@ -3780,7 +3780,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3653,
+          "line": 3665,
           "kind": "literal-candidate"
         }
       ],
@@ -3807,7 +3807,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3720,
+          "line": 3732,
           "kind": "literal-candidate"
         }
       ],
@@ -3829,7 +3829,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3550,
+          "line": 3562,
           "kind": "literal-candidate"
         }
       ],
@@ -3856,7 +3856,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3693,
+          "line": 3705,
           "kind": "literal-candidate"
         }
       ],
@@ -3883,7 +3883,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3746,
+          "line": 3758,
           "kind": "literal-candidate"
         }
       ],
@@ -3900,7 +3900,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2343,
+          "line": 2355,
           "kind": "literal-candidate"
         }
       ],
@@ -3922,7 +3922,7 @@
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 700,
+          "line": 703,
           "kind": "literal-candidate"
         }
       ],
@@ -4007,7 +4007,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2317,
+          "line": 2329,
           "kind": "literal-candidate"
         }
       ],
@@ -4029,12 +4029,12 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 2989,
+          "line": 3001,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3069,
+          "line": 3081,
           "kind": "literal-candidate"
         },
         {
@@ -4056,7 +4056,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3477,
+          "line": 3489,
           "kind": "literal-candidate"
         }
       ],
@@ -4084,12 +4084,12 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3906,
+          "line": 3918,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3914,
+          "line": 3926,
           "kind": "literal-candidate"
         }
       ],
@@ -4106,7 +4106,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3423,
+          "line": 3435,
           "kind": "literal-candidate"
         }
       ],
@@ -4134,7 +4134,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3378,
+          "line": 3390,
           "kind": "literal-candidate"
         }
       ],
@@ -4151,7 +4151,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3228,
+          "line": 3240,
           "kind": "literal-candidate"
         }
       ],
@@ -4168,7 +4168,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3194,
+          "line": 3206,
           "kind": "literal-candidate"
         }
       ],
