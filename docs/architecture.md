@@ -149,13 +149,13 @@ The updater (`app/updater/update.sh`) tells the builds apart by the DMG name (`F
 ├── tools/legendary/legendary-0.21.0
 ├── sharp-library/  games/  launcher-games/epic/location.txt
 ├── shader-cache/<lane>/<appid>/
-├── cache/                        bundles/, ubisoft-connect/artwork/, thegamesdb_config.json
+├── cache/                        ubisoft-connect/artwork/, thegamesdb_config.json
 └── logs/
 ```
 
 ## Runtime Bundles
 
-Assets come from the [`bundles` release](https://github.com/metalsharp/MetalSharp/releases/tag/bundles), into `app/bundles/` when packaging and `~/.metalsharp/cache/bundles/` for installer fallback. Hashes are tracked in `tools/bundles/asset-manifest.tsv`.
+Packaging downloads assets from the [`bundles` release](https://github.com/metalsharp/MetalSharp/releases/tag/bundles) into `app/bundles/` and verifies their hashes against the release manifest and payload hash lists in `tools/bundles/`. The regular app carries all six required archives in its signed resources. Setup and Steam repair use those bundled archives; they never download replacement archives or trust loose archives in `~/.metalsharp/`. If a packaged archive is missing, reinstall the full official app. Developers can explicitly select a bundle directory with `METALSHARP_BUNDLE_DIR`.
 
 | Asset | Contents |
 |---|---|
@@ -200,7 +200,7 @@ The installer classifier detects known launchers before generic .NET/WebView/MSI
 |---|---|---|
 | Ubisoft Connect | Installer from `https://ubi.li/4vxt9` into `prefix-ubisoft` with D3DMetal + Steam's CEF args; a writable external volume maps to `Y:`. Games are found from the prefix registry; artwork falls back Ubisoft -> SteamGridDB -> extracted icon. Per-game routes; Mono/FNA and Steam Emu hidden. | `GET /ubisoft/status`, `/ubisoft/library`; `POST /ubisoft/launch`, `/stop`, `/launch-game`, `/save-pipeline` |
 | Epic | [Legendary](https://github.com/legendary-gl/legendary) 0.21.0 (arm64, size/hash-verified) out of process. Each title needs **Initialize Bottle**; mouse mode **No Recenter** (default) or **Mouse Auto**. Optional TheGamesDB key supplies missing artwork. | `GET /sharp-library/epic/{status,games,running,thegamesdb-api-key}`; `POST` `install-tool`, `auth`, `thegamesdb-api-key`, `logout`, `sync`, `install`, `progress`, `cancel`, `initialize`, `play`, `stop`, `stop-all`, `uninstall` |
-| GOG | Shared `bottles/gog-prefix`; Stop runs `wineserver -k` on it, so it stops every GOG game. | |
+| GOG | GOGDL 1.3.1 arm64 from a fixed release, checked against an embedded SHA-256 before installation. Existing helpers migrate on login, sync, play, install, or import without replacing the prefix. Shared `bottles/gog-prefix`; Stop runs `wineserver -k` on it, so it stops every GOG game. | |
 | Game Jolt | Isolated process groups; routes D3DMetal, VKD3D, DXMT, DXMT (32), D3D9. | |
 
 Sharp Library apps run in isolated process groups tracked by app ID; **Cmd+Opt+Q** sends stop-all for every store. Runtime migration preserves the Ubisoft, Epic, and GOG prefixes and data, then runs `wineboot -u` and verifies the `dosdevices/c:` and `z:` mappings (failure is an explicit error).
