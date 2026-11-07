@@ -128,7 +128,13 @@ impl SharpPreview {
                 installed: flag(game, "installed"),
                 progress: live.gog_progress.get(id).copied(),
                 art_key: format!("sharp-gog-{id}"),
-                engine: live.gog_engines.get(id).cloned(),
+                engine: Some(super::sharp_live::engine_lane(
+                    live.gog_engines
+                        .get(id)
+                        .map(String::as_str)
+                        .unwrap_or("auto"),
+                    super::sharp_live::STORE_AUTO_LANE,
+                )),
                 executable: Some(text(game, "executablePath"))
                     .filter(|path| !path.is_empty())
                     .map(str::to_owned),
@@ -149,9 +155,10 @@ impl SharpPreview {
                 installed: flag(game, "installed"),
                 progress: live.epic_progress.get(id).copied(),
                 art_key: format!("sharp-epic-{id}"),
-                engine: Some(text(game, "pipeline"))
-                    .filter(|pipeline| !pipeline.is_empty())
-                    .map(str::to_owned),
+                engine: Some(super::sharp_live::engine_lane(
+                    text(game, "pipeline"),
+                    super::sharp_live::STORE_AUTO_LANE,
+                )),
                 executable: Some(text(game, "executable"))
                     .filter(|path| !path.is_empty())
                     .map(str::to_owned),

@@ -55,6 +55,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #ifndef O_NOFOLLOW
@@ -255,6 +256,80 @@ static const char* image_type(const char* path) {
     return type ? type : "image/jpeg";
 }
 
+/* The newest image matching a grid art glob pattern (<appid>.* also matches the <appid>.json logo-position file). */
+static bool newest_grid_art(const char* pattern, char* newest, size_t newest_size, struct stat* newest_stat) {
+    glob_t results;
+    bool found = false;
+    memset(&results, 0, sizeof(results));
+    memset(newest_stat, 0, sizeof(*newest_stat));
+    newest[0] = '\0';
+    if (glob(pattern, GLOB_NOSORT, NULL, &results) == 0) {
+        for (size_t m = 0; m < (size_t)results.gl_pathc; m++) {
+            struct stat st;
+            if (known_image_type(results.gl_pathv[m]) == NULL)
+                continue;
+            if (stat(results.gl_pathv[m], &st) != 0 || !S_ISREG(st.st_mode))
+                continue;
+            if (!found || st.st_mtime > newest_stat->st_mtime) {
+                snprintf(newest, newest_size, "%s", results.gl_pathv[m]);
+                *newest_stat = st;
+                found = true;
+            }
+        }
+    }
+    globfree(&results);
+    return found;
+}
+
+/* MetalSharp's copy of a custom grid image Steam has (custom-art/steam-grid/<its name>), replacing a copy of the same
+ * art kind under another extension; nothing is written when the copy is already as new. */
+static void keep_grid_art(const char* home, const char* stem_pattern, const char* source,
+                          const struct stat* source_stat, const unsigned char* data, size_t length) {
+    char dir[PATH_MAX], kept[PATH_MAX], old_pattern[PATH_MAX], temp[PATH_MAX];
+    const char* name = strrchr(source, '/');
+    struct stat kept_stat;
+    glob_t old;
+    FILE* file;
+    name = name ? name + 1 : source;
+    if (snprintf(dir, sizeof(dir), "%s/custom-art/steam-grid", home) >= (int)sizeof(dir) ||
+        snprintf(kept, sizeof(kept), "%s/%s", dir, name) >= (int)sizeof(kept) ||
+        snprintf(temp, sizeof(temp), "%s.tmp", kept) >= (int)sizeof(temp))
+        return;
+    if (stat(kept, &kept_stat) == 0 && kept_stat.st_mtime >= source_stat->st_mtime &&
+        kept_stat.st_size == source_stat->st_size)
+        return;
+    {
+        char parent[PATH_MAX];
+        snprintf(parent, sizeof(parent), "%s/custom-art", home);
+        (void)mkdir(parent, 0700);
+        (void)mkdir(dir, 0700);
+    }
+    memset(&old, 0, sizeof(old));
+    if (snprintf(old_pattern, sizeof(old_pattern), "%s/%s", dir, stem_pattern) < (int)sizeof(old_pattern) &&
+        glob(old_pattern, GLOB_NOSORT, NULL, &old) == 0) {
+        for (size_t i = 0; i < (size_t)old.gl_pathc; i++)
+            if (strcmp(old.gl_pathv[i], kept) && known_image_type(old.gl_pathv[i]))
+                (void)unlink(old.gl_pathv[i]);
+    }
+    globfree(&old);
+    file = fopen(temp, "wb");
+    if (!file)
+        return;
+    if (fwrite(data, 1, length, file) != length) {
+        fclose(file);
+        (void)unlink(temp);
+        return;
+    }
+    if (fclose(file) != 0 || rename(temp, kept) != 0) {
+        (void)unlink(temp);
+        return;
+    }
+    {
+        struct timeval times[2] = {{source_stat->st_atime, 0}, {source_stat->st_mtime, 0}};
+        (void)utimes(kept, times);
+    }
+}
+
 /* Serve user-authored Steam grid artwork for the library UI. Steam Art
  * Manager (and Steam's own "Set Custom Image") writes custom art to
  * <userdata>/<account>/config/grid/ using Steam's grid file naming:
@@ -289,25 +364,12 @@ static bool handle_grid_art(const ms_http_request* request, ms_http_response* re
              metalsharp_home, filename);
     char newest[PATH_MAX] = {0};
     struct stat newest_stat;
-    memset(&newest_stat, 0, sizeof(newest_stat));
-    glob_t results;
-    memset(&results, 0, sizeof(results));
-    if (glob(pattern, GLOB_NOSORT, NULL, &results) == 0) {
-        for (size_t m = 0; m < (size_t)results.gl_pathc; m++) {
-            struct stat st;
-            /* <appid>.* also matches the <appid>.json logo-position file. */
-            if (known_image_type(results.gl_pathv[m]) == NULL)
-                continue;
-            if (stat(results.gl_pathv[m], &st) != 0 || !S_ISREG(st.st_mode))
-                continue;
-            if (newest[0] == '\0' || st.st_mtime > newest_stat.st_mtime) {
-                snprintf(newest, sizeof(newest), "%s", results.gl_pathv[m]);
-                newest_stat = st;
-            }
-        }
-    }
-    globfree(&results);
-    if (newest[0] == '\0') {
+    bool from_steam = newest_grid_art(pattern, newest, sizeof(newest), &newest_stat);
+    /* MetalSharp keeps its own copy of the custom art it serves (custom-art/steam-grid), so it stays through updates
+     * and anything that replaces Steam's userdata: Steam's file when there is one, else the copy. */
+    char kept_pattern[PATH_MAX];
+    snprintf(kept_pattern, sizeof(kept_pattern), "%s/custom-art/steam-grid/%s", metalsharp_home, filename);
+    if (!from_steam && !newest_grid_art(kept_pattern, newest, sizeof(newest), &newest_stat)) {
         set_json_response(response, 404, strdup("{\"ok\":false,\"error\":\"no custom grid art\"}"));
         return true;
     }
@@ -317,6 +379,8 @@ static bool handle_grid_art(const ms_http_request* request, ms_http_response* re
         set_json_response(response, 500, strdup("{\"ok\":false,\"error\":\"failed to read grid art\"}"));
         return true;
     }
+    if (from_steam)
+        keep_grid_art(metalsharp_home, filename, newest, &newest_stat, data, length);
     response->status = 200;
     response->content_type = image_type(newest);
     response->body = data;
