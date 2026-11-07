@@ -37,7 +37,7 @@
 #   DXVK_I386=<dxvk-macos-vX-i386 release dir> VKD3D=<vkd3d-proton-vX-x86_64 release dir> MOLTENVK=<moltenvk-vX-universal dir> NGX=<x86_64 nvngx/nvapi64 dir>
 #   WINE_BUILD=<the x86_64 Wine's build tree> WINE_MODULES="ntdll win32u ..." (modules rebuilt there with MetalSharp
 #   Wine's fixes, which replace the bundle's; server for the wineserver)
-#   DEPS_SRC=<deps/src-x86_64:deps/src> LICENSES_EXTRA=<dir of license folders> (share/licenses)
+#   WINEMETALGL=<install-x86_64/winemetalgl> VCRUN_X64=<Microsoft's x64 VC++ runtime DLLs> DEPS_SRC=<deps/src-x86_64:deps/src> LICENSES_EXTRA=<dir of license folders> (share/licenses)
 #   D3DMETAL=<dir with external/ and wine/> MEDIA=<x86_64 GStreamer/FFmpeg prefix> SIGN_IDENTITY="Developer ID Application: ..." \
 #     tools/package/build-wine-x86_64-app.sh <output dir>
 set -euo pipefail
@@ -170,6 +170,9 @@ cp -p "$NGX/nvngx.dll" "$NGX/nvapi64.dll" "$L/x86_64-windows/"
 builtin "$L/x86_64-windows/nvngx.dll" "$L/x86_64-windows/nvapi64.dll"
 cp -p "$GX/dxvk/dxvk.conf" "$L/dxvk.conf"
 for f in "$DXVK"/LICENSE "$DXVK"/LICENSE.dxbc-spirv "$DXVK"/SHA256SUMS; do [ -e "$f" ] && cp -p "$f" "$L/"; done
+# Wine loads the lane by itself for GRAPHICS_BACKEND=vkd3d (ntdll's VKD3D lane resolver, as on MetalSharp Wine), from
+# its builtin path, which takes only DLLs with Wine's builtin marker
+builtin "$M"/vkd3d/vkd3d-proton/x86_64-windows/*.dll "$L"/x86_64-windows/*.dll "$L"/i386-windows/*.dll
 basename "$DXVK" | sed 's/^dxvk-macos-\(.*\)-x86_64$/DXVK-MacOS \1/' > "$L/VERSION"
 
 # MoltenVK: one universal build, its Metal Shader Converter and DXBC converter next to it; the VKMT lane's
@@ -239,6 +242,25 @@ mkdir -p "$C/Resources"
 xcrun -f actool >/dev/null 2>&1 || export DEVELOPER_DIR=${DEVELOPER_DIR:-$HOME/Downloads/Xcode-beta.app/Contents/Developer}
 xcrun actool "$HERE/wine-x86_64/$ICON.icon" --compile "$C/Resources" --app-icon "$ICON" \
   --platform macosx --minimum-deployment-target 15.0 --output-partial-info-plist "$WORK/icon-partial.plist" >/dev/null
+# WineMetalGL (OpenGL 1.0-4.6 on Metal; WINEMETALGL: MetalSharp Wine's build-winemetalgl-x86_64.sh output), the
+# x86_64 Wine's default OpenGL as on MetalSharp Wine: its module in place of the bundle's and opengl32 forwarders in
+# lib/winemetalgl, which ntdll serves for opengl32.dll
+if [ -n "${WINEMETALGL:-}" ]; then
+  cp -p "$WINEMETALGL"/wine/x86_64-windows/winemetalgl.dll "$C/lib/wine/x86_64-windows/"
+  cp -p "$WINEMETALGL"/wine/i386-windows/winemetalgl.dll "$C/lib/wine/i386-windows/"
+  cp -p "$WINEMETALGL"/wine/x86_64-unix/winemetalgl.so "$WINEMETALGL"/wine/x86_64-unix/libwinemetalgl.dylib "$C/lib/wine/x86_64-unix/"
+  rm -rf "$C/lib/winemetalgl"; cp -Rp "$WINEMETALGL/lib" "$C/lib/winemetalgl"
+fi
+
+# Microsoft's x64 VC++ 2015-2022 runtime DLLs (VCRUN_X64, from vc_redist.x64.exe): prefixes shared with MetalSharp
+# Wine hold the ARM64X ones its installer puts in under FEX, which this Wine cannot run; the backend swaps these in
+# (ms_wine_fit_prefix_vcrun)
+if [ -n "${VCRUN_X64:-}" ]; then
+  mkdir -p "$M/redist/vcrun2022-x64" "$C/share/licenses/vcrun2022"
+  cp -p "$VCRUN_X64"/*.dll "$VCRUN_X64"/VERSION "$M/redist/vcrun2022-x64/"
+  [ -f "$VCRUN_X64/LICENSE.rtf" ] && cp -p "$VCRUN_X64/LICENSE.rtf" "$C/share/licenses/vcrun2022/"
+fi
+
 # Programs run from the x86_64 install's runtime/wine/bin/wine, outside any app bundle: winemac.drv shows them with
 # share/wine/MetalSharp-Wine.icns in the Dock (MetalSharp Wine's fix), as the app's own programs show its icon
 cp -p "$C/Resources/$ICON.icns" "$C/share/wine/$ICON.icns"
@@ -297,6 +319,10 @@ cat > "$C/Info.plist" <<EOF
   <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
 </dict></plist>
 EOF
+
+# Wine updates a prefix when wine.inf's modification time differs from the prefix's .update-timestamp: the bundles'
+# files carry time 0, which would leave prefixes on a newer app's builtins never updated, so it is this build's time
+touch "$C/share/wine/wine.inf"
 
 # What it was made from
 {

@@ -90,6 +90,8 @@ int main(void) {
     }
 
     sanitize_inherited_runtime_environment();
+    /* the Wine runtime the user chose (FEX | x86_64), else the build's own */
+    ms_wine_use_active_runtime_setting();
     /* A launcher spawning from a worker thread (GCD, GPUI) can hand us a
      * blocked signal mask; SIGTERM must reach request_stop, and children
      * (Wine, Steam) must not inherit blocked signals either. */
@@ -122,6 +124,7 @@ int main(void) {
         if (!ms_setup_wine_wrapper_ensure(context.metalsharp_home))
             fprintf(stderr, "warning: could not update MetalSharp Wine wrapper for graphics routes\n");
         ms_setup_refresh_legacy_ntdll_hooks(context.metalsharp_home);
+        ms_setup_x86_64_refresh_async(context.metalsharp_home);
         if (!ms_setup_wine_sdl_ensure(context.metalsharp_home))
             fprintf(stderr, "warning: could not link SDL2 into the MetalSharp Wine runtime for controllers\n");
     }

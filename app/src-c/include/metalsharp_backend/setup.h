@@ -9,6 +9,8 @@
 void ms_clear_quarantine_tree(const char* path);
 /* Upgrade installed Wine wrappers so routed launch environments are preserved. */
 bool ms_setup_wine_wrapper_ensure(const char* metalsharp_home);
+/* The x86_64 runtime laid out again from a newer MetalSharp-Wine-x86_64.app MetalSharp.app carries (background) */
+void ms_setup_x86_64_refresh_async(const char* home);
 /* Replace or remove pre-C-backend hook DLL copies that still carry the NT IPC client. */
 void ms_setup_refresh_legacy_ntdll_hooks(const char* metalsharp_home);
 /* Delete <home>/emulators, left by builds that shipped console emulators (sync, and off-thread). */

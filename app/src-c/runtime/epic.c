@@ -211,8 +211,8 @@ static bool valid_pipeline(const char* pipeline) {
                                           "m11_32", "m10",      "m10_32", "m9",   "d3d9",    "fna_arm64"};
     if (!pipeline)
         return false;
-    /* The fex build's DXVK and OpenGL lanes. */
-    if (ms_wine_is_fex() && (!strcmp(pipeline, "dxvk") || !strcmp(pipeline, "wine_bare")))
+    /* the OpenGL lane (both runtimes) and MetalSharp Wine's DXVK lane */
+    if (!strcmp(pipeline, "wine_bare") || (ms_wine_routes_lane("dxvk") && !strcmp(pipeline, "dxvk")))
         return true;
     for (size_t index = 0; index < sizeof(allowed) / sizeof(allowed[0]); index++)
         if (!strcmp(pipeline, allowed[index]))

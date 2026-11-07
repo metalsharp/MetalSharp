@@ -48,6 +48,22 @@ elif [ -n "${METALSHARP_WINE_X86_64_APP:-}" ]; then
   codesign --verify --deep --strict "$WINE_APP_SOURCE" || { echo "$WINE_APP_NAME does not verify: $WINE_APP_SOURCE" >&2; exit 1; }
   CARRIES_WINE_APP=1
 fi
+# Either build may also carry the other build's Wine app (METALSHARP_WINE_X86_64_APP on the FEX build,
+# METALSHARP_WINE_APP on the regular one), so the FEX | x86_64 toggle sets up the other runtime without a download.
+# It too is copied unchanged and never re-signed.
+OTHER_WINE_APP_NAME=""
+OTHER_WINE_APP_SOURCE=""
+if [ "$VARIANT" = "fex" ] && [ -n "${METALSHARP_WINE_X86_64_APP:-}" ]; then
+  OTHER_WINE_APP_NAME="MetalSharp-Wine-x86_64.app"
+  OTHER_WINE_APP_SOURCE="$METALSHARP_WINE_X86_64_APP"
+elif [ "$VARIANT" = "regular" ] && [ -n "${METALSHARP_WINE_APP:-}" ]; then
+  OTHER_WINE_APP_NAME="MetalSharp-Wine.app"
+  OTHER_WINE_APP_SOURCE="$METALSHARP_WINE_APP"
+fi
+if [ -n "$OTHER_WINE_APP_NAME" ]; then
+  [ -x "$OTHER_WINE_APP_SOURCE/Contents/MacOS/wine" ] || { echo "Not a $OTHER_WINE_APP_NAME (no Contents/MacOS/wine): $OTHER_WINE_APP_SOURCE" >&2; exit 1; }
+  codesign --verify --deep --strict "$OTHER_WINE_APP_SOURCE" || { echo "$OTHER_WINE_APP_NAME does not verify: $OTHER_WINE_APP_SOURCE" >&2; exit 1; }
+fi
 if [[ ! "$APP_VERSION" =~ ^[0-9]+([.][0-9]+){1,2}(-[A-Za-z0-9.-]+)?$ ]]; then
   echo "Invalid METALSHARP_GPUI_APP_VERSION: $APP_VERSION" >&2
   exit 1
@@ -247,6 +263,9 @@ if [ "$CARRIES_WINE_APP" = 1 ]; then
   # ditto keeps the bundle byte-for-byte, signature and profile included.
   ditto "$WINE_APP_SOURCE" "$CONTENTS/Resources/$WINE_APP_NAME"
 fi
+if [ -n "$OTHER_WINE_APP_NAME" ]; then
+  ditto "$OTHER_WINE_APP_SOURCE" "$CONTENTS/Resources/$OTHER_WINE_APP_NAME"
+fi
 
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -292,7 +311,8 @@ PLIST
 # MetalSharp-Wine.app skipped (ad-hoc or Developer ID).
 SIGN_IDENTITY="${METALSHARP_GPUI_SIGN_IDENTITY:--}"
 WINE_APP_DEST="$CONTENTS/Resources/$WINE_APP_NAME"
-if [ "$SIGN_IDENTITY" = "-" ] && [ "$CARRIES_WINE_APP" = 0 ]; then
+OTHER_WINE_APP_DEST="$CONTENTS/Resources/${OTHER_WINE_APP_NAME:-$WINE_APP_NAME}"
+if [ "$SIGN_IDENTITY" = "-" ] && [ "$CARRIES_WINE_APP" = 0 ] && [ -z "$OTHER_WINE_APP_NAME" ]; then
   codesign --force --deep --sign - "$BUNDLE"
 else
   if [ "$SIGN_IDENTITY" = "-" ]; then
@@ -316,9 +336,9 @@ else
     fi
   done < <(find "$CONTENTS/Resources" -type f | awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2-)
   while IFS= read -r nested; do
-    case "$nested" in "$WINE_APP_DEST"|"$WINE_APP_DEST"/*) continue ;; esac
+    case "$nested" in "$WINE_APP_DEST"|"$WINE_APP_DEST"/*|"$OTHER_WINE_APP_DEST"|"$OTHER_WINE_APP_DEST"/*) continue ;; esac
     sign_code "$nested"
-  done < <(find "$CONTENTS/Resources" -path "$WINE_APP_DEST" -prune -o -type d -name '*.app' -print | awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2-)
+  done < <(find "$CONTENTS/Resources" \( -path "$WINE_APP_DEST" -o -path "$OTHER_WINE_APP_DEST" \) -prune -o -type d -name '*.app' -print | awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2-)
   sign_code "$BUNDLE"
 fi
 codesign --verify --deep --strict --verbose=2 "$BUNDLE"
@@ -332,6 +352,16 @@ if [ "$CARRIES_WINE_APP" = 1 ]; then
     exit 1
   fi
   echo "Nested $WINE_APP_NAME intact (CDHash $source_cdhash)"
+fi
+if [ -n "$OTHER_WINE_APP_NAME" ]; then
+  codesign --verify --deep --strict --verbose=2 "$OTHER_WINE_APP_DEST"
+  cdhash() { codesign --display --verbose=3 "$1" 2>&1 | sed -n 's/^CDHash=//p' | head -1; }
+  other_cdhash="$(cdhash "$OTHER_WINE_APP_SOURCE")"
+  if [ -z "$other_cdhash" ] || [ "$other_cdhash" != "$(cdhash "$OTHER_WINE_APP_DEST")" ]; then
+    echo "Packaged $OTHER_WINE_APP_NAME no longer matches its source signature" >&2
+    exit 1
+  fi
+  echo "Nested $OTHER_WINE_APP_NAME intact (CDHash $other_cdhash)"
 fi
 echo "Built local-only GPUI app: $BUNDLE"
 echo "Bundle id: $APP_BUNDLE_ID"

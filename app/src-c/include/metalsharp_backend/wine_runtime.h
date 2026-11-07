@@ -138,4 +138,28 @@ char* ms_wine_x86_64_app_source(void);
 bool ms_wine_x86_64_app_contents(const char* home, char* out, size_t out_size);
 bool ms_wine_x86_64_install_app(const char* home, char* error, size_t error_size);
 
+/* Two runtimes in one home: the build's own and the other build's, which the user switches between (FEX | x86_64).
+ * ms_wine_is_fex() and ms_wine_variant() are the active runtime's; ms_wine_app_variant() is the build's, which
+ * updates keep. */
+const char* ms_wine_app_variant(void);
+/* A route Wine sets up by itself from GRAPHICS_BACKEND (launch.env): every lane on MetalSharp Wine, and the x86_64
+ * runtime's D3DMetal, VKD3D-Proton, Mullion and OpenGL lanes. Such a route stages no DLLs, sets no overrides and
+ * starts Steam games through the Steam client. */
+bool ms_wine_routes_lane(const char* pipeline);
+void ms_wine_reload_active_runtime(void);
+/* The backend (main) follows config/active-runtime; other programs (the tests) keep the build's runtime */
+void ms_wine_use_active_runtime_setting(void);
+bool ms_wine_runtime_installed(const char* home, const char* variant);
+char* ms_wine_runtimes_json(const char* home);
+bool ms_wine_switch_runtime(const char* home, const char* target, char* error, size_t error_size);
+char* ms_wine_switch_runtime_json(const char* home, const char* body, size_t body_length);
+/* The other runtime's signed app, downloaded into <home>/downloads when MetalSharp.app does not carry it */
+char* ms_wine_runtime_download_json(const char* home, const char* body, size_t body_length);
+char* ms_wine_runtime_download_progress_json(void);
+/* A prefix's VC++ 2015-2022 runtime for the runtime it starts with: Microsoft's x64 DLLs in place of the ARM64X ones
+ * an installer put in under FEX (x86_64 true), or those back (false). Returns the DLLs changed. */
+unsigned ms_wine_fit_prefix_vcrun(const char* home, bool x86_64);
+bool ms_wine_x86_64_app_current(const char* home);
+bool ms_wine_x86_64_app_identity(const char* home, char* out, size_t out_size);
+
 #endif

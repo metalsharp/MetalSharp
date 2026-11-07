@@ -431,8 +431,7 @@ impl BackendClient {
     pub fn save_pipeline(&self, game: &Game, pipeline: &str) -> Result<(), BackendError> {
         if game.appid == 0
             || game.has_native_build
-            || !(["d3dmetal", "dxmt", "dxmt_32", "vkd3d", "d3d9", "fna_arm64"].contains(&pipeline)
-                || (crate::variant::is_fex() && ["dxvk", "wine_bare"].contains(&pipeline)))
+            || !["d3dmetal", "dxmt", "dxmt_32", "vkd3d", "d3d9", "dxvk", "fna_arm64", "wine_bare"].contains(&pipeline)
         {
             return Err(BackendError::InvalidInput);
         }

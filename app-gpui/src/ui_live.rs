@@ -1806,7 +1806,7 @@ impl MetalSharpApp {
                 }
             },
         );
-        if crate::variant::is_fex() {
+        {
             live::call(
                 cx,
                 "GET",
@@ -1949,7 +1949,12 @@ impl MetalSharpApp {
     /// The frame rate lane of the selected game's pipeline: Mullion or VKD3D-Proton, which keep the
     /// limit in different places; other pipelines have none.
     pub(super) fn frame_rate_lane(&self) -> Option<&'static str> {
-        match crate::variant::fex_pipeline(&self.live.selected_pipeline) {
+        let lane = if crate::variant::is_fex() {
+            crate::variant::fex_pipeline(&self.live.selected_pipeline)
+        } else {
+            crate::variant::x86_64_pipeline(&self.live.selected_pipeline)
+        };
+        match lane {
             "dxmt" => Some("dxmt"),
             "vkd3d" => Some("vkd3d"),
             _ => None,
@@ -3079,9 +3084,7 @@ impl MetalSharpApp {
             live::DEFAULT_TIMEOUT,
             |this, result, cx| {
                 if let Some(result) = result {
-                    if is_ok(&result) && result.get("variant").is_some() {
-                        crate::variant::set_from_reply(&result);
-                    }
+                    // its `variant` is the app's build (what updates download), not the active runtime
                     if is_ok(&result)
                         && result.get("available").and_then(Value::as_bool) == Some(true)
                     {
@@ -3159,7 +3162,7 @@ impl MetalSharpApp {
         match self.update_field("variant").as_deref() {
             Some("fex") => "fex",
             Some(_) => "regular",
-            None => crate::variant::name(),
+            None => crate::variant::app_name(),
         }
     }
 

@@ -104,8 +104,8 @@ static char* make_json(const char* version, const char* home, bool dev_mode) {
         free(quoted_home);
         return NULL;
     }
-    needed = snprintf(NULL, 0, "{\"ok\":true,\"version\":%s,\"variant\":\"%s\",\"pid\":%ld,\"dev_mode\":%s,\"metalsharp_home\":%s}",
-                      quoted_version, ms_wine_variant(), (long)getpid(), dev_mode ? "true" : "false", quoted_home);
+    needed = snprintf(NULL, 0, "{\"ok\":true,\"version\":%s,\"variant\":\"%s\",\"app_variant\":\"%s\",\"pid\":%ld,\"dev_mode\":%s,\"metalsharp_home\":%s}",
+                      quoted_version, ms_wine_variant(), ms_wine_app_variant(), (long)getpid(), dev_mode ? "true" : "false", quoted_home);
     if (needed < 0) {
         free(quoted_version);
         free(quoted_home);
@@ -114,8 +114,8 @@ static char* make_json(const char* version, const char* home, bool dev_mode) {
     body = (char*)malloc((size_t)needed + 1);
     if (body != NULL) {
         (void)snprintf(body, (size_t)needed + 1,
-                       "{\"ok\":true,\"version\":%s,\"variant\":\"%s\",\"pid\":%ld,\"dev_mode\":%s,\"metalsharp_home\":%s}",
-                       quoted_version, ms_wine_variant(), (long)getpid(), dev_mode ? "true" : "false", quoted_home);
+                       "{\"ok\":true,\"version\":%s,\"variant\":\"%s\",\"app_variant\":\"%s\",\"pid\":%ld,\"dev_mode\":%s,\"metalsharp_home\":%s}",
+                       quoted_version, ms_wine_variant(), ms_wine_app_variant(), (long)getpid(), dev_mode ? "true" : "false", quoted_home);
     }
     free(quoted_version);
     free(quoted_home);
@@ -351,6 +351,37 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     if (strcmp(request->method, "GET") == 0 && strncmp(request->path, "/art/grid/", 10) == 0) {
         return handle_grid_art(request, response, context->metalsharp_home);
     }
+    /* the two Wine runtimes (FEX | x86_64): which is active and installed, and the switch between them, after which
+     * the frontend restarts the backend on the other one */
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/runtime/state") == 0) {
+        body = ms_wine_runtimes_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/runtime/download") == 0) {
+        body = ms_wine_runtime_download_json(context->metalsharp_home, (const char*)request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/runtime/download/progress") == 0) {
+        body = ms_wine_runtime_download_progress_json();
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/runtime/switch") == 0) {
+        ms_log_event(context->metalsharp_home, "Wine runtime switch requested");
+        body = ms_wine_switch_runtime_json(context->metalsharp_home, (const char*)request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/runtime/host-abi") == 0) {
         body = host_abi_json(context->metalsharp_home);
         if (body == NULL)
@@ -388,14 +419,14 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         return true;
     }
     /* The fex build's frame rate limit; the regular build has no such route. */
-    if (ms_wine_is_fex() && strcmp(request->method, "GET") == 0 && strcmp(request->path, "/framerate") == 0) {
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/framerate") == 0) {
         body = ms_frame_rate_get_json(context->metalsharp_home);
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);
         return true;
     }
-    if (ms_wine_is_fex() && strcmp(request->method, "POST") == 0 && strcmp(request->path, "/framerate") == 0) {
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/framerate") == 0) {
         int status = 500;
         body = ms_frame_rate_set_json(context->metalsharp_home, request->body, request->body_length, &status);
         if (body == NULL)
@@ -957,10 +988,10 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/update/dmg-path") == 0) {
         body = ms_update_dmg_path_json(
             context->metalsharp_home,
-            request->query == NULL                     ? ms_wine_variant()
+            request->query == NULL                     ? ms_wine_app_variant()
             : strcmp(request->query, "variant=fex") == 0 ? "fex"
             : strcmp(request->query, "variant=regular") == 0 ? "regular"
-                                                             : ms_wine_variant());
+                                                             : ms_wine_app_variant());
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);

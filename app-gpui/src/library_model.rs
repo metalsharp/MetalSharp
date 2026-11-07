@@ -384,14 +384,8 @@ pub fn live_games(library: &[LibGame], history: &HashMap<String, i64>) -> Vec<Li
     games
 }
 
-pub const PIPELINE_OPTIONS: [(&str, &str); 6] = [
-    ("d3dmetal", "D3DMetal"),
-    ("vkd3d", "VKD3D"),
-    ("d3d9", "D3D9"),
-    ("dxmt", "DXMT"),
-    ("dxmt_32", "DXMT(32)"),
-    ("fna_arm64", "Mono/FNA"),
-];
+/// The x86_64 runtime's lanes (`variant::X86_64_PIPELINE_OPTIONS`).
+pub const PIPELINE_OPTIONS: [(&str, &str); 4] = crate::variant::X86_64_PIPELINE_OPTIONS;
 
 pub fn pipeline_label(id: &str) -> String {
     if crate::variant::is_fex() {
@@ -399,14 +393,15 @@ pub fn pipeline_label(id: &str) -> String {
             .unwrap_or("Auto")
             .to_owned();
     }
-    match id {
-        "m9" | "dxvk" | "dxvk_32" => "D3D9".into(),
-        _ => PIPELINE_OPTIONS
-            .iter()
-            .find(|(pid, _)| *pid == id)
-            .map(|(_, label)| (*label).to_owned())
-            .unwrap_or_else(|| "Auto".into()),
+    let id = crate::variant::x86_64_pipeline(id);
+    if id == "fna_arm64" {
+        return "Mono/FNA".into();
     }
+    PIPELINE_OPTIONS
+        .iter()
+        .find(|(pid, _)| *pid == id)
+        .map(|(_, label)| (*label).to_owned())
+        .unwrap_or_else(|| "Auto".into())
 }
 
 pub fn normalize_pipeline(id: &str) -> String {
@@ -416,7 +411,8 @@ pub fn normalize_pipeline(id: &str) -> String {
             None => "auto".into(),
         };
     }
-    if PIPELINE_OPTIONS.iter().any(|(pid, _)| *pid == id) {
+    let id = crate::variant::x86_64_pipeline(id);
+    if id == "fna_arm64" || PIPELINE_OPTIONS.iter().any(|(pid, _)| *pid == id) {
         id.to_owned()
     } else {
         "auto".into()

@@ -1,4 +1,5 @@
 #include "metalsharp_backend/setup.h"
+#include "metalsharp_backend/logs.h"
 
 #include <CommonCrypto/CommonDigest.h>
 
@@ -2217,7 +2218,8 @@ static bool clone_tree(const char* from, const char* to, bool no_clobber) {
         }
         while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
         }
-        if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+        /* macOS's cp -n exits 1 when it kept a file that was there, which is what no_clobber asks for */
+        if (WIFEXITED(status) && (WEXITSTATUS(status) == 0 || (no_clobber && WEXITSTATUS(status) == 1)))
             return set_tree_user_writable(to);
     }
     return false;
@@ -2321,7 +2323,72 @@ static bool stage_x86_64_runtime_from_app(const char* home, char* error, size_t 
     (void)chmod(to, 0644);
     if (!ok)
         snprintf(error, error_size, "could not write %s", to);
+    /* the app build runtime/ was laid out from (x86_64_runtime_staged) */
+    if (ok) {
+        char identity[256] = "", path[PATH_MAX];
+        FILE* file;
+        if (ms_wine_x86_64_app_identity(home, identity, sizeof(identity)) &&
+            snprintf(path, sizeof(path), "%s/runtime/wine/.metalsharp-x86_64-app-identity", home) < (int)sizeof(path) &&
+            (file = fopen(path, "w"))) {
+            fputs(identity, file);
+            fclose(file);
+        }
+    }
+    /* prefixes MetalSharp Wine set up keep ARM64X VC++ DLLs the x86_64 Wine cannot run */
+    if (ok)
+        (void)ms_wine_fit_prefix_vcrun(home, true);
     return ok;
+}
+
+/* A MetalSharp update brings a newer MetalSharp-Wine-x86_64.app: the x86_64 runtime laid out from the installed one is
+ * laid out again from it when the backend starts, as MetalSharp Wine's app is refreshed (ms_wine_fex_refresh_async) */
+/* Whether runtime/ was laid out from the installed app build (not an older one, nor left half done) */
+static bool x86_64_runtime_staged(const char* home) {
+    char identity[256] = "", staged[256] = "", path[PATH_MAX];
+    FILE* file;
+    size_t length = 0;
+    if (!ms_wine_x86_64_app_identity(home, identity, sizeof(identity)) ||
+        snprintf(path, sizeof(path), "%s/runtime/wine/.metalsharp-x86_64-app-identity", home) >= (int)sizeof(path) ||
+        !(file = fopen(path, "r")))
+        return false;
+    length = fread(staged, 1, sizeof(staged) - 1, file);
+    fclose(file);
+    staged[length] = '\0';
+    return !strcmp(identity, staged);
+}
+
+static void* x86_64_refresh_thread(void* arg) {
+    char* home = arg;
+    char error[512] = "";
+    if (!ms_wine_is_fex() && x86_64_runtime_from_app(home) &&
+        (!ms_wine_x86_64_app_current(home) || !x86_64_runtime_staged(home))) {
+        ms_log_event(home, "Updating MetalSharp Wine (x86_64) from MetalSharp.app...");
+        char* dxmt = join_path(home, "runtime/wine/lib/dxmt");
+        /* as setup's graphics step does: Mullion's native bridges signed and its manifest, which setup's state reads
+         * (laying lib/ out again took both) */
+        if (ms_wine_x86_64_install_app(home, error, sizeof(error)) &&
+            stage_x86_64_runtime_from_app(home, error, sizeof(error)) && dxmt && sign_dxmt_native_bridges(dxmt) &&
+            write_dxmt_manifest(dxmt)) {
+            (void)ms_setup_wine_wrapper_ensure(home);
+            ms_log_event(home, "MetalSharp Wine (x86_64) updated");
+        } else {
+            char message[640];
+            snprintf(message, sizeof(message), "MetalSharp Wine (x86_64) could not be updated: %s", error);
+            ms_log_event(home, message);
+        }
+        free(dxmt);
+    }
+    free(home);
+    return NULL;
+}
+
+void ms_setup_x86_64_refresh_async(const char* home) {
+    pthread_t thread;
+    char* copy = home ? strdup(home) : NULL;
+    if (copy && pthread_create(&thread, NULL, x86_64_refresh_thread, copy) == 0)
+        pthread_detach(thread);
+    else
+        free(copy);
 }
 
 /* Steps 5-7 of the x86_64 build: the x86_64 Wine runtime bundle, its assets and VKD3D's MoltenVK. */

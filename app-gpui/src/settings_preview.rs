@@ -2030,9 +2030,9 @@ impl Render for SettingsPreview {
                 s.set_retina(next, cx)
             }),
         );
-        // The FEX build's VKD3D-Proton lane: MoltenVK's experimental ray tracing pipelines, for DXR 1.1
+        // The VKD3D-Proton lane (both Wine runtimes): MoltenVK's experimental ray tracing pipelines, for DXR 1.1
         // and feature level 12_2.
-        let ray_tracing = crate::variant::is_fex().then(|| {
+        let ray_tracing = Some(()).map(|_| {
             self.row(
                 "Ray Tracing (VKD3D-Proton)",
                 "MoltenVK's experimental ray tracing, so VKD3D-Proton games get DXR 1.1 and feature level 12_2",
@@ -2394,7 +2394,7 @@ impl Render for SettingsPreview {
         } else {
             "x86_64"
         };
-        let switch = (crate::variant::is_fex()
+        let switch = (crate::variant::app_is_fex()
             && status_ok
             && !available
             && !app.update_downloading
