@@ -59,7 +59,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 667,
+          "line": 670,
           "kind": "literal-candidate"
         }
       ],
@@ -76,7 +76,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 660,
+          "line": 663,
           "kind": "literal-candidate"
         }
       ],
@@ -597,17 +597,17 @@
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 539,
+          "line": 542,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 750,
+          "line": 753,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 755,
+          "line": 758,
           "kind": "literal-candidate"
         }
       ],
@@ -1808,7 +1808,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 653,
+          "line": 656,
           "kind": "literal-candidate"
         }
       ],
@@ -3336,22 +3336,22 @@
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 537,
+          "line": 540,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 608,
+          "line": 611,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 614,
+          "line": 617,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 748,
+          "line": 751,
           "kind": "literal-candidate"
         }
       ],
@@ -3440,12 +3440,12 @@
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 535,
+          "line": 538,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 760,
+          "line": 763,
           "kind": "literal-candidate"
         }
       ],
@@ -3527,7 +3527,7 @@
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 673,
+          "line": 676,
           "kind": "literal-candidate"
         }
       ],
@@ -4000,7 +4000,7 @@
         },
         {
           "file": "app-gpui/src/library_model.rs",
-          "line": 767,
+          "line": 770,
           "kind": "literal-candidate"
         }
       ],

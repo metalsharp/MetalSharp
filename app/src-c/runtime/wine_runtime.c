@@ -108,6 +108,10 @@ bool ms_wine_routes_lane(const char* pipeline) {
                         !strcmp(pipeline, "d3dmetal") || !strcmp(pipeline, "wine_bare") || !strcmp(pipeline, "m32"));
 }
 
+bool ms_wine_metalsharp_launch_model(void) {
+    return ms_wine_is_fex() || x86_64_app_runtime();
+}
+
 bool ms_wine_is_fex(void) {
     if (active_fex < 0)
         active_fex = read_active_runtime(NULL);

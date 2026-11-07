@@ -450,8 +450,9 @@ static const char* canonical_pipeline_any(const char* requested) {
 /* On MetalSharp Wine (the fex build) the D3DMetal and GPTK lanes run on VKD3D-Proton, the D3D9
  * route on DXVK, and DXVK is a lane of its own (x86_64 programs) instead of a name for D3D9. */
 static const char* canonical_pipeline(const char* requested) {
-    /* DXVK is a lane of its own (x86_64 programs) on MetalSharp Wine and the x86_64 app runtime */
-    if (requested && !strcasecmp(requested, "dxvk") && ms_wine_routes_lane("dxvk"))
+    /* DXVK is a lane of its own (x86_64 programs) on MetalSharp Wine; on the x86_64 app runtime it is part of the
+     * VKD3D / DXVK lane (ms_wine_route_pipeline), with that lane's MoltenVK settings */
+    if (requested && !strcasecmp(requested, "dxvk") && ms_wine_is_fex())
         return "dxvk";
     return ms_wine_route_pipeline(canonical_pipeline_any(requested));
 }

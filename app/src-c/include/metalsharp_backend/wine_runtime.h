@@ -146,6 +146,10 @@ const char* ms_wine_app_variant(void);
  * runtime's D3DMetal, VKD3D-Proton, Mullion and OpenGL lanes. Such a route stages no DLLs, sets no overrides and
  * starts Steam games through the Steam client. */
 bool ms_wine_routes_lane(const char* pipeline);
+/* MetalSharp Wine's launch model: the FEX runtime, or the x86_64 one laid out from MetalSharp-Wine-x86_64.app. Games
+ * take their lane from launch.env, launcher clients keep theirs, and a game is tracked by its process group, which
+ * outlives the store tool (gogdl, legendary) that started it. */
+bool ms_wine_metalsharp_launch_model(void);
 void ms_wine_reload_active_runtime(void);
 /* The backend (main) follows config/active-runtime; other programs (the tests) keep the build's runtime */
 void ms_wine_use_active_runtime_setting(void);

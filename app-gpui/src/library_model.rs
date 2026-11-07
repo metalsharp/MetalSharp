@@ -419,9 +419,11 @@ pub fn normalize_pipeline(id: &str) -> String {
     }
 }
 
-/// `gamePipelineOptions`: Ubisoft titles expose backend-provided options.
-/// On FEX the list is Mullion (DXMT), VKD3D-Proton, DXVK and OpenGL (`variant::FEX_PIPELINE_OPTIONS`);
-/// DXVK is for x86_64 games only, which the backend checks at launch.
+/// `gamePipelineOptions`: Ubisoft, Rockstar and Battle.net games take the backend's list, which is the
+/// active runtime's lanes, as Steam games are offered them: on FEX Mullion (DXMT), VKD3D-Proton, DXVK and
+/// OpenGL (`variant::FEX_PIPELINE_OPTIONS`; DXVK is for x86_64 games only, which the backend checks at
+/// launch), on x86_64 D3DMetal, VKD3D / DXVK, Mullion (DXMT) and OpenGL. GOG, Epic and Windows programs use
+/// the runtime's list directly.
 pub fn game_pipeline_options(game: &LibGame) -> Vec<(String, String)> {
     game_pipeline_options_for(game, crate::variant::is_fex())
 }
@@ -479,11 +481,12 @@ fn effective_pipeline_for(game: &LibGame, fex: bool) -> String {
         .and_then(|option| option.id.clone())
         .unwrap_or_default();
     let options = game_pipeline_options_for(game, fex);
+    // A saved or recommended pipeline reads as the lane it runs on, on either runtime (as Steam games' do).
     let fex_id = |id: String| {
         if fex {
             crate::variant::fex_pipeline(&id).to_owned()
         } else {
-            id
+            crate::variant::x86_64_pipeline(&id).to_owned()
         }
     };
     [fex_id(effective.to_owned()), fex_id(recommended)]

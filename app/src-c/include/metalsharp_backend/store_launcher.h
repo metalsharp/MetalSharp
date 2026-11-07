@@ -125,6 +125,8 @@ bool ms_store_game_from_folder(const char* prefix, const char* windows_folder, c
 bool ms_store_add_game(ms_store_game** games, size_t* count, size_t* capacity, const ms_store_game* game);
 
 const char* ms_store_canonical_pipeline(const char* pipeline);
+/* A store game's available_pipelines: the active runtime's lanes, as a Steam game is offered them */
+void ms_store_write_pipeline_options(ms_json_writer* writer, const char* default_pipeline);
 /* bottles/<source>_<appid>/bottle.json's preferred_pipeline, or the provider's default. */
 char* ms_store_pipeline_for_game(const char* home, const ms_store_provider* provider, unsigned appid);
 void ms_store_write_game_json(ms_json_writer* writer, const char* home, const ms_store_provider* provider,

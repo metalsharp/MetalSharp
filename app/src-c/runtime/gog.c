@@ -1511,7 +1511,7 @@ static char* refresh_game_json(const char* home, const ms_json* game) {
     (void)ms_json_as_i64(ms_json_object_get(game, "lastLaunchPid"), &pid_value);
     /* The fex build: lastLaunchPid leads gogdl's process group, which the game and what it starts
      * (a GOG "launcher" playTask's real game) stay in after gogdl itself exits. */
-    if (ms_wine_is_fex())
+    if (ms_wine_metalsharp_launch_model())
         running = pid_value > 0 && (kill(-(pid_t)pid_value, 0) == 0 || errno == EPERM);
     else
         running = pid_value > 0 && kill((pid_t)pid_value, 0) == 0;
@@ -1950,7 +1950,7 @@ static char* gog_stop_json(const char* home, const char* id) {
             pid_t tracked = gog_tracked_pid(id);
             bool wine_stopped;
             /* gogdl's own pid is gone once it exits; its group (the game) is not. */
-            if (tracked <= 0 && ms_wine_is_fex()) {
+            if (tracked <= 0 && ms_wine_metalsharp_launch_model()) {
                 long long recorded = 0;
                 (void)ms_json_as_i64(ms_json_object_get(ms_json_array_get(games, i), "lastLaunchPid"), &recorded);
                 tracked = recorded > 1 ? (pid_t)recorded : 0;

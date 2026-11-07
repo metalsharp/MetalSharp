@@ -1449,18 +1449,7 @@ static void write_game_json(ms_json_writer* w, const char* home, const ubisoft_g
     ms_json_writer_key(w, "preferred_pipeline");
     ms_json_writer_string(w, pipeline ? pipeline : UBISOFT_PIPELINE_DEFAULT);
     ms_json_writer_key(w, "available_pipelines");
-    ms_json_writer_array_begin(w);
-    const char* ids[] = {"d3dmetal", "dxmt", "dxmt_32", "vkd3d", "d3d9"};
-    const char* names[] = {"D3DMetal", "DXMT", "DXMT (32-bit)", "VKD3D", "D3D9"};
-    for (size_t i = 0; i < sizeof(ids) / sizeof(ids[0]); i++) {
-        ms_json_writer_object_begin(w);
-        ms_json_writer_key(w, "id");
-        ms_json_writer_string(w, ids[i]);
-        ms_json_writer_key(w, "name");
-        ms_json_writer_string(w, names[i]);
-        ms_json_writer_object_end(w);
-    }
-    ms_json_writer_array_end(w);
+    ms_store_write_pipeline_options(w, UBISOFT_PIPELINE_DEFAULT);
     ms_json_writer_object_end(w);
     free(pipeline);
     free(icon);
@@ -1514,11 +1503,7 @@ static const ubisoft_game* find_game(ubisoft_game* games, size_t count, const ch
 }
 
 static const char* ubisoft_canonical_pipeline(const char* pipeline) {
-    const char* const ids[] = {"d3dmetal", "dxmt", "dxmt_32", "vkd3d", "d3d9"};
-    for (size_t i = 0; pipeline && i < sizeof(ids) / sizeof(ids[0]); i++)
-        if (!strcasecmp(pipeline, ids[i]))
-            return ids[i];
-    return NULL;
+    return ms_store_canonical_pipeline(pipeline);
 }
 
 static bool supported_pipeline(const char* pipeline) {
