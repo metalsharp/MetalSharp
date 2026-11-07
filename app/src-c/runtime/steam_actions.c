@@ -450,7 +450,8 @@ static const char* canonical_pipeline_any(const char* requested) {
 /* On MetalSharp Wine (the fex build) the D3DMetal and GPTK lanes run on VKD3D-Proton, the D3D9
  * route on DXVK, and DXVK is a lane of its own (x86_64 programs) instead of a name for D3D9. */
 static const char* canonical_pipeline(const char* requested) {
-    if (ms_wine_is_fex() && requested && !strcasecmp(requested, "dxvk"))
+    /* DXVK is a lane of its own (x86_64 programs) on MetalSharp Wine and the x86_64 app runtime */
+    if (requested && !strcasecmp(requested, "dxvk") && ms_wine_routes_lane("dxvk"))
         return "dxvk";
     return ms_wine_route_pipeline(canonical_pipeline_any(requested));
 }
@@ -546,7 +547,7 @@ static const char* pipeline_backend(const char* pipeline) {
 static const char* pipeline_overrides(const char* pipeline) {
     /* MetalSharp Wine serves Mullion and DXVK as its own builtins, ahead of any copy in a game's
      * folder, so the routes need no native-first overrides there. */
-    if (ms_wine_is_fex())
+    if (ms_wine_routes_lane(pipeline))
         return NULL;
     if (!strcmp(pipeline, "vkd3d"))
         return "d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9=n,b";
@@ -764,7 +765,9 @@ static void set_fex_route_paths(const char* home, const char* pipeline) {
         "VK_ICD_FILENAMES", "VK_DRIVER_FILES",         "ROSETTA_ADVERTISE_AVX",      "ROSETTA_X87_PATH"};
     const char* backend = ms_wine_fex_graphics_backend(pipeline);
     for (size_t i = 0; i < sizeof(x86_64_runtime_env) / sizeof(x86_64_runtime_env[0]); i++)
-        unsetenv(x86_64_runtime_env[i]);
+        /* the x86_64 runtime keeps Rosetta's AVX and x87 settings */
+        if (ms_wine_is_fex() || strncmp(x86_64_runtime_env[i], "ROSETTA_", 8))
+            unsetenv(x86_64_runtime_env[i]);
     /* The OpenGL lane's WineMetalGL upscales by mullion.conf's MetalFX factor, which MetalSharp Wine reads
      * from there too to show the game the display it upscales to. */
     if (pipeline_is_dxmt(pipeline) || !strcmp(backend, "wine")) {
@@ -803,7 +806,7 @@ static void set_route_paths(const char* home, const char* pipeline) {
     char unixpath[PATH_MAX * 3];
     const char* backend = pipeline_backend(pipeline);
     set_rosetta_avx_env();
-    if (ms_wine_is_fex()) {
+    if (ms_wine_routes_lane(pipeline)) {
         set_fex_route_paths(home, pipeline);
         return;
     }
@@ -938,6 +941,12 @@ static void set_route_paths(const char* home, const char* pipeline) {
     }
 }
 
+/* MetalSharp-Wine-x86_64.app: MetalSharp Wine's launch model on the regular build (routes_lane is true there only
+ * for that runtime), so its Steam client starts as the fex build's does. */
+static bool x86_64_metalsharp_wine(void) {
+    return !ms_wine_is_fex() && ms_wine_routes_lane("vkd3d");
+}
+
 static void set_launch_cache_env(const char* home, unsigned id, const char* pipeline) {
     char fex_subdir[64];
     const char* subdir = pipeline;
@@ -961,7 +970,7 @@ static void set_launch_cache_env(const char* home, unsigned id, const char* pipe
         setenv("DXMT_SHADER_CACHE_PATH", shader, 1);
         setenv("DXMT_PIPELINE_CACHE_PATH", cache, 1);
         /* Mullion's shader database, where Settings measures and clears the lane. */
-        if (ms_wine_is_fex())
+        if (ms_wine_is_fex() || x86_64_metalsharp_wine())
             setenv("MULLION_SHADER_CACHE_PATH", shader, 1);
         snprintf(log_path, sizeof(log_path), "%s/logs/%s/%u/", home, subdir, id);
         (void)ensure_directory(log_path);
@@ -971,9 +980,9 @@ static void set_launch_cache_env(const char* home, unsigned id, const char* pipe
         setenv("DXVK_LOG_LEVEL", "info", 1);
         setenv("VKD3D_DEBUG", "info", 1);
         /* VKD3D-Proton's pipeline cache, which would otherwise go in the game's working folder. */
-        if (ms_wine_is_fex())
+        if (ms_wine_is_fex() || x86_64_metalsharp_wine())
             setenv("VKD3D_SHADER_CACHE_PATH", cache, 1);
-    } else if (ms_wine_is_fex() && !strcmp(pipeline, "dxvk")) {
+    } else if (ms_wine_routes_lane(pipeline) && !strcmp(pipeline, "dxvk")) {
         /* DXVK's state cache, which would otherwise go next to the game's executable. */
         setenv("DXVK_STATE_CACHE_PATH", shader, 1);
     }
@@ -1162,9 +1171,9 @@ static void build_launch_args(unsigned id, const char* pipeline, char** argv, si
         append_launch_arg(argv, count, max, "-vulkan");
     if (id == 949230)
         append_launch_arg(argv, count, max, "-force-vulkan");
-    /* RDR2's Vulkan renderer is for VKD3D's MoltenVK lane; D3DMetal has no Vulkan. The fex build
-     * runs its DX12 renderer on VKD3D-Proton. */
-    if (id == 1174180 && !strcmp(pipeline, "vkd3d") && !ms_wine_is_fex()) {
+    /* RDR2's Vulkan renderer is for VKD3D's MoltenVK lane; D3DMetal has no Vulkan. MetalSharp Wine (fex, and the
+     * x86_64 app) runs its DX12 renderer on VKD3D-Proton. */
+    if (id == 1174180 && !strcmp(pipeline, "vkd3d") && !ms_wine_is_fex() && !x86_64_metalsharp_wine()) {
         append_launch_arg(argv, count, max, "-api");
         append_launch_arg(argv, count, max, "Vulkan");
     }
@@ -1991,7 +2000,7 @@ static bool stage_route_dlls(const char* home, unsigned id, const char* pipeline
      * folder only change the path the game sees for them, and anti-tamper takes graphics DLLs next
      * to the executable for an injected proxy (Dragon's Dogma 2 left about 40 s after starting,
      * 2026-10-27); remove_stale_route_dlls clears the ones earlier versions staged. */
-    if (ms_wine_is_fex())
+    if (ms_wine_routes_lane(pipeline))
         return true;
     if (!strcmp(pipeline, "m13") || !strcmp(pipeline, "m32") || !strcmp(pipeline, "wine_bare"))
         return true;
@@ -3987,7 +3996,8 @@ static char* spawn_wine(const char* home, const char* first, const char* second,
          * MetalSharp's direct game-launch path. */
         set_rosetta_avx_env();
         /* FEX translates every trace call; the Steam client's CEF is slow enough without them. */
-        setenv("WINEDEBUG", ms_wine_is_fex() ? "-all" : "+vulkan,+d3d,+d3d11,+dxgi,+wined3d,+opengl", 1);
+        setenv("WINEDEBUG",
+               ms_wine_is_fex() || x86_64_metalsharp_wine() ? "-all" : "+vulkan,+d3d,+d3d11,+dxgi,+wined3d,+opengl", 1);
         setenv("WINEDEBUGGER", "none", 1);
         setenv("STEAM_RUNTIME", "0", 1);
         setenv("MS_FWD_COMPAT_GL_CTX", "1", 1);
@@ -4130,10 +4140,12 @@ static char* spawn_wine_for_pipeline(const char* home, const char* pipeline, uns
     seed_steam_registry(home);
     /* MetalSharp Wine (the fex build) starts the Steam client directly through runtime/wine/bin's
      * wrapper: under the helper app's identity macOS refuses the wrapper on an external volume. */
-    char* helper = !ms_wine_is_fex() && id == 0 && is_steam_client_executable(first) ? steam_helper_app_path() : NULL;
+    char* helper = !ms_wine_is_fex() && !x86_64_metalsharp_wine() && id == 0 && is_steam_client_executable(first)
+                       ? steam_helper_app_path()
+                       : NULL;
     /* On MetalSharp Wine the Steam client starts as Steam starts it on Windows: Steam's own webhelper,
      * none of the CEF flags and no DLL overrides from the environment. Its UI does not load otherwise. */
-    bool plain_client = ms_wine_is_fex() && id == 0 && is_steam_client_executable(first);
+    bool plain_client = (ms_wine_is_fex() || x86_64_metalsharp_wine()) && id == 0 && is_steam_client_executable(first);
     if (plain_client) {
         static const char* const cef_flags[] = {"-no-cef-sandbox", "-cef-single-process", "-noverifyfiles",
                                                 "-no-dwrite"};
@@ -4176,7 +4188,8 @@ static char* spawn_wine_for_pipeline(const char* home, const char* pipeline, uns
         if (id > 0)
             set_launch_cache_env(home, id, pipeline);
         /* FEX translates every trace call; the Steam client's CEF is slow enough without them. */
-        setenv("WINEDEBUG", ms_wine_is_fex() ? "-all" : "+vulkan,+d3d,+d3d11,+dxgi,+wined3d,+opengl", 1);
+        setenv("WINEDEBUG",
+               ms_wine_is_fex() || x86_64_metalsharp_wine() ? "-all" : "+vulkan,+d3d,+d3d11,+dxgi,+wined3d,+opengl", 1);
         setenv("WINEDEBUGGER", "none", 1);
         setenv("STEAM_RUNTIME", "0", 1);
         setenv("MS_FWD_COMPAT_GL_CTX", "1", 1);
@@ -5368,7 +5381,7 @@ static bool refresh_stale_steamwebhelpers(const char* home, const char* steam_di
 }
 
 static void ensure_steam_launch_ready(const char* home, const char* steam_dir) {
-    if (ms_wine_is_fex()) {
+    if (ms_wine_is_fex() || x86_64_metalsharp_wine()) {
         restore_steam_webhelpers(steam_dir);
         return;
     }
@@ -5419,7 +5432,7 @@ static bool steamwebhelper_wrappers_ready(const char* steam_dir) {
         free(cef_root);
         return false;
     }
-    if (ms_wine_is_fex()) {  /* no wrapper there (restore_steam_webhelpers) */
+    if (ms_wine_is_fex() || x86_64_metalsharp_wine()) {  /* no wrapper there (restore_steam_webhelpers) */
         closedir(dir);
         free(cef_root);
         return true;
@@ -6485,15 +6498,15 @@ static void set_direct_game_env(const char* home, const char* prefix, unsigned i
     ms_steam_apply_launch_preferences(home);
     /* The fex build's Metal HUD switch (the hero card), for the game only (not the Steam client). 0
      * also overrides a Mac-wide MetalForceHudEnabled. */
-    if (ms_wine_is_fex())
+    if (ms_wine_routes_lane(env_pipeline))
         setenv("MTL_HUD_ENABLED", ms_config_metal_hud_enabled(home) ? "1" : "0", 1);
     /* The fex build's ray tracing switch (Settings), on the VKD3D-Proton lane: MoltenVK's ray tracing
      * pipelines, which VKD3D-Proton reports as DXR 1.1 and feature level 12_2. */
-    if (ms_wine_is_fex() && !strcmp(env_pipeline, "vkd3d"))
+    if (ms_wine_routes_lane(env_pipeline) && !strcmp(env_pipeline, "vkd3d"))
         setenv("MVK_CONFIG_ENABLE_EXPERIMENTAL_RAY_TRACING", ms_config_ray_tracing_enabled(home) ? "1" : "0", 1);
     /* The hero card's frame rate limit on the VKD3D-Proton lane: its swap chain sleeps to the target
      * (VKD3D_FRAME_RATE). Mullion's is in mullion.conf, which games read when they start. */
-    if (ms_wine_is_fex()) {
+    if (ms_wine_routes_lane(env_pipeline)) {
         unsigned limit = !strcmp(env_pipeline, "vkd3d") ? ms_frame_rate_limit(home, "vkd3d") : 0;
         char value[16];
         if (limit) {
@@ -6517,11 +6530,12 @@ static void set_direct_game_env(const char* home, const char* prefix, unsigned i
                1);
         setenv("METALSHARP_M9_SYNC_LOADING", "1", 1);
     }
-    /* God of War Ragnarök on the fex build: its Steam Deck path (SteamDeck=1), and no Steam overlay,
+    /* God of War Ragnarök on MetalSharp Wine (fex, and the x86_64 app): its Steam Deck path (SteamDeck=1) -- off it,
+     * the PlayStation PC SDK quits with "not supported" under Wine -- and no Steam overlay,
      * whose GameOverlayRenderer64.dll crashes its D3D12 device (E_ABORT, "graphics device crashed").
      * The override keeps the overlay out of this game only; moving the DLL aside took it from every
      * game, and Steam puts it back when it restarts. */
-    if (ms_wine_is_fex() && id == 2322010) {
+    if ((ms_wine_is_fex() || x86_64_metalsharp_wine()) && id == 2322010) {
         const char* overrides = getenv("WINEDLLOVERRIDES");
         char combined[1024];
         setenv("SteamDeck", "1", 1);
@@ -8179,7 +8193,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         pid_t steam_pid = 0;
         int steam_status = 500;
         char* result;
-        if (ms_wine_is_fex()) {
+        if (ms_wine_routes_lane(pipeline)) {
             char* root = ms_steam_game_dir(home, id);
             (void)write_fex_launch_env(home, id, pipeline, root ? root : game_dir, executable);
             write_fex_launch_exe(home, id, root ? root : game_dir);
@@ -8287,7 +8301,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
      * (Witcher 3's REDprelauncher hands off to a witcher3.exe that dies; Elden Ring's launch goes through
      * its protected-game starter), nor does Hogwarts Legacy on any lane: they start directly, with Steam
      * running for their Steam API. */
-    if (ms_wine_is_fex() && fex_direct_launch_game(id, pipeline)) {
+    if (ms_wine_routes_lane(pipeline) && fex_direct_launch_game(id, pipeline)) {
         char* root = ms_steam_game_dir(home, id);
         char* steam_error;
         int steam_status = 500;
@@ -8300,11 +8314,11 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
                 *status = steam_status;
             return steam_error;
         }
-    } else if (ms_wine_is_fex() && fex_direct_launch_without_steam(id)) {
+    } else if (ms_wine_routes_lane(pipeline) && fex_direct_launch_without_steam(id)) {
         char* root = ms_steam_game_dir(home, id);
         (void)write_fex_launch_env(home, id, pipeline, root ? root : game_dir, executable);
         free(root);
-    } else if (ms_wine_is_fex() && !is_rockstar_launcher_executable(executable)) {
+    } else if (ms_wine_routes_lane(pipeline) && !is_rockstar_launcher_executable(executable)) {
         /* Through the Steam client, so Steam syncs cloud saves and records the launch; the route
          * rides in launch.env. */
         pid_t steam_pid = 0;
