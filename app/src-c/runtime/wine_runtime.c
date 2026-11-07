@@ -26,6 +26,8 @@
 #endif
 
 #define FACADE_MARKER  ".metalsharp-fex-facade"
+/* The regular build's x86_64 runtime as one signed app (tools/package/build-wine-x86_64-app.sh) */
+#define WINE_X86_64_APP "MetalSharp-Wine-x86_64.app"
 #define FACADE_VERSION "3"
 
 const char* ms_wine_variant(void) {
@@ -385,8 +387,10 @@ static bool run_wait(const char* const* argv, const char* prefix, const char* lo
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
-char* ms_wine_fex_app_source(void) {
-    const char* override = getenv("METALSHARP_WINE_APP_SOURCE");
+/* <name> in MetalSharp.app's Resources, next to the backend's runtime folder, else in /Applications' MetalSharp.app;
+ * $<override> names another. */
+static char* app_source(const char* override_name, const char* name) {
+    const char* override = getenv(override_name);
     char path[PATH_MAX], resolved[PATH_MAX], candidate[PATH_MAX];
     if (override && override[0])
         return access(override, R_OK) == 0 ? strdup(override) : NULL;
@@ -398,7 +402,7 @@ char* ms_wine_fex_app_source(void) {
             char* slash = strrchr(resolved, '/');
             if (slash) {
                 *slash = '\0';
-                if (format_path(candidate, sizeof(candidate), "%s/%s", resolved, "../MetalSharp-Wine.app") &&
+                if (format_path(candidate, sizeof(candidate), "%s/../%s", resolved, name) &&
                     realpath(candidate, path) && access(path, R_OK) == 0)
                     return strdup(path);
             }
@@ -406,8 +410,21 @@ char* ms_wine_fex_app_source(void) {
     }
 #endif
     (void)resolved;
-    snprintf(candidate, sizeof(candidate), "%s", "/Applications/MetalSharp.app/Contents/Resources/MetalSharp-Wine.app");
+    if (!format_path(candidate, sizeof(candidate), "%s/%s", "/Applications/MetalSharp.app/Contents/Resources", name))
+        return NULL;
     return access(candidate, R_OK) == 0 ? strdup(candidate) : NULL;
+}
+
+char* ms_wine_fex_app_source(void) {
+    return app_source("METALSHARP_WINE_APP_SOURCE", "MetalSharp-Wine.app");
+}
+
+char* ms_wine_x86_64_app_source(void) {
+    return app_source("METALSHARP_WINE_X86_64_APP_SOURCE", WINE_X86_64_APP);
+}
+
+bool ms_wine_x86_64_app_contents(const char* home, char* out, size_t out_size) {
+    return home && out && format_path(out, out_size, "%s/runtime/%s", home, WINE_X86_64_APP "/Contents");
 }
 
 /* The code directory hash (CDHash) identifies a MetalSharp Wine build. */
@@ -484,25 +501,37 @@ bool ms_wine_fex_refresh_blocked(const char* home) {
     return owner > 0 && (kill((pid_t)owner, 0) == 0 || errno == EPERM);
 }
 
-static bool install_app_locked(const char* home, char* error, size_t error_size);
+static bool install_app_locked(const char* home, char* source, const char* name, char* error, size_t error_size);
 
 bool ms_wine_fex_install_app(const char* home, char* error, size_t error_size) {
     int lock = ms_wine_fex_lock(home, true);
-    bool ok = install_app_locked(home, error, error_size);
+    bool ok = install_app_locked(home, ms_wine_fex_app_source(), "MetalSharp-Wine.app", error, error_size) &&
+              ms_wine_fex_write_facade(home, error, error_size);
     ms_wine_fex_unlock(lock);
     return ok;
 }
 
-static bool install_app_locked(const char* home, char* error, size_t error_size) {
+/* MetalSharp-Wine-x86_64.app into runtime/, as MetalSharp-Wine.app on the fex build: copied while its code signature
+ * differs from the installed one, verified, and read-only. Setup lays out the x86_64 runtime from it. */
+bool ms_wine_x86_64_install_app(const char* home, char* error, size_t error_size) {
+    int lock = ms_wine_fex_lock(home, true);
+    bool ok = install_app_locked(home, ms_wine_x86_64_app_source(), WINE_X86_64_APP, error, error_size);
+    ms_wine_fex_unlock(lock);
+    return ok;
+}
+
+/* Takes source (freed here) */
+static bool install_app_locked(const char* home, char* source, const char* name, char* error, size_t error_size) {
     char app[PATH_MAX], staging[PATH_MAX], old[PATH_MAX], runtime[PATH_MAX], log[PATH_MAX], logs[PATH_MAX];
-    char source_identity[256] = "", installed_identity[256] = "";
-    char* source = ms_wine_fex_app_source();
+    char source_identity[256] = "", installed_identity[256] = "", message[128];
     bool ok = false;
     if (!source) {
-        set_error(error, error_size, "this MetalSharp does not carry MetalSharp-Wine.app; reinstall MetalSharp", NULL);
+        snprintf(message, sizeof(message), "this MetalSharp does not carry %s; reinstall MetalSharp", name);
+        set_error(error, error_size, message, NULL);
         return false;
     }
-    if (!ms_wine_app_path(home, app, sizeof(app)) || !format_path(staging, sizeof(staging), "%s%s", app, ".new") ||
+    if (!format_path(app, sizeof(app), "%s/runtime/%s", home, name) ||
+        !format_path(staging, sizeof(staging), "%s%s", app, ".new") ||
         !format_path(old, sizeof(old), "%s%s", app, ".old") ||
         !format_path(runtime, sizeof(runtime), "%s/%s", home, "runtime") ||
         !format_path(logs, sizeof(logs), "%s/%s", home, "logs") ||
@@ -514,7 +543,8 @@ static bool install_app_locked(const char* home, char* error, size_t error_size)
     (void)ensure_dir(runtime);
     (void)ensure_dir(logs);
     if (!app_identity(source, source_identity, sizeof(source_identity))) {
-        set_error(error, error_size, "MetalSharp-Wine.app is not signed", source);
+        snprintf(message, sizeof(message), "%s is not signed", name);
+        set_error(error, error_size, message, source);
         goto done;
     }
     if (!(access(app, R_OK) == 0 && app_identity(app, installed_identity, sizeof(installed_identity)) &&
@@ -538,7 +568,7 @@ static bool install_app_locked(const char* home, char* error, size_t error_size)
     }
     /* Read-only, so nothing MetalSharp does later can write into the sealed bundle. */
     (void)set_tree_writable(app, false);
-    ok = ms_wine_fex_write_facade(home, error, error_size);
+    ok = true;
 done:
     free(source);
     return ok;
@@ -677,7 +707,8 @@ static void* refresh_thread(void* argument) {
         bool same = app_identity(app, installed, sizeof(installed)) &&
                     app_identity(source, carried, sizeof(carried)) && !strcmp(installed, carried);
         if (same ? !ms_wine_fex_facade_ready(home) && !ms_wine_fex_write_facade(home, error, sizeof(error))
-                 : !install_app_locked(home, error, sizeof(error)))
+                 : !(install_app_locked(home, strdup(source), "MetalSharp-Wine.app", error, sizeof(error)) &&
+                     ms_wine_fex_write_facade(home, error, sizeof(error))))
             fprintf(stderr, "warning: could not refresh MetalSharp Wine: %s\n", error);
     }
     ms_wine_fex_unlock(lock);
@@ -698,23 +729,40 @@ void ms_wine_fex_refresh_async(const char* home) {
     pthread_detach(thread);
 }
 
+/* The fex build's D3D lane is Mullion; the regular build's is Mullion once MetalSharp-Wine-x86_64.app installed it
+ * (runtime/wine/lib/dxmt/VERSION, "Mullion <commit> (x86_64)"), DXMT 0.80 from the bundles before. */
+bool ms_wine_dxmt_lane_is_mullion(const char* home) {
+    char path[PATH_MAX], text[16] = "";
+    FILE* file;
+    if (ms_wine_is_fex())
+        return true;
+    if (!home || !format_path(path, sizeof(path), "%s/runtime/%s", home, "wine/lib/dxmt/VERSION") ||
+        !(file = fopen(path, "r")))
+        return false;
+    if (!fgets(text, sizeof(text), file))
+        text[0] = '\0';
+    fclose(file);
+    return !strncmp(text, "Mullion", 7);
+}
+
+/* Both builds run Mullion (the x86_64 build since MetalSharp-Wine-x86_64.app), which reads mullion.conf and
+ * MULLION_CONFIG_FILE; a dxmt.conf from before becomes it. */
 bool ms_wine_graphics_conf_path(const char* home, char* out, size_t out_size) {
     char old[PATH_MAX];
-    if (!home ||
-        !format_path(out, out_size, "%s/runtime/wine/etc/%s", home, ms_wine_is_fex() ? "mullion.conf" : "dxmt.conf"))
+    if (!home || !format_path(out, out_size, "%s/runtime/wine/etc/%s", home, "mullion.conf"))
         return false;
-    if (ms_wine_is_fex() && access(out, F_OK) != 0 &&
+    if (access(out, F_OK) != 0 &&
         format_path(old, sizeof(old), "%s/runtime/wine/etc/%s", home, "dxmt.conf") && access(old, F_OK) == 0)
         (void)rename(old, out);
     return true;
 }
 
 const char* ms_wine_graphics_conf_env(void) {
-    return ms_wine_is_fex() ? "MULLION_CONFIG_FILE" : "DXMT_CONFIG_FILE";
+    return "MULLION_CONFIG_FILE";
 }
 
 bool ms_wine_vkd3d_lane_conf_path(const char* home, int index, char* out, size_t out_size) {
-    return home && ms_wine_is_fex() && (index == 0 || index == 1) &&
+    return home && (index == 0 || index == 1) &&
            format_path(out, out_size, "%s/runtime/wine/etc/%s", home, index == 0 ? "vkd3d.conf" : "dxvk.conf");
 }
 
