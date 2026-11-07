@@ -34,7 +34,11 @@ pub fn app_name() -> &'static str {
 pub fn set_from_reply(reply: &Value) {
     let fex = reply_is(reply, "variant");
     FEX.store(fex, Ordering::Relaxed);
-    let app = if reply.get("app_variant").is_some() { reply_is(reply, "app_variant") } else { fex };
+    let app = if reply.get("app_variant").is_some() {
+        reply_is(reply, "app_variant")
+    } else {
+        fex
+    };
     APP_FEX.store(app, Ordering::Relaxed);
 }
 
@@ -129,7 +133,10 @@ mod tests {
     #[test]
     fn missing_or_regular_variant_is_regular() {
         assert!(!reply_is(&json!({"ok": true}), "variant"));
-        assert!(!reply_is(&json!({"ok": true, "variant": "regular"}), "variant"));
+        assert!(!reply_is(
+            &json!({"ok": true, "variant": "regular"}),
+            "variant"
+        ));
         assert!(!reply_is(&json!({"ok": true, "variant": null}), "variant"));
         assert!(reply_is(&json!({"ok": true, "variant": "fex"}), "variant"));
     }

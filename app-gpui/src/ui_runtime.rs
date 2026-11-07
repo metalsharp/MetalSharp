@@ -44,28 +44,42 @@ impl MetalSharpApp {
         if target == crate::variant::name() || self.runtime_switch.is_some() {
             return;
         }
-        live::call(cx, "GET", "/runtime/state", None, live::DEFAULT_TIMEOUT, move |this, state, cx| {
-            let Some(state) = state.filter(|s| is_ok(s)) else {
-                toast::error(cx, "Could not read the Wine runtimes");
-                return;
-            };
-            let entry = state.get(target);
-            let flag = |key: &str| entry.and_then(|e| e.get(key)).and_then(Value::as_bool).unwrap_or(false);
-            this.runtime_switch = Some(RuntimeSwitch {
-                target,
-                installed: flag("installed"),
-                source: flag("source"),
-                stage: RuntimeStage::Confirm,
-                received: 0,
-                total: 0,
-                error: None,
-            });
-            cx.notify();
-        });
+        live::call(
+            cx,
+            "GET",
+            "/runtime/state",
+            None,
+            live::DEFAULT_TIMEOUT,
+            move |this, state, cx| {
+                let Some(state) = state.filter(|s| is_ok(s)) else {
+                    toast::error(cx, "Could not read the Wine runtimes");
+                    return;
+                };
+                let entry = state.get(target);
+                let flag = |key: &str| {
+                    entry
+                        .and_then(|e| e.get(key))
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                };
+                this.runtime_switch = Some(RuntimeSwitch {
+                    target,
+                    installed: flag("installed"),
+                    source: flag("source"),
+                    stage: RuntimeStage::Confirm,
+                    received: 0,
+                    total: 0,
+                    error: None,
+                });
+                cx.notify();
+            },
+        );
     }
 
     fn confirm_runtime_switch(&mut self, cx: &mut Context<Self>) {
-        let Some(switch) = self.runtime_switch.as_mut() else { return };
+        let Some(switch) = self.runtime_switch.as_mut() else {
+            return;
+        };
         switch.error = None;
         if switch.installed || switch.source {
             self.perform_runtime_switch(cx);
@@ -83,7 +97,8 @@ impl MetalSharpApp {
             move |this, started, cx| {
                 if !started.as_ref().is_some_and(is_ok) {
                     this.runtime_switch_failed(
-                        error_text(started.as_ref()).unwrap_or_else(|| "Could not start the download".into()),
+                        error_text(started.as_ref())
+                            .unwrap_or_else(|| "Could not start the download".into()),
                         cx,
                     );
                     return;
@@ -94,43 +109,57 @@ impl MetalSharpApp {
     }
 
     fn poll_runtime_download(&mut self, cx: &mut Context<Self>) {
-        live::call(cx, "GET", "/runtime/download/progress", None, live::DEFAULT_TIMEOUT, |this, progress, cx| {
-            let Some(progress) = progress else {
-                this.runtime_switch_failed("The download stopped".into(), cx);
-                return;
-            };
-            let number = |key: &str| progress.get(key).and_then(Value::as_u64).unwrap_or(0);
-            let flag = |key: &str| progress.get(key).and_then(Value::as_bool).unwrap_or(false);
-            if let Some(switch) = this.runtime_switch.as_mut() {
-                switch.received = number("received");
-                switch.total = number("total");
-            }
-            cx.notify();
-            if flag("done") {
-                if flag("ok") {
-                    this.perform_runtime_switch(cx);
-                } else {
-                    let error = progress.get("error").and_then(Value::as_str).unwrap_or("The download failed");
-                    this.runtime_switch_failed(error.to_owned(), cx);
+        live::call(
+            cx,
+            "GET",
+            "/runtime/download/progress",
+            None,
+            live::DEFAULT_TIMEOUT,
+            |this, progress, cx| {
+                let Some(progress) = progress else {
+                    this.runtime_switch_failed("The download stopped".into(), cx);
+                    return;
+                };
+                let number = |key: &str| progress.get(key).and_then(Value::as_u64).unwrap_or(0);
+                let flag = |key: &str| progress.get(key).and_then(Value::as_bool).unwrap_or(false);
+                if let Some(switch) = this.runtime_switch.as_mut() {
+                    switch.received = number("received");
+                    switch.total = number("total");
                 }
-                return;
-            }
-            cx.spawn(async move |this, cx| {
-                cx.background_executor().timer(std::time::Duration::from_millis(500)).await;
-                let _ = this.update(cx, |this, cx| {
-                    if this.runtime_switch.is_some() {
-                        this.poll_runtime_download(cx);
+                cx.notify();
+                if flag("done") {
+                    if flag("ok") {
+                        this.perform_runtime_switch(cx);
+                    } else {
+                        let error = progress
+                            .get("error")
+                            .and_then(Value::as_str)
+                            .unwrap_or("The download failed");
+                        this.runtime_switch_failed(error.to_owned(), cx);
                     }
-                });
-            })
-            .detach();
-        });
+                    return;
+                }
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(500))
+                        .await;
+                    let _ = this.update(cx, |this, cx| {
+                        if this.runtime_switch.is_some() {
+                            this.poll_runtime_download(cx);
+                        }
+                    });
+                })
+                .detach();
+            },
+        );
     }
 
     /// The switch itself, then the backend's restart on the new runtime, then its setup when it isn't
     /// set up yet.
     fn perform_runtime_switch(&mut self, cx: &mut Context<Self>) {
-        let Some(switch) = self.runtime_switch.as_mut() else { return };
+        let Some(switch) = self.runtime_switch.as_mut() else {
+            return;
+        };
         switch.stage = RuntimeStage::Switching;
         let target = switch.target;
         cx.notify();
@@ -143,7 +172,8 @@ impl MetalSharpApp {
             move |this, reply, cx| {
                 if !reply.as_ref().is_some_and(is_ok) {
                     this.runtime_switch_failed(
-                        error_text(reply.as_ref()).unwrap_or_else(|| "Could not switch the Wine runtime".into()),
+                        error_text(reply.as_ref())
+                            .unwrap_or_else(|| "Could not switch the Wine runtime".into()),
                         cx,
                     );
                     return;
@@ -155,7 +185,10 @@ impl MetalSharpApp {
                     .unwrap_or(false);
                 let Some(live) = Live::get(cx) else { return };
                 cx.spawn(async move |this, cx| {
-                    let started = cx.background_executor().spawn(async move { live.start_backend() }).await;
+                    let started = cx
+                        .background_executor()
+                        .spawn(async move { live.start_backend() })
+                        .await;
                     let _ = this.update(cx, |this, cx| {
                         this.runtime_switch = None;
                         match started {
@@ -189,7 +222,11 @@ impl MetalSharpApp {
     }
 
     /// FEX | x86_64, right of the search field in the header (where Library | Collection was).
-    pub(super) fn render_runtime_toggle(&self, layout: LibraryLayout, cx: &mut Context<Self>) -> gpui::Div {
+    pub(super) fn render_runtime_toggle(
+        &self,
+        layout: LibraryLayout,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
         let border = rgba(0xe7eaec4d);
         let fill = rgba(0x0c0f10b8);
         let active = crate::variant::name();
@@ -207,7 +244,9 @@ impl MetalSharpApp {
                 .text_color(rgb(if on { 0xffffff } else { 0xaab4c4 }))
                 .when(on, |d| d.bg(rgba(0xffffff26)))
                 .cursor_pointer()
-                .on_click(cx.listener(move |this, _, _, cx| this.request_runtime_switch(variant, cx)))
+                .on_click(
+                    cx.listener(move |this, _, _, cx| this.request_runtime_switch(variant, cx)),
+                )
                 .child(runtime_label(variant))
         };
         div()
@@ -244,13 +283,17 @@ impl MetalSharpApp {
         } else if switch.source {
             (
                 format!("Set up {name}?"),
-                format!("{name} isn't set up yet. MetalSharp sets it up next to the one you have, so you can switch between them here. Your Steam login, games and prefixes carry over."),
+                format!(
+                    "{name} isn't set up yet. MetalSharp sets it up next to the one you have, so you can switch between them here. Your Steam login, games and prefixes carry over."
+                ),
                 "Set up",
             )
         } else {
             (
                 format!("Download and set up {name}?"),
-                format!("{name} isn't installed. MetalSharp downloads it (about 1.5 GB) and sets it up next to the one you have, so you can switch between them here. Your Steam login, games and prefixes carry over."),
+                format!(
+                    "{name} isn't installed. MetalSharp downloads it (about 1.5 GB) and sets it up next to the one you have, so you can switch between them here. Your Steam login, games and prefixes carry over."
+                ),
                 "Download and set up",
             )
         };
@@ -260,7 +303,10 @@ impl MetalSharpApp {
                 switch.received as f64 / 1e9,
                 switch.total as f64 / 1e9
             )),
-            RuntimeStage::Downloading => Some(format!("Downloading… {:.1} GB", switch.received as f64 / 1e9)),
+            RuntimeStage::Downloading => Some(format!(
+                "Downloading… {:.1} GB",
+                switch.received as f64 / 1e9
+            )),
             RuntimeStage::Switching => Some("Switching…".to_owned()),
             RuntimeStage::Confirm => None,
         };
@@ -287,10 +333,14 @@ impl MetalSharpApp {
         let mut actions = div().flex().justify_end().gap(px(layout.scaled(8.0)));
         if !busy {
             actions = actions
-                .child(button("runtime-switch-cancel", "Cancel", false).on_click(cx.listener(|this, _, _, cx| {
-                    this.runtime_switch = None;
-                    cx.notify();
-                })))
+                .child(
+                    button("runtime-switch-cancel", "Cancel", false).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.runtime_switch = None;
+                            cx.notify();
+                        },
+                    )),
+                )
                 .child(
                     button("runtime-switch-confirm", confirm, true)
                         .on_click(cx.listener(|this, _, _, cx| this.confirm_runtime_switch(cx))),

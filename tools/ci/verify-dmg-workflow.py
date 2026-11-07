@@ -50,7 +50,13 @@ def check_package_resources(assets: list[str]) -> None:
     ]:
         if needle not in packaging:
             fail(f"GPUI packaging no longer stages {needle}")
-    bundle_loop = next((line for line in packaging.splitlines() if line.strip().startswith("for archive in")), "")
+    # The bundle list: its first archives=(...) (the full one; a package carrying MetalSharp-Wine-x86_64.app narrows
+    # it), else the for archive in ... line that lists them itself.
+    lines = packaging.splitlines()
+    bundle_loop = next((line for line in lines if line.strip().startswith("archives=(")), "") or next(
+        (line for line in lines if line.strip().startswith("for archive in")), ""
+    )
+    bundle_loop = bundle_loop.replace("archives=(", " ").replace(")", " ")
     for asset in assets:
         if asset == "metalsharp-d3d12-developer-sdk.tar.zst":
             continue
