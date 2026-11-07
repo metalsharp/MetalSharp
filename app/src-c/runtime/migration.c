@@ -468,7 +468,7 @@ static bool runtime_ready(const char* home) {
         {"runtime/goldberg/x86/steam_api.dll", "f"},
         {"runtime/goldberg/x64/steam_api64.dll", "f"},
         {"configs/mtsp-rules.toml", "f"},
-        {"runtime/wine/etc/dxmt.conf", "f"},
+        {"runtime/wine/etc/mullion.conf", "f"},
         {"runtime/wine/lib/dxmt/metalsharp-dxmt-runtime.json", "f"},
         {"runtime/wine/lib/dxmt/x86_64-unix/winemetal.so", "f"},
         {"runtime/wine/lib/moltenvk-vkmt/libMoltenVK.dylib", "f"},
@@ -478,6 +478,11 @@ static bool runtime_ready(const char* home) {
         {"runtime/wine/lib/wine/x86_64-unix/ntdll.so", "f"},
     };
     bool ok = true;
+    {
+        /* mullion.conf, which a dxmt.conf from before becomes */
+        char conf[PATH_MAX];
+        (void)ms_wine_graphics_conf_path(home, conf, sizeof(conf));
+    }
     for (size_t i = 0; i < sizeof(required) / sizeof(required[0]); i++) {
         char* path = path_join(home, required[i][0]);
         bool present = path && (i == 0 ? access(path, X_OK) == 0 : file_nonempty_local(path));
@@ -534,7 +539,7 @@ static void runtime_missing_detail(const char* home, char* detail, size_t detail
                                            "runtime/goldberg/x86/steam_api.dll",
                                            "runtime/goldberg/x64/steam_api64.dll",
                                            "configs/mtsp-rules.toml",
-                                           "runtime/wine/etc/dxmt.conf",
+                                           "runtime/wine/etc/mullion.conf",
                                            "runtime/wine/lib/dxmt/metalsharp-dxmt-runtime.json",
                                            "runtime/wine/lib/moltenvk-vkmt/libMoltenVK.dylib",
                                            "runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json"};

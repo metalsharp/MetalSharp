@@ -2030,9 +2030,14 @@ static char* pipeline_diagnostic(const char* kind, const char* query, int* statu
                                                                  : "winemetal,dxgi,d3d11,d3d10core=n,b");
         ENV_PAIR("WINEDLLPATH", windows_path);
         if (!strcmp(pipeline, "dxmt") || !strcmp(pipeline, "dxmt_32") || !strcmp(pipeline, "d3d9")) {
-            snprintf(value, sizeof(value), "%s/etc/dxmt.conf", root);
+            snprintf(value, sizeof(value), "%s/etc/mullion.conf", root);
+            ENV_PAIR("MULLION_CONFIG_FILE", value);
             ENV_PAIR("DXMT_CONFIG_FILE", value);
             ENV_PAIR("DXMT_WINEMETAL_UNIXLIB", "winemetal.so");
+            /* as a launch sets them: Wine's loader takes the lane's modules only with both */
+            snprintf(value, sizeof(value), "%s/lib/dxmt", root);
+            ENV_PAIR("DXMT_RUNTIME_DIR", value);
+            ENV_PAIR("GRAPHICS_BACKEND", "dxmt");
         } else if (!strcmp(pipeline, "vkd3d")) {
             snprintf(value, sizeof(value), "%s/etc/vulkan/icd.d/MoltenVK_icd.json", root);
             ENV_PAIR("VK_ICD_FILENAMES", value);

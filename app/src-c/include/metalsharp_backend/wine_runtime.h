@@ -98,7 +98,10 @@ bool ms_wine_fex_prefix_ready(const char* prefix);
  *   counted in *without_backup, since the x86_64 Wine must not run it. */
 /* The graphics config MetalSharp edits: Mullion's runtime/wine/etc/mullion.conf, named by
  * MULLION_CONFIG_FILE, on the fex build (a dxmt.conf from before is renamed to it once, keeping its
- * settings); DXMT's dxmt.conf and DXMT_CONFIG_FILE on the regular build. */
+ * settings), on both builds (a dxmt.conf from before becomes it). */
+/* Whether the D3D10/11 lane (runtime/wine/lib/dxmt) is Mullion: always on the fex build, on the regular build once
+ * MetalSharp-Wine-x86_64.app installed it (DXMT 0.80 from the bundles before). */
+bool ms_wine_dxmt_lane_is_mullion(const char* home);
 bool ms_wine_graphics_conf_path(const char* home, char* out, size_t out_size);
 const char* ms_wine_graphics_conf_env(void);
 
@@ -127,5 +130,12 @@ const char* ms_wine_setup_variant_to_record(const char* home);
 bool ms_wine_fex_convert_prefix(const char* home, const char* prefix, char* error, size_t error_size);
 unsigned ms_wine_fex_convert_prefixes(const char* home, char* error, size_t error_size);
 unsigned ms_wine_restore_x86_64_prefixes(const char* home, unsigned* without_backup);
+
+/* The regular build's x86_64 runtime as one signed app, MetalSharp-Wine-x86_64.app: where MetalSharp carries it
+ * (MetalSharp.app's Resources; $METALSHARP_WINE_X86_64_APP_SOURCE), its installed Contents in runtime/, and its
+ * install there (copied while its signature differs, verified, read-only). */
+char* ms_wine_x86_64_app_source(void);
+bool ms_wine_x86_64_app_contents(const char* home, char* out, size_t out_size);
+bool ms_wine_x86_64_install_app(const char* home, char* error, size_t error_size);
 
 #endif
