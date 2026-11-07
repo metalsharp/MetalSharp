@@ -2357,18 +2357,18 @@ static bool x86_64_runtime_staged(const char* home) {
     return !strcmp(identity, staged);
 }
 
-static void* x86_64_refresh_thread(void* arg) {
-    char* home = arg;
-    char error[512] = "";
+bool ms_setup_x86_64_refresh(const char* home, char* error, size_t error_size) {
+    bool ok = true;
     if (!ms_wine_is_fex() && x86_64_runtime_from_app(home) &&
         (!ms_wine_x86_64_app_current(home) || !x86_64_runtime_staged(home))) {
         ms_log_event(home, "Updating MetalSharp Wine (x86_64) from MetalSharp.app...");
         char* dxmt = join_path(home, "runtime/wine/lib/dxmt");
         /* as setup's graphics step does: Mullion's native bridges signed and its manifest, which setup's state reads
          * (laying lib/ out again took both) */
-        if (ms_wine_x86_64_install_app(home, error, sizeof(error)) &&
-            stage_x86_64_runtime_from_app(home, error, sizeof(error)) && dxmt && sign_dxmt_native_bridges(dxmt) &&
-            write_dxmt_manifest(dxmt)) {
+        ok = ms_wine_x86_64_install_app(home, error, error_size) &&
+             stage_x86_64_runtime_from_app(home, error, error_size) && dxmt && sign_dxmt_native_bridges(dxmt) &&
+             write_dxmt_manifest(dxmt);
+        if (ok) {
             (void)ms_setup_wine_wrapper_ensure(home);
             ms_log_event(home, "MetalSharp Wine (x86_64) updated");
         } else {
@@ -2378,6 +2378,16 @@ static void* x86_64_refresh_thread(void* arg) {
         }
         free(dxmt);
     }
+    return ok;
+}
+
+static void* x86_64_refresh_thread(void* arg) {
+    char* home = arg;
+    char error[512] = "";
+    /* A pending or running migration swaps the app itself (ms_setup_x86_64_refresh), so the two never lay the
+     * runtime out at the same time. */
+    if (!ms_wine_fex_refresh_blocked(home))
+        (void)ms_setup_x86_64_refresh(home, error, sizeof(error));
     free(home);
     return NULL;
 }

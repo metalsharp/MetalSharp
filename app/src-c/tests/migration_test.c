@@ -1,4 +1,6 @@
 #include <assert.h>
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,6 +14,13 @@ char* ms_setup_install_all_json(const char* home, int* status) {
     (void)home;
     (void)status;
     return NULL;
+}
+
+bool ms_setup_x86_64_refresh(const char* home, char* error, size_t error_size) {
+    (void)home;
+    (void)error;
+    (void)error_size;
+    return true;
 }
 
 char* ms_steam_stop_json(const char* home, int* status) {
@@ -115,12 +124,50 @@ static void test_migration_paths(void) {
     assert(!ms_migration_fex_welcome_due(MS_MIGRATION_PATH_NONE));
 }
 
+/* An update of a home MetalSharp Wine runs (fex, or the x86_64 app runtime) whose runtime is ready only swaps its Wine
+ * app; a move between the builds, a runtime that isn't ready, and the bundles' x86_64 runtime keep their path. */
+static void test_app_update_path(void) {
+    char home[256], marker[512];
+    snprintf(home, sizeof(home), "/tmp/metalsharp-app-update-%ld", (long)getpid());
+    assert(mkdir(home, 0755) == 0);
+    if (ms_wine_is_fex()) {
+        assert(app_update_path(MS_MIGRATION_PATH_FEX_UPDATE, true) == MS_MIGRATION_PATH_APP_UPDATE);
+        assert(app_update_path(MS_MIGRATION_PATH_FEX_UPDATE, false) == MS_MIGRATION_PATH_FEX_UPDATE);
+        assert(app_update_path(MS_MIGRATION_PATH_REGULAR_TO_FEX, true) == MS_MIGRATION_PATH_REGULAR_TO_FEX);
+    } else {
+        FILE* file;
+        /* the bundles' runtime: a full migration as before */
+        setenv("METALSHARP_HOME", home, 1);
+        assert(app_update_path(MS_MIGRATION_PATH_FULL, true) == MS_MIGRATION_PATH_FULL);
+        snprintf(marker, sizeof(marker), "%s/runtime", home);
+        assert(mkdir(marker, 0755) == 0);
+        snprintf(marker, sizeof(marker), "%s/runtime/wine", home);
+        assert(mkdir(marker, 0755) == 0);
+        snprintf(marker, sizeof(marker), "%s/runtime/wine/.metalsharp-x86_64-app", home);
+        file = fopen(marker, "w");
+        assert(file && fclose(file) == 0);
+        assert(app_update_path(MS_MIGRATION_PATH_FULL, true) == MS_MIGRATION_PATH_APP_UPDATE);
+        assert(app_update_path(MS_MIGRATION_PATH_FULL, false) == MS_MIGRATION_PATH_FULL);
+        assert(app_update_path(MS_MIGRATION_PATH_FEX_TO_REGULAR, true) == MS_MIGRATION_PATH_FEX_TO_REGULAR);
+        assert(app_update_path(MS_MIGRATION_PATH_NONE, true) == MS_MIGRATION_PATH_NONE);
+        unlink(marker);
+        snprintf(marker, sizeof(marker), "%s/runtime/wine", home);
+        rmdir(marker);
+        snprintf(marker, sizeof(marker), "%s/runtime", home);
+        rmdir(marker);
+        unsetenv("METALSHARP_HOME");
+    }
+    rmdir(home);
+    assert(!strcmp(ms_migration_path_name(MS_MIGRATION_PATH_APP_UPDATE), "app_update"));
+}
+
 int main(void) {
     char home[256];
     char path[512];
     preserved_data preserved;
 
     test_migration_paths();
+    test_app_update_path();
     /* FEX -> regular: a restore that fails reports the step failed, so the worker records no build and the
      * next start retries; once the backup can be read, the step succeeds. */
     {

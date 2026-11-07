@@ -67,6 +67,8 @@ void ms_wine_fex_unlock(int fd);
 /* A migration is pending (the updater's marker) or running (migration.lock): it reinstalls MetalSharp
  * Wine itself, so the startup refresh leaves it alone. */
 bool ms_wine_fex_refresh_blocked(const char* home);
+/* MetalSharp-Wine.app swapped in place for the one MetalSharp.app carries, when they differ (a MetalSharp update) */
+bool ms_wine_fex_refresh_app(const char* home, char* error, size_t error_size);
 /* At backend start, on a detached thread: once setup has installed MetalSharp Wine, reinstall it
  * when this MetalSharp carries a different build, and rewrite the facade's wrappers. */
 void ms_wine_fex_refresh_async(const char* home);

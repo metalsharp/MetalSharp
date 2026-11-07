@@ -813,24 +813,39 @@ bool ms_wine_fex_prepare_prefix(const char* home, const char* prefix, bool force
     return true;
 }
 
-static void* refresh_thread(void* argument) {
-    char* home = argument;
-    char app[PATH_MAX], error[512] = "", installed[256] = "", carried[256] = "";
+/* The installed MetalSharp-Wine.app swapped for the one MetalSharp.app carries when they differ, in place (only an
+ * install that setup finished: a fresh one gets MetalSharp Wine from the setup wizard). The lock keeps two from
+ * replacing the app at the same time; wait says whether to wait for it. */
+static bool refresh_app(const char* home, bool wait, char* error, size_t error_size) {
+    char app[PATH_MAX], installed[256] = "", carried[256] = "";
     char* source = ms_wine_fex_app_source();
-    /* Only an install that setup finished: a fresh one gets MetalSharp Wine from the setup wizard.
-     * A pending or running migration reinstalls it itself, and the lock keeps this refresh and a
-     * migration's install from replacing the app at the same time. */
-    int lock = ms_wine_fex_refresh_blocked(home) ? -1 : ms_wine_fex_lock(home, false);
+    int lock = ms_wine_fex_lock(home, wait);
+    bool ok = true;
     if (lock >= 0 && source && ms_wine_app_path(home, app, sizeof(app)) && access(app, F_OK) == 0) {
         bool same = app_identity(app, installed, sizeof(installed)) &&
                     app_identity(source, carried, sizeof(carried)) && !strcmp(installed, carried);
-        if (same ? !ms_wine_fex_facade_ready(home) && !ms_wine_fex_write_facade(home, error, sizeof(error))
-                 : !(install_app_locked(home, strdup(source), "MetalSharp-Wine.app", error, sizeof(error)) &&
-                     ms_wine_fex_write_facade(home, error, sizeof(error))))
-            fprintf(stderr, "warning: could not refresh MetalSharp Wine: %s\n", error);
+        ok = same ? ms_wine_fex_facade_ready(home) || ms_wine_fex_write_facade(home, error, error_size)
+                  : install_app_locked(home, strdup(source), "MetalSharp-Wine.app", error, error_size) &&
+                        ms_wine_fex_write_facade(home, error, error_size);
+    } else if (lock < 0 && wait) {
+        set_error(error, error_size, "could not lock MetalSharp Wine", home);
+        ok = false;
     }
     ms_wine_fex_unlock(lock);
     free(source);
+    return ok;
+}
+
+bool ms_wine_fex_refresh_app(const char* home, char* error, size_t error_size) {
+    return home && refresh_app(home, true, error, error_size);
+}
+
+static void* refresh_thread(void* argument) {
+    char* home = argument;
+    char error[512] = "";
+    /* A pending or running migration swaps the app itself (ms_wine_fex_refresh_app). */
+    if (!ms_wine_fex_refresh_blocked(home) && !refresh_app(home, false, error, sizeof(error)))
+        fprintf(stderr, "warning: could not refresh MetalSharp Wine: %s\n", error);
     free(home);
     return NULL;
 }
