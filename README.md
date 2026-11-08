@@ -6,7 +6,7 @@
 
 ___
 
-### Run Windows games on MacOS Silicon.
+### Run Windows Games / Programs on MacOS Silicon.
 
 <a href="https://github.com/metalsharp/MetalSharp/releases/tag/v1.1.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v1.1.0&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases"><img src="https://img.shields.io/github/downloads/metalsharp/MetalSharp/total?style=for-the-badge" alt="Downloads"></a>
