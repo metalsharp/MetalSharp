@@ -6599,6 +6599,38 @@ static char* performance_core_shim(const char* home) {
 
 /* The environment a directly launched game starts with: the route, launch preferences, caches and
  * per-title settings (logging and the CPU shim are the launch's own). */
+/* Whether a game ships CrashRpt in a folder that also holds Chromium (libcef.dll or chrome_elf.dll): the game's folder
+ * or one below it (Bin64, ...). The x86_64 runtime's Wine gives every program in a Chromium folder --in-process-gpu
+ * (to keep a browser's windows drawing on macOS), so CrashRpt's CrashSender.exe, started with exactly the arguments it
+ * expects, quits at once, and the game waits for it forever at startup (BeamNG.drive). */
+static bool crashrpt_beside_chromium(const char* dir, int depth) {
+    static const char* const chromium[] = {"libcef.dll", "chrome_elf.dll"};
+    char* crashrpt = join(dir, "crashrpt.dll");
+    bool found = false;
+    DIR* listing;
+    struct dirent* entry;
+    if (crashrpt && access(crashrpt, F_OK) == 0)
+        for (size_t i = 0; !found && i < sizeof(chromium) / sizeof(chromium[0]); i++) {
+            char* marker = join(dir, chromium[i]);
+            found = marker && access(marker, F_OK) == 0;
+            free(marker);
+        }
+    free(crashrpt);
+    if (found || depth <= 0 || !(listing = opendir(dir)))
+        return found;
+    while (!found && (entry = readdir(listing)) != NULL) {
+        char* child;
+        struct stat info;
+        if (entry->d_name[0] == '.')
+            continue;
+        if ((child = join(dir, entry->d_name)) && stat(child, &info) == 0 && S_ISDIR(info.st_mode))
+            found = crashrpt_beside_chromium(child, depth - 1);
+        free(child);
+    }
+    closedir(listing);
+    return found;
+}
+
 static void set_direct_game_env(const char* home, const char* prefix, unsigned id, const char* pipeline,
                                 const char* env_pipeline, const rockstar_launcher_game* rockstar) {
     char app_id[32];
@@ -6653,6 +6685,34 @@ static void set_direct_game_env(const char* home, const char* prefix, unsigned i
         setenv("WINEDLLOVERRIDES", pipeline_overrides(env_pipeline), 1);
     else
         unsetenv("WINEDLLOVERRIDES");
+    /* The x86_64 runtime (MetalSharp-Wine-x86_64.app): Microsoft's VC++ 2015-2022 runtime ahead of Wine's. Wine
+     * prefers its own builtin for a DLL in System32, and its msvcp140 lacks parts of the C++ library games link
+     * against (std::get_new_handler, which BeamNG.drive's mimalloc calls first thing: "unimplemented function"). The
+     * prefix has Microsoft's x64 DLLs (the VC++ installer's, or the ones swapped in for the ARM64X ones the FEX
+     * runtime put there); native,builtin loads them, and Wine's still serve where they are missing. MetalSharp Wine
+     * (FEX) loads the ARM64X ones its own way. Rides in launch.env, so games Steam starts get it too. */
+    if (x86_64_metalsharp_wine()) {
+        static const char vcrun[] = "concrt140,msvcp140,msvcp140_1,msvcp140_2,msvcp140_atomic_wait,"
+                                    "msvcp140_codecvt_ids,vcomp140,vcruntime140,vcruntime140_1=n,b";
+        const char* overrides = getenv("WINEDLLOVERRIDES");
+        char combined[1024];
+        char* game_dir = ms_steam_game_dir(home, id);
+        /* and CrashRpt off where it sits beside Chromium (crashrpt_beside_chromium): the game carries on without
+         * its crash reporter, as it does when CrashRpt cannot install */
+        bool crashrpt = game_dir && crashrpt_beside_chromium(game_dir, 1);
+        snprintf(combined, sizeof(combined), "%s%s%s%s", overrides ? overrides : "", overrides && overrides[0] ? ";" : "",
+                 vcrun, crashrpt ? ";crashrpt=d" : "");
+        setenv("WINEDLLOVERRIDES", combined, 1);
+        free(game_dir);
+        /* Windows code reads its thread block gs-relative (mimalloc v3's per-thread heap, which BeamNG.drive uses
+         * through its allocator: without it every allocation fails and the game aborts at startup). The x86_64
+         * Wine points GSBASE at the TEB only for Mullion's processes and programs that use fibers unless told to;
+         * every lane but D3DMetal, which does not load with it, gets it. */
+        if (strcmp(env_pipeline, "d3dmetal"))
+            setenv("MS_GSBASE_SWITCH", "1", 1);
+        else
+            unsetenv("MS_GSBASE_SWITCH");
+    }
     if (pipeline_needs_legacy_game_args(pipeline) && (id == 774361 || id == 17410 || id == 49520)) {
         setenv("DXMT_ASYNC_PIPELINE_COMPILE", "0", 1);
         setenv("DXMT_METALFX_SPATIAL_SWAPCHAIN", "0", 1);
@@ -6700,7 +6760,7 @@ static const char* const launch_env_route_names[] = {
     "VKD3D_CONFIG_FILE", "DXVK_CONFIG_FILE", "DXVK_CONFIG",
     "WINEDLLOVERRIDES", "OPENGL_BACKEND",
     "DXVK_STATE_CACHE_PATH", "DXVK_LOG_PATH", "DXVK_LOG_LEVEL", "VKD3D_DEBUG", "VKD3D_CONFIG", "VKD3D_FRAME_RATE",
-    "VKD3D_SHADER_CACHE_PATH", "MULLION_SHADER_CACHE_PATH",
+    "VKD3D_SHADER_CACHE_PATH", "MULLION_SHADER_CACHE_PATH", "MS_GSBASE_SWITCH",
     "METALSHARP_PIPELINE"};
 
 static const char* env_value(char** env, const char* name, size_t length) {
