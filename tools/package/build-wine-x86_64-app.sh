@@ -41,6 +41,7 @@
 #   WINE_BUILD=<the x86_64 Wine's build tree> WINE_MODULES="ntdll win32u ..." (modules rebuilt there with MetalSharp
 #   Wine's fixes, which replace the bundle's; server for the wineserver)
 #   WINEMETALGL=<install-x86_64/winemetalgl> VCRUN_X64=<Microsoft's x64 VC++ runtime DLLs> DEPS_SRC=<deps/src-x86_64:deps/src> LICENSES_EXTRA=<dir of license folders> (share/licenses)
+#   MACOS15_SDK=<a macOS 15 SDK, which macos-floor.py holds the app to>
 #   D3DMETAL=<GPTK 4.0 beta 3: dir with external/ and wine/> D3DMETAL_GPTK3=<GPTK 3.0: the same, from redist/lib> MEDIA=<x86_64 GStreamer/FFmpeg prefix> SIGN_IDENTITY="Developer ID Application: ..." \
 #     tools/package/build-wine-x86_64-app.sh <output dir>
 set -euo pipefail
@@ -236,6 +237,9 @@ cp -Rp "$GX/d3dmetal" "$GX/external" "$M/graphics/"
 
 # --- relocatable: libraries named by their build machines' paths are found next to their users ----------------------
 python3 -I "$HERE/wine-x86_64/relocate-macho.py" "$C"
+# The oldest macOS the release supports is 15.0: payloads linked on a newer macOS without a deployment target are held
+# to it once the macOS 15 SDK shows they need nothing newer (macos-floor.py; signing below)
+python3 -I "$HERE/wine-x86_64/macos-floor.py" --sdk "${MACOS15_SDK:?set MACOS15_SDK to a macOS 15 SDK (MacOSX15.x.sdk)}" --fix "$C"
 
 # The app's main executable is Contents/MacOS/wine, whose signature is bound to the app's Info.plist; outside the app
 # (the x86_64 install's runtime/wine/bin, laid out from it) that copy does not run. A copy signed on its own goes in
@@ -421,5 +425,6 @@ SIGN_ID="$IDENTITY" SIGN_FLAGS="${opts[*]:3}" xargs -0 -P "$(sysctl -n hw.ncpu)"
 codesign "${opts[@]}" --entitlements "$ENT" "$C/MacOS/wine"
 codesign "${opts[@]}" --entitlements "$ENT" "$APP"
 codesign --verify --deep --strict "$APP"
+python3 -I "$HERE/wine-x86_64/macos-floor.py" --sdk "$MACOS15_SDK" "$APP"
 rm -rf "$WORK"
 echo "built: $APP ($(du -sh "$APP" | cut -f1), signed by $IDENTITY)"
