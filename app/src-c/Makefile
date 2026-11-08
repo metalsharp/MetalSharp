@@ -137,6 +137,7 @@ test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EX
 	@bash "$(PROJECT_ROOT)/app/updater/tests/legacy_shutdown_timeout_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@bash "$(PROJECT_ROOT)/app/updater/tests/install_progress_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@bash "$(PROJECT_ROOT)/app/updater/tests/build_switch_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
+	@bash "$(PROJECT_ROOT)/app/updater/tests/stopped_status_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@python3 "$(CURDIR)/tests/steam_process_test.py" "$(TARGET)"
 
 test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(BUILD_DIR)/runtime-routes-test $(STORE_LAUNCHERS_TEST) $(LIBRARY_LOCATIONS_TEST) $(LAUNCHER_UNINSTALL_TEST)
@@ -158,6 +159,7 @@ test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCP
 	@bash "$(PROJECT_ROOT)/app/updater/tests/legacy_shutdown_timeout_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@bash "$(PROJECT_ROOT)/app/updater/tests/install_progress_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@bash "$(PROJECT_ROOT)/app/updater/tests/build_switch_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
+	@bash "$(PROJECT_ROOT)/app/updater/tests/stopped_status_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@python3 "$(CURDIR)/tests/steam_process_test.py" "$(TARGET)"
 
 asan-test:
