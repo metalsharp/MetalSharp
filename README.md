@@ -26,9 +26,7 @@ ___
 
 MetalSharp is a Free Wine 11.17 x86_64 (MacOS 15+) / Wine 11.20 with FEX (MacOS 26.4+) Custom-Built Runtime That Runs Windows Applications / Games on Apple Silicon, Built Inside a GPUI Application. MetalSharp Aims to Make The Process of Launching Your Games Easy Without Extra Needed Configuration Steps. 
 
-<img width="1143" height="845" alt="MetalSharp Library" src="https://github.com/user-attachments/assets/520cc3e4-4b74-4d40-b402-10fece051cd1" />
-
-
+<img width="1186" height="861" alt="Screenshot 2026-11-08 at 1 09 05 AM" src="https://github.com/user-attachments/assets/f6867751-1863-490d-b9bc-a1ce9b3c5c94" />
 
 
 </div>
@@ -74,11 +72,9 @@ ___
 | Version | Route | Engine |
 |---|---|---|
 | x86_64 | **_D3DMetal_** | D3D12/11/10 Through the Latest D3DMetal Framework |
-| x86_64 | **_VKD3D_** | D3D12 Through VKD3D-Proton, D3D11 / D3D10 / D3D9 Through DXVK -> MoltenVK -> Metal |
-| x86_64 | **_DXMT_** | D3D11, D3D10 to Metal |
-| x86_64 | **_DXMT(32)_** | D3D11, D3D10 32-bit to Metal |
-| x86_64 | **_D3D9_** | D3D9 With x87 Acceleration for Older Titles |
-| x86_64 | **_Mono/FNA_** | Windows XNA/FNA via Native Mono |
+| x86_64 | **_VKD3D / DXVK_** | D3D12 Through VKD3D-Proton, D3D11 / D3D10 / D3D9 Through DXVK -> MoltenVK -> Metal |
+| x86_64 | **_Mullion(DXMT)_** | D3D12 / D3D11 / D3D10 to Metal, X86/X64 -> Metal |
+| x86_64 | **_OpenGL_** | OpenGL 1.0->4.6 Through WineMetalGL |
 
 ## Features
 
