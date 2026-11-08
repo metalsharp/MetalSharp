@@ -467,6 +467,14 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, 200, body);
         return true;
     }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/runtime/vcrun/repair") == 0) {
+        ms_log_event(context->metalsharp_home, "VC++ runtime repair requested");
+        body = ms_wine_repair_vcrun_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/runtime/uninstall") == 0) {
         ms_log_event(context->metalsharp_home, "Wine runtime uninstall requested");
         body = ms_wine_uninstall_runtime_json(context->metalsharp_home, (const char*)request->body,

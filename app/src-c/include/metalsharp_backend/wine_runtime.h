@@ -176,6 +176,9 @@ char* ms_wine_runtime_download_progress_json(void);
 /* A prefix's VC++ 2015-2022 runtime for the runtime it starts with: Microsoft's x64 DLLs in place of the ARM64X ones
  * an installer put in under FEX (x86_64 true), or those back (false). Returns the DLLs changed. */
 unsigned ms_wine_fit_prefix_vcrun(const char* home, bool x86_64);
+bool ms_wine_repair_vcrun(const char* home, const char* prefix, char* error, size_t error_size);
+unsigned ms_wine_repair_prefixes_vcrun(const char* home, char* error, size_t error_size);
+char* ms_wine_repair_vcrun_json(const char* home);
 bool ms_wine_x86_64_app_current(const char* home);
 bool ms_wine_x86_64_app_identity(const char* home, char* out, size_t out_size);
 

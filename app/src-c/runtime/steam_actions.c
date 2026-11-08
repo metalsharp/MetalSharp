@@ -6599,6 +6599,23 @@ static char* performance_core_shim(const char* home) {
 
 /* The environment a directly launched game starts with: the route, launch preferences, caches and
  * per-title settings (logging and the CPU shim are the launch's own). */
+/* Whether a prefix's System32 has Microsoft's VC++ runtime (msvcp140.dll that is not a copy of Wine's builtin,
+ * "Wine builtin DLL" in its DOS stub). Under MetalSharp Wine (FEX) a prefix may hold only Wine's own copies, pure
+ * ARM64 ones: loading those native into an x64 game fails, and the game reports the VC++ runtime missing (Subnautica
+ * 2's "Microsoft Visual C++ 2015-2022 Redistributable (arm64)"), where Wine's builtin ARM64EC ones work. */
+static bool prefix_has_microsoft_vcrun(const char* prefix) {
+    char* path = join(prefix, "drive_c/windows/system32/msvcp140.dll");
+    unsigned char head[0x60];
+    size_t length = 0;
+    FILE* file = path ? fopen(path, "rb") : NULL;
+    free(path);
+    if (!file)
+        return false;
+    length = fread(head, 1, sizeof(head), file);
+    fclose(file);
+    return length >= 0x50 && head[0] == 'M' && head[1] == 'Z' && memcmp(head + 0x40, "Wine builtin DLL", 16) != 0;
+}
+
 /* Whether a game ships CrashRpt in a folder that also holds Chromium (libcef.dll or chrome_elf.dll): the game's folder
  * or one below it (Bin64, ...). The x86_64 runtime's Wine gives every program in a Chromium folder --in-process-gpu
  * (to keep a browser's windows drawing on macOS), so CrashRpt's CrashSender.exe, started with exactly the arguments it
@@ -6688,10 +6705,11 @@ static void set_direct_game_env(const char* home, const char* prefix, unsigned i
     /* Both MetalSharp Wine runtimes: Microsoft's VC++ 2015-2022 runtime ahead of Wine's. Wine prefers its own
      * builtin for a DLL in System32, and its msvcp140 lacks parts of the C++ library games link against
      * (std::get_new_handler, which BeamNG.drive's mimalloc calls when an allocation fails: "unimplemented function").
-     * The prefix has Microsoft's DLLs: the VC++ installer's (ARM64X under FEX), and Microsoft's x64 ones swapped in
-     * under the x86_64 runtime; native,builtin loads them, and Wine's still serve where they are missing. Rides in
-     * launch.env, so games Steam starts get it too. */
-    if (ms_wine_is_fex() || x86_64_metalsharp_wine()) {
+     * The x86_64 runtime swaps Microsoft's x64 DLLs into the prefix; under FEX the prefix has Microsoft's ARM64X
+     * ones only where the VC++ installer ran, so there the override waits for them (prefix_has_microsoft_vcrun).
+     * native,builtin loads them, and Wine's still serve where they are missing. Rides in launch.env, so games Steam
+     * starts get it too. */
+    if ((ms_wine_is_fex() && prefix_has_microsoft_vcrun(prefix)) || x86_64_metalsharp_wine()) {
         static const char vcrun[] = "concrt140,msvcp140,msvcp140_1,msvcp140_2,msvcp140_atomic_wait,"
                                     "msvcp140_codecvt_ids,vcomp140,vcruntime140,vcruntime140_1=n,b";
         const char* overrides = getenv("WINEDLLOVERRIDES");

@@ -215,6 +215,7 @@ impl MetalSharpApp {
                             Ok(()) if installed => {
                                 toast::success(cx, format!("Now on {}", runtime_long_name(target)));
                                 this.after_backend_started(cx);
+                                this.repair_vcrun(cx);
                             }
                             Ok(()) => {
                                 // the runtime's setup, which installs it (and converts the Steam prefix where it must)
@@ -229,6 +230,28 @@ impl MetalSharpApp {
                     });
                 })
                 .detach();
+            },
+        );
+    }
+
+    /// The shared VC++ repair after a switch: each prefix gets the VC++ 2015-2022 runtime the new runtime needs
+    /// (Microsoft's ARM64 one under FEX, downloaded on the first switch; the x64 one under x86_64). Quick when the
+    /// prefixes already have it.
+    fn repair_vcrun(&mut self, cx: &mut Context<Self>) {
+        live::call(
+            cx,
+            "POST",
+            "/runtime/vcrun/repair",
+            None,
+            std::time::Duration::from_secs(1800),
+            move |_this, reply, cx| {
+                if !reply.as_ref().is_some_and(is_ok) {
+                    toast::error(
+                        cx,
+                        error_text(reply.as_ref())
+                            .unwrap_or_else(|| "Could not set up the VC++ 2022 runtime".into()),
+                    );
+                }
             },
         );
     }

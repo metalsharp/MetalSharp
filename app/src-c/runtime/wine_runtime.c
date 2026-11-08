@@ -4,6 +4,7 @@
 #include "metalsharp_backend/wine_runtime.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -745,6 +746,39 @@ static bool vcpp_registered(const char* prefix) {
     return x64 && x86;
 }
 
+/* VC++ 2015-2022 registered for an architecture ("x64" or "arm64") under VC\Runtimes\<arch> */
+static bool vcrun_registered(const char* prefix, const char* arch) {
+    char key[160], path[PATH_MAX], line[1024];
+    FILE* file;
+    bool found = false;
+    snprintf(key, sizeof(key), "[software\\\\microsoft\\\\visualstudio\\\\14.0\\\\vc\\\\runtimes\\\\%s]", arch);
+    if (!prefix_file(prefix, "system.reg", path, sizeof(path)) || !(file = fopen(path, "rb")))
+        return false;
+    while (!found && fgets(line, sizeof(line), file)) {
+        size_t i = 0;
+        for (; key[i] && line[i] && tolower((unsigned char)line[i]) == key[i]; i++)
+            ;
+        found = !key[i];
+    }
+    fclose(file);
+    return found;
+}
+
+/* Whether System32's msvcp140.dll is Microsoft's rather than a copy of Wine's builtin ("Wine builtin DLL" in its DOS
+ * stub). The registration alone proves nothing: going through the x86_64 runtime and back, or a wineboot, can leave
+ * Wine's copies under Microsoft's registration, and Unreal's prerequisite check reads the files. */
+static bool vcpp_files_microsoft(const char* prefix) {
+    char path[PATH_MAX];
+    unsigned char head[0x60];
+    size_t length = 0;
+    FILE* file;
+    if (!prefix_file(prefix, "drive_c/windows/system32/msvcp140.dll", path, sizeof(path)) || !(file = fopen(path, "rb")))
+        return false;
+    length = fread(head, 1, sizeof(head), file);
+    fclose(file);
+    return length >= 0x50 && head[0] == 'M' && head[1] == 'Z' && memcmp(head + 0x40, "Wine builtin DLL", 16) != 0;
+}
+
 static void (*prefix_progress)(void* context, const char* part, const char* message);
 static void* prefix_progress_context;
 
@@ -759,6 +793,171 @@ static void report_prefix_progress(const char* part, const char* message) {
         prefix_progress(prefix_progress_context, part, message);
 }
 
+/* The prefix holds the VC++ runtime the active Wine runtime needs: the ARM64 one (ARM64X DLLs) under FEX, the x64
+ * one under the x86_64 runtime, registered and with Microsoft's files in System32. */
+static bool vcrun_ready(const char* prefix, bool fex) {
+    return vcrun_registered(prefix, fex ? "arm64" : "x64") && vcpp_files_microsoft(prefix);
+}
+
+static const char* const vcrun_dlls[] = {"concrt140.dll",      "msvcp140.dll",       "msvcp140_1.dll",
+                                         "msvcp140_2.dll",     "msvcp140_atomic_wait.dll",
+                                         "msvcp140_codecvt_ids.dll", "vcomp140.dll", "vcruntime140.dll",
+                                         "vcruntime140_1.dll"};
+
+static bool is_prefix(const char* prefix);
+
+static bool copy_file_to(const char* source, const char* target);
+
+/* Whether path is a PE file and not one of Wine's builtins ("Wine builtin DLL" in its DOS stub) */
+static bool microsoft_pe(const char* path) {
+    unsigned char head[0x60];
+    size_t length;
+    FILE* file = fopen(path, "rb");
+    if (!file)
+        return false;
+    length = fread(head, 1, sizeof(head), file);
+    fclose(file);
+    return length >= 0x50 && head[0] == 'M' && head[1] == 'Z' && memcmp(head + 0x40, "Wine builtin DLL", 16) != 0;
+}
+
+static bool starts_with_cab(const char* path) {
+    char magic[4] = "";
+    FILE* file = fopen(path, "rb");
+    bool cab;
+    if (!file)
+        return false;
+    cab = fread(magic, 1, sizeof(magic), file) == sizeof(magic) && !memcmp(magic, "MSCF", 4);
+    fclose(file);
+    return cab;
+}
+
+/* Microsoft's ARM64 VC++ 2015-2022 DLLs unpacked from vc_redist.arm64.exe into <home>/cache/redist/vcrun-arm64,
+ * once: the Burn bundle's container with cabextract, then each cabinet in it. Its bootstrapper is 32-bit x86, which
+ * FEX's WoW64 cannot run, and its MSI refuses a prefix that has a newer version registered over Wine's files, so
+ * MetalSharp places the DLLs itself. */
+static bool vcrun_arm64_unpacked(const char* home, const char* log, char* out, size_t out_size) {
+    char installer[PATH_MAX], partial[PATH_MAX], bundle[PATH_MAX], contents[PATH_MAX], cabextract[PATH_MAX],
+        probe[PATH_MAX], cache[PATH_MAX];
+    DIR* dir;
+    struct dirent* entry;
+    if (!format_path(cache, sizeof(cache), "%s/%s", home, "cache/redist") ||
+        !format_path(installer, sizeof(installer), "%s/%s", cache, "vc_redist.arm64.exe") ||
+        !format_path(partial, sizeof(partial), "%s/%s", cache, "vc_redist.arm64.part") ||
+        !format_path(bundle, sizeof(bundle), "%s/%s", cache, "vcrun-arm64-bundle") ||
+        !format_path(out, out_size, "%s/%s", cache, "vcrun-arm64") ||
+        !format_path(probe, sizeof(probe), "%s/%s", out, "msvcp140.dll_arm64") ||
+        !ms_wine_app_contents(home, contents, sizeof(contents)) ||
+        !format_path(cabextract, sizeof(cabextract), "%s/%s", contents, "MacOS/cabextract"))
+        return false;
+    if (microsoft_pe(probe))
+        return true;
+    if (!ensure_dir(cache))
+        return false;
+    if (!microsoft_pe(installer)) {
+        const char* const fetch[] = {"/usr/bin/curl", "-fsSL", "--retry", "3", "-o", partial,
+                                     "https://aka.ms/vs/17/release/vc_redist.arm64.exe", NULL};
+        report_prefix_progress("VC++ 2022", "Downloading the VC++ 2022 runtime (ARM64)...");
+        (void)unlink(partial);
+        if (!run_wait(fetch, NULL, log, 600) || !microsoft_pe(partial) || rename(partial, installer) != 0) {
+            (void)unlink(partial);
+            return false;
+        }
+    }
+    (void)remove_tree(bundle);
+    (void)remove_tree(out);
+    {
+        const char* const unpack[] = {cabextract, "-q", "-d", bundle, installer, NULL};
+        if (!ensure_dir(bundle) || !ensure_dir(out) || !run_wait(unpack, NULL, log, 300) || !(dir = opendir(bundle)))
+            return false;
+    }
+    while ((entry = readdir(dir)) != NULL) {
+        char file[PATH_MAX];
+        if (entry->d_name[0] == '.' || !format_path(file, sizeof(file), "%s/%s", bundle, entry->d_name) ||
+            !starts_with_cab(file))
+            continue;
+        {
+            const char* const unpack[] = {cabextract, "-q", "-d", out, file, NULL};
+            (void)run_wait(unpack, NULL, log, 300);
+        }
+    }
+    closedir(dir);
+    (void)remove_tree(bundle);
+    return microsoft_pe(probe);
+}
+
+/* The ARM64 VC++ runtime into the prefix: Microsoft's DLLs into System32 (each replacing Wine's copy), and its
+ * VC\Runtimes\arm64 registration where there is none (Unreal's prerequisite check reads both). */
+static bool place_vcrun_arm64(const char* home, const char* prefix, const char* log) {
+    char unpacked[PATH_MAX], system32[PATH_MAX], wine[PATH_MAX];
+    bool ok = true;
+    if (!vcrun_arm64_unpacked(home, log, unpacked, sizeof(unpacked)) ||
+        !format_path(system32, sizeof(system32), "%s/%s", prefix, "drive_c/windows/system32"))
+        return false;
+    report_prefix_progress("VC++ 2022", "Installing the VC++ 2022 runtime (ARM64)...");
+    for (size_t i = 0; i < sizeof(vcrun_dlls) / sizeof(vcrun_dlls[0]); i++) {
+        char source[PATH_MAX], target[PATH_MAX];
+        if (!format_path(target, sizeof(target), "%s/%s", system32, vcrun_dlls[i]))
+            return false;
+        if (!(format_path(source, sizeof(source), "%s/%s_arm64", unpacked, vcrun_dlls[i]) && microsoft_pe(source)) &&
+            !(format_path(source, sizeof(source), "%s/%s_system_arm64", unpacked, vcrun_dlls[i]) && microsoft_pe(source)))
+            continue;
+        if (!microsoft_pe(target) && !copy_file_to(source, target))
+            ok = false;
+    }
+    if (ok && !vcrun_registered(prefix, "arm64")) {
+        char reg[PATH_MAX];
+        FILE* file;
+        if (format_path(wine, sizeof(wine), "%s/runtime/%s", home, "wine/bin/wine") &&
+            format_path(reg, sizeof(reg), "%s/%s", prefix, "drive_c/windows/temp/metalsharp-vcrun-arm64.reg") &&
+            (file = fopen(reg, "w"))) {
+            const char* const import[] = {wine, "reg", "import", "C:\\windows\\temp\\metalsharp-vcrun-arm64.reg", NULL};
+            fputs("Windows Registry Editor Version 5.00\r\n\r\n"
+                  "[HKEY_LOCAL_MACHINE\\Software\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\arm64]\r\n"
+                  "\"Installed\"=dword:00000001\r\n\"Major\"=dword:0000000e\r\n\"Minor\"=dword:0000002c\r\n"
+                  "\"Bld\"=dword:0000898b\r\n\"Rbld\"=dword:00000000\r\n\"Version\"=\"v14.44.35211.00\"\r\n",
+                  file);
+            if (fclose(file) == 0)
+                (void)run_wait(import, prefix, log, 120);
+            (void)unlink(reg);
+        }
+    }
+    return ok && vcpp_files_microsoft(prefix);
+}
+
+/* The x64 VC++ runtime for the x86_64 runtime: Microsoft's x64 DLLs (MetalSharp-Wine-x86_64.app carries them) over
+ * any ARM64 or Wine copy, the ARM64 ones kept aside for the next switch back (ms_wine_fit_prefix_vcrun). */
+static bool place_vcrun_x64(const char* home, const char* prefix) {
+    (void)prefix;
+    (void)ms_wine_fit_prefix_vcrun(home, true);
+    return vcpp_files_microsoft(prefix);
+}
+
+/* The shared VC++ repair: the prefix gets the VC++ runtime the active Wine runtime needs, Microsoft's files in
+ * System32 (ARM64X under FEX, x64 under the x86_64 runtime); a prefix that has them is left alone. No installer runs:
+ * MetalSharp places the files itself, so it does not depend on Microsoft's bootstrapper running under Wine. */
+bool ms_wine_repair_vcrun(const char* home, const char* prefix, char* error, size_t error_size) {
+    bool fex = ms_wine_is_fex();
+    char log[PATH_MAX];
+    if (!home || !prefix || !is_prefix(prefix)) {
+        set_error(error, error_size, "no prefix", prefix);
+        return false;
+    }
+    if (fex ? vcrun_ready(prefix, true) : vcpp_files_microsoft(prefix))
+        return true;
+    if (!format_path(log, sizeof(log), "%s/logs/%s", home, "prefix-setup.log")) {
+        set_error(error, error_size, "path too long", home);
+        return false;
+    }
+    if (!(fex ? place_vcrun_arm64(home, prefix, log) : place_vcrun_x64(home, prefix))) {
+        set_error(error, error_size,
+                  fex ? "could not install the VC++ 2022 runtime (ARM64); see logs/prefix-setup.log"
+                      : "could not install the VC++ 2022 runtime (x64)",
+                  prefix);
+        return false;
+    }
+    return true;
+}
+
 bool ms_wine_fex_prepare_prefix(const char* home, const char* prefix, bool force, char* error, size_t error_size) {
     static const char* const corefonts[] = {"andale32.exe", "arial32.exe",  "arialb32.exe", "comic32.exe",
                                             "courie32.exe", "georgi32.exe", "impact32.exe", "times32.exe",
@@ -769,7 +968,7 @@ bool ms_wine_fex_prepare_prefix(const char* home, const char* prefix, bool force
         set_error(error, error_size, "no prefix", NULL);
         return false;
     }
-    if (!force && ms_wine_fex_prefix_ready(prefix))
+    if (!force && ms_wine_fex_prefix_ready(prefix) && vcrun_ready(prefix, true))
         return true;
     if (!format_path(wine, sizeof(wine), "%s/runtime/%s", home, "wine/bin/wine") ||
         !ms_wine_server_path(home, server, sizeof(server)) || !ms_wine_app_contents(home, contents, sizeof(contents)) ||
@@ -783,6 +982,14 @@ bool ms_wine_fex_prepare_prefix(const char* home, const char* prefix, bool force
     if (!ms_wine_fex_facade_ready(home)) {
         set_error(error, error_size, "MetalSharp Wine is not installed", NULL);
         return false;
+    }
+    /* A prefix set up before MetalSharp installed the ARM64 VC++ runtime (or one the x86_64 runtime set up) gets just
+     * that; it does not hold up the launch when it cannot be installed (offline), and is tried again next time. */
+    if (!force && ms_wine_fex_prefix_ready(prefix)) {
+        char vcrun_error[PATH_MAX + 128];
+        if (!ms_wine_repair_vcrun(home, prefix, vcrun_error, sizeof(vcrun_error)))
+            fprintf(stderr, "warning: %s\n", vcrun_error);
+        return true;
     }
     (void)ensure_dir(prefix);
     report_prefix_progress("Windows prefix", "Creating the Windows prefix...");
@@ -816,6 +1023,12 @@ bool ms_wine_fex_prepare_prefix(const char* home, const char* prefix, bool force
     if (!vcpp_registered(prefix)) {
         set_error(error, error_size, "the VC++ 2022 runtime did not install; see logs/prefix-setup.log", prefix);
         return false;
+    }
+    /* and Microsoft's ARM64 one, downloaded (MetalSharp Wine does not carry it) */
+    {
+        char vcrun_error[PATH_MAX + 128];
+        if (!ms_wine_repair_vcrun(home, prefix, vcrun_error, sizeof(vcrun_error)))
+            fprintf(stderr, "warning: %s\n", vcrun_error);
     }
     (void)ensure_dir(fonts);
     report_prefix_progress("Core fonts", "Installing the Microsoft core fonts...");
@@ -1043,7 +1256,7 @@ bool ms_wine_fex_convert_prefix(const char* home, const char* prefix, char* erro
     if (!is_prefix(prefix))
         return ms_wine_fex_prepare_prefix(home, prefix, false, error, error_size);
     if (ms_wine_prefix_is_arm64(prefix) && ms_wine_fex_prefix_ready(prefix))
-        return true;
+        return ms_wine_fex_prepare_prefix(home, prefix, false, error, error_size);
     if (!prefix_file(prefix, X86_64_BACKUP, backup, sizeof(backup)) ||
         !format_path(done_marker, sizeof(done_marker), "%s/%s", backup, ".complete"))
         return false;
@@ -1395,7 +1608,8 @@ bool ms_wine_switch_runtime(const char* home, const char* target, char* error, s
     if (ok) {
         record_runtime_variant(home, target);
         active_fex = !strcmp(target, "fex");
-        /* the prefixes' VC++ runtime for the runtime they now start with */
+        /* the prefixes' VC++ runtime for the runtime they now start with; the app then calls
+         * POST /runtime/vcrun/repair for any prefix still without Microsoft's (an install can outlast this request) */
         (void)ms_wine_fit_prefix_vcrun(home, !active_fex);
     }
     return ok;
@@ -1810,7 +2024,7 @@ typedef struct {
     unsigned changed;
 } vcrun_context;
 
-/* under the x86_64 runtime: each ARM64 VC++ DLL in System32 aside, Microsoft's x64 one in its place */
+/* under the x86_64 runtime: each ARM64 (or Wine) VC++ DLL in System32 aside, Microsoft's x64 one in its place */
 static bool vcrun_x64_visit(const char* home, const char* prefix, void* opaque) {
     vcrun_context* context = opaque;
     char system32[PATH_MAX], kept[PATH_MAX];
@@ -1827,9 +2041,11 @@ static bool vcrun_x64_visit(const char* home, const char* prefix, void* opaque) 
             !format_path(target, sizeof(target), "%s/%s", system32, entry->d_name) ||
             !format_path(aside, sizeof(aside), "%s/%s", kept, entry->d_name))
             continue;
-        if (!pe_has_arm64_code(target))
+        /* Microsoft's x64 one already there; else an ARM64 or Wine copy (kept aside) or none at all */
+        if (!pe_has_arm64_code(target) && microsoft_pe(target))
             continue;
-        if (!ensure_dir(kept) || (access(aside, F_OK) != 0 && rename(target, aside) != 0))
+        if (access(target, F_OK) == 0 &&
+            (!ensure_dir(kept) || (access(aside, F_OK) != 0 && rename(target, aside) != 0)))
             continue;
         if (copy_file_to(source, target))
             context->changed++;
@@ -1875,6 +2091,48 @@ unsigned ms_wine_fit_prefix_vcrun(const char* home, bool x86_64) {
     } else
         (void)each_prefix(home, vcrun_arm64_visit, &context);
     return context.changed;
+}
+
+static bool repair_vcrun_visit(const char* home, const char* prefix, void* opaque) {
+    char error[PATH_MAX + 128] = "";
+    bool ok = ms_wine_repair_vcrun(home, prefix, error, sizeof(error));
+    if (!ok) {
+        fprintf(stderr, "warning: %s\n", error);
+        if (opaque && !((char*)opaque)[0])
+            snprintf((char*)opaque, PATH_MAX + 128, "%s", error);
+    }
+    return ok;
+}
+
+unsigned ms_wine_repair_prefixes_vcrun(const char* home, char* error, size_t error_size) {
+    char first[PATH_MAX + 128] = "";
+    unsigned failed = home ? each_prefix(home, repair_vcrun_visit, first) : 0;
+    if (failed && error && error_size)
+        snprintf(error, error_size, "%s", first);
+    return failed;
+}
+
+/* POST /runtime/vcrun/repair: every prefix's VC++ runtime fitted to the active Wine runtime */
+char* ms_wine_repair_vcrun_json(const char* home) {
+    char error[PATH_MAX + 128] = "";
+    unsigned failed;
+    ms_json_writer writer;
+    if (!home)
+        return NULL;
+    (void)ms_wine_fit_prefix_vcrun(home, !ms_wine_is_fex());
+    failed = ms_wine_repair_prefixes_vcrun(home, error, sizeof(error));
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, failed == 0);
+    ms_json_writer_key(&writer, "runtime");
+    ms_json_writer_string(&writer, ms_wine_variant());
+    if (failed) {
+        ms_json_writer_key(&writer, "error");
+        ms_json_writer_string(&writer, error);
+    }
+    ms_json_writer_object_end(&writer);
+    return ms_json_writer_take(&writer);
 }
 
 /* Whether runtime/'s MetalSharp-Wine-x86_64.app is the one MetalSharp.app carries (same CDHash); true without one */
