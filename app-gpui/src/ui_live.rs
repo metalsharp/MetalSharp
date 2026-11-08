@@ -373,12 +373,25 @@ impl MetalSharpApp {
             .and_then(|value| serde_json::from_value(value.clone()).ok())
             .unwrap_or_default();
         if let Some(art) = value.get("customArt").and_then(Value::as_object) {
-            let path = |entry: &Value, key: &str| {
-                entry.get(key).and_then(Value::as_str).map(str::to_owned)
+            // Art picked before MetalSharp kept its own copy moves into custom-art/library now.
+            let home = live.home();
+            let path = |entry: &Value, key: &str, game: &str, hero: bool| {
+                entry
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .map(|path| keep_custom_art(&home, game, hero, path))
             };
             self.live.custom_art = art
                 .iter()
-                .map(|(key, entry)| (key.clone(), (path(entry, "card"), path(entry, "hero"))))
+                .map(|(key, entry)| {
+                    (
+                        key.clone(),
+                        (
+                            path(entry, "card", key, false),
+                            path(entry, "hero", key, true),
+                        ),
+                    )
+                })
                 .collect();
         }
         self.sidebar_open = value
@@ -1571,8 +1584,12 @@ impl MetalSharpApp {
             else {
                 return;
             };
-            let path = file.path().to_string_lossy().into_owned();
+            let picked = file.path().to_string_lossy().into_owned();
             let _ = this.update(cx, move |this, cx| {
+                let path = match Live::get(cx) {
+                    Some(live) => keep_custom_art(&live.home(), &key, hero, &picked),
+                    None => picked,
+                };
                 let entry = this.live.custom_art.entry(key).or_default();
                 if hero {
                     entry.1 = Some(path);
@@ -1806,7 +1823,7 @@ impl MetalSharpApp {
                 }
             },
         );
-        if crate::variant::is_fex() {
+        {
             live::call(
                 cx,
                 "GET",
@@ -1949,7 +1966,12 @@ impl MetalSharpApp {
     /// The frame rate lane of the selected game's pipeline: Mullion or VKD3D-Proton, which keep the
     /// limit in different places; other pipelines have none.
     pub(super) fn frame_rate_lane(&self) -> Option<&'static str> {
-        match crate::variant::fex_pipeline(&self.live.selected_pipeline) {
+        let lane = if crate::variant::is_fex() {
+            crate::variant::fex_pipeline(&self.live.selected_pipeline)
+        } else {
+            crate::variant::x86_64_pipeline(&self.live.selected_pipeline)
+        };
+        match lane {
             "dxmt" => Some("dxmt"),
             "vkd3d" => Some("vkd3d"),
             _ => None,
@@ -3079,9 +3101,7 @@ impl MetalSharpApp {
             live::DEFAULT_TIMEOUT,
             |this, result, cx| {
                 if let Some(result) = result {
-                    if is_ok(&result) && result.get("variant").is_some() {
-                        crate::variant::set_from_reply(&result);
-                    }
+                    // its `variant` is the app's build (what updates download), not the active runtime
                     if is_ok(&result)
                         && result.get("available").and_then(Value::as_bool) == Some(true)
                     {
@@ -3159,7 +3179,7 @@ impl MetalSharpApp {
         match self.update_field("variant").as_deref() {
             Some("fex") => "fex",
             Some(_) => "regular",
-            None => crate::variant::name(),
+            None => crate::variant::app_name(),
         }
     }
 
@@ -3182,7 +3202,7 @@ impl MetalSharpApp {
         variant == self.update_current_build() && self.update_same_version()
     }
 
-    /// One of the builds chosen: the Arm64 one first asks for macOS 26.4 or newer, unless this
+    /// One of the builds chosen: the Arm64 one first asks for macOS 15 or newer, unless this
     /// Mac already runs it.
     pub(super) fn start_update_download(&mut self, variant: &'static str, cx: &mut Context<Self>) {
         if self.live.update_downloading || self.update_is_installed(variant) {
@@ -4246,5 +4266,86 @@ mod variant_switch_tests {
             false,
             "regular"
         ));
+    }
+}
+
+/// MetalSharp's own copy of a picked card or hero image, in `custom-art/library` of its home,
+/// so the art stays when the original moves and through updates. Returns the kept path, or the
+/// original when it can't be copied (or is already the kept one).
+pub(crate) fn keep_custom_art(
+    home: &std::path::Path,
+    key: &str,
+    hero: bool,
+    source: &str,
+) -> String {
+    let dir = home.join("custom-art/library");
+    let source_path = std::path::Path::new(source);
+    if source_path.starts_with(&dir) || !source_path.is_file() {
+        return source.to_owned();
+    }
+    let stem: String = key
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let stem = format!("{stem}-{}", if hero { "hero" } else { "card" });
+    let extension = source_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("png")
+        .to_ascii_lowercase();
+    let kept = dir.join(format!("{stem}.{extension}"));
+    if std::fs::create_dir_all(&dir).is_err() || std::fs::copy(source_path, &kept).is_err() {
+        return source.to_owned();
+    }
+    // the same art under another extension, from an earlier pick
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path != kept && path.file_stem().and_then(|s| s.to_str()) == Some(stem.as_str()) {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+    kept.to_string_lossy().into_owned()
+}
+
+#[cfg(test)]
+mod custom_art_tests {
+    use super::keep_custom_art;
+
+    #[test]
+    fn picked_art_is_kept_in_the_home_and_replaces_an_earlier_pick() {
+        let root = std::env::temp_dir().join(format!("ms-custom-art-{}", std::process::id()));
+        let home = root.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let png = root.join("cover.png");
+        let jpg = root.join("cover.jpg");
+        std::fs::write(&png, b"png").unwrap();
+        std::fs::write(&jpg, b"jpg").unwrap();
+        let kept = keep_custom_art(&home, "steam:620", false, png.to_str().unwrap());
+        assert_eq!(
+            kept,
+            home.join("custom-art/library/steam_620-card.png")
+                .to_string_lossy()
+        );
+        assert_eq!(std::fs::read(&kept).unwrap(), b"png");
+        // the original can go; a kept path stays as it is
+        std::fs::remove_file(&png).unwrap();
+        assert_eq!(keep_custom_art(&home, "steam:620", false, &kept), kept);
+        let replaced = keep_custom_art(&home, "steam:620", false, jpg.to_str().unwrap());
+        assert!(replaced.ends_with("steam_620-card.jpg"));
+        assert!(!std::path::Path::new(&kept).exists());
+        // a missing original is left as it was saved
+        assert_eq!(
+            keep_custom_art(&home, "x", true, "/no/such/file.png"),
+            "/no/such/file.png"
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 }

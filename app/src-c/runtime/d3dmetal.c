@@ -1,4 +1,5 @@
 #include "metalsharp_backend/d3dmetal.h"
+#include "metalsharp_backend/host_os.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/steam.h"
@@ -26,10 +27,34 @@
 #define GPTK3_INNER_DMG_NAME "Evaluation environment for Windows games 3.0.dmg"
 #define GPTK3_MSC_PKG_NAME   "Metal Shader Converter 3.0.pkg"
 #define GPTK3_MIN_DMG_SIZE   (80ULL * 1024ULL * 1024ULL)
-#define D3DMETAL_RUNTIME     "runtime/d3dmetal-gptk4-beta2"
+/* GPTK 4.0 beta 3's D3DMetal (MetalSharp-Wine-x86_64.app) on macOS 27 and later, GPTK 3.0's (the same app) below
+ * macOS 27; beta 2's from the bundles before them */
+#define D3DMETAL_RUNTIME_GPTK3 "runtime/d3dmetal-gptk3"
+#define D3DMETAL_RUNTIME_BETA3 "runtime/d3dmetal-gptk4-beta3"
+#define D3DMETAL_RUNTIME_BETA2 "runtime/d3dmetal-gptk4-beta2"
+#define D3DMETAL_RUNTIME       ms_d3dmetal_runtime(home)
 
 static const char* gptk_route_dlls[] = {"d3d10.dll", "d3d11.dll",   "d3d12.dll",
                                         "dxgi.dll",  "nvapi64.dll", "nvngx-on-metalfx.dll"};
+/* Staged with them where the runtime has it: GPTK 4.0 beta 3's D3D12 core */
+static const char* gptk_optional_route_dlls[] = {"d3d12core.dll"};
+
+static bool d3dmetal_runtime_installed(const char* home, const char* runtime) {
+    char path[PATH_MAX];
+    struct stat info;
+    return home &&
+           snprintf(path, sizeof(path), "%s/%s/external/D3DMetal.framework", home, runtime) < (int)sizeof(path) &&
+           stat(path, &info) == 0 && S_ISDIR(info.st_mode);
+}
+
+const char* ms_d3dmetal_runtime(const char* home) {
+    /* GPTK 4.0 beta 3's D3DMetal is macOS 27's; below it, GPTK 3.0's where the app carries it */
+    if (ms_host_before_macos27() && d3dmetal_runtime_installed(home, D3DMETAL_RUNTIME_GPTK3))
+        return D3DMETAL_RUNTIME_GPTK3;
+    if (d3dmetal_runtime_installed(home, D3DMETAL_RUNTIME_BETA3))
+        return D3DMETAL_RUNTIME_BETA3;
+    return D3DMETAL_RUNTIME_BETA2;
+}
 static const char* gptk_vc_dlls[] = {"concrt140.dll",
                                      "msvcp140.dll",
                                      "msvcp140_1.dll",
@@ -1135,6 +1160,16 @@ static bool stage_d3dmetal_game_local(const char* home, dstate* s) {
         ok = file_ready(source) && target && copy_file_checked(source, target);
         free(target);
     }
+    for (size_t i = 0; ok && i < sizeof(gptk_optional_route_dlls) / sizeof(gptk_optional_route_dlls[0]); i++) {
+        char source[PATH_MAX];
+        char* target;
+        snprintf(source, sizeof(source), "%s/%s/wine/x86_64-windows/%s", home, D3DMETAL_RUNTIME,
+                 gptk_optional_route_dlls[i]);
+        target = file_ready(source) ? path_join(dir, gptk_optional_route_dlls[i]) : NULL;
+        if (target)
+            ok = copy_file_checked(source, target);
+        free(target);
+    }
 done:
     free(dir);
     return ok;
@@ -1148,12 +1183,15 @@ static bool gptk3_installed(const char* home) {
 }
 
 static bool d3dmetal_runtime_ready(const char* home) {
-    char* framework = path_join(home, D3DMETAL_RUNTIME "/external/D3DMetal.framework");
+    char framework_relative[PATH_MAX];
+    char* framework;
+    snprintf(framework_relative, sizeof(framework_relative), "%s/external/D3DMetal.framework", D3DMETAL_RUNTIME);
+    framework = path_join(home, framework_relative);
     bool ok = framework_ready(framework);
     for (size_t i = 0; ok && i < sizeof(gptk_route_dlls) / sizeof(gptk_route_dlls[0]); i++) {
         char relative[PATH_MAX];
         char* payload;
-        snprintf(relative, sizeof(relative), D3DMETAL_RUNTIME "/wine/x86_64-windows/%s", gptk_route_dlls[i]);
+        snprintf(relative, sizeof(relative), "%s/wine/x86_64-windows/%s", D3DMETAL_RUNTIME, gptk_route_dlls[i]);
         payload = path_join(home, relative);
         ok = file_ready(payload);
         free(payload);

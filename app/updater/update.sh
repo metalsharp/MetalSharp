@@ -12,9 +12,17 @@ TARGET_VARIANT_ARG=""
 TARGET_VARIANT=""
 # --reinstall 1: the same version of the installed build may go back over it (the FEX build's --recover).
 TARGET_REINSTALL="0"
+# The step the installer last reported, so an installer that stops anywhere says where (on_exit)
+UPDATER_PHASE=""
+UPDATER_PERCENT=0
+UPDATER_MESSAGE=""
 
 write_status() {
     local phase="$1" percent="$2" message="$3" error="${4:-}"
+    UPDATER_PHASE="$phase"
+    UPDATER_PERCENT="$percent"
+    UPDATER_MESSAGE="$message"
+    echo "status: $phase $percent% $message${error:+ ($error)}" >&2 || true
     local ver="$TARGET_VERSION"
     local safe_phase="${phase//\\/\\\\}"
     safe_phase="${safe_phase//\"/\\\"}"
@@ -97,7 +105,9 @@ force_stop_old_runtime() {
     # invoke it unless the exact app process that requested this update is
     # still alive, or an update applied while MetalSharp is closed can open an
     # old registered bundle and accidentally enter its startup flow.
-    if pid_alive "$APP_PID"; then
+    # The launchd job (handoff_to_launchd) isn't MetalSharp's own process: an Apple Event from it would ask the user
+    # to let bash control MetalSharp. It closes the app with the TERM/KILL fallback below instead.
+    if [ -z "${METALSHARP_UPDATER_DETACHED:-}" ] && pid_alive "$APP_PID"; then
         local quit_pid timeout_seconds attempt
         timeout_seconds="${METALSHARP_APP_QUIT_TIMEOUT_SECONDS:-10}"
         case "$timeout_seconds" in
@@ -532,6 +542,8 @@ if [ "${1:-}" = "--recover" ]; then
     exit $?
 fi
 
+# the arguments as given, for the launchd handoff below
+UPDATER_ARGS=("$@")
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --dmg) shift; DMG_PATH="${1:-}"; shift ;;
@@ -571,7 +583,93 @@ cleanup() {
         rm -rf "$BACKUP_APP_PATH" 2>/dev/null || true
     fi
 }
-trap cleanup EXIT
+
+# --- the installer's own log ------------------------------------------------------------------------------------------
+# Everything the installer runs goes to logs/updater.log (the previous run's is kept as updater.log.1), so an update
+# that stops says where and why. MetalSharp 0.80's installer kept no log: one that stopped while it closed the old app
+# (metalsharp/MetalSharp#767) left only its last status behind.
+UPDATER_LOG="$MS_DIR/logs/updater.log"
+if [ -z "${METALSHARP_UPDATER_NO_LOG:-}" ] && mkdir -p "$MS_DIR/logs" 2>/dev/null; then
+    if [ -z "${METALSHARP_UPDATER_DETACHED:-}" ] && [ -f "$UPDATER_LOG" ]; then
+        mv -f "$UPDATER_LOG" "$UPDATER_LOG.1" 2>/dev/null || true
+    fi
+    if : >>"$UPDATER_LOG" 2>/dev/null; then
+        exec >>"$UPDATER_LOG" 2>&1
+        echo "=== $(date '+%Y-%m-%d %H:%M:%S %z') updater pid $$ (parent $PPID${METALSHARP_UPDATER_DETACHED:+, a launchd job}), macOS $(sw_vers -productVersion 2>/dev/null || echo '?'): MetalSharp $TARGET_VERSION from $DMG_PATH; app pid $APP_PID, backend pid $BACKEND_PID"
+        PS4='+ ${SECONDS}s update.sh:${LINENO}: '
+        set -x
+    fi
+fi
+
+# An installer that exits, or is stopped by a signal, before it reports complete or an error says so in its status,
+# with the step it was at, instead of leaving that step's status behind as if it were still running.
+on_exit() {
+    local code=$?
+    set +x
+    cleanup
+    case "$UPDATER_PHASE" in
+        error|complete|handed_off) ;;
+        *)
+            echo "updater exited with status $code during ${UPDATER_PHASE:-startup}"
+            write_status "error" "$UPDATER_PERCENT" \
+                "The updater stopped while: ${UPDATER_MESSAGE:-starting} (exit $code). Its log is ~/.metalsharp/logs/updater.log." \
+                "updater_stopped"
+            ;;
+    esac
+    [ -n "${METALSHARP_UPDATER_DETACHED:-}" ] && rm -f "$MS_DIR/run/com.metalsharp.updater.plist" 2>/dev/null
+    return 0
+}
+trap on_exit EXIT
+for signal in HUP INT QUIT TERM PIPE; do
+    # shellcheck disable=SC2064
+    trap "echo 'updater got SIG$signal'; exit 1" "$signal"
+done
+
+# --- run as a launchd job of its own ----------------------------------------------------------------------------------
+# The app starts the installer detached (setsid), but macOS still counts MetalSharp.app as its responsible process,
+# and the installer's first step closes that app. Before it stops anything, the installer starts itself again as a
+# launchd job in the user's session (no KeepAlive, so launchd never restarts it) and this copy exits. If launchd
+# won't take the job, this copy goes on as before. METALSHARP_UPDATER_NO_LAUNCHD=1 keeps it here.
+handoff_to_launchd() {
+    local label="com.metalsharp.updater" plist="$MS_DIR/run/com.metalsharp.updater.plist" domain="gui/$(id -u)"
+    local script_path i=0
+    script_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+    mkdir -p "$MS_DIR/run" 2>/dev/null || return 1
+    rm -f "$plist"
+    plutil -create xml1 "$plist" 2>/dev/null || return 1
+    plutil -insert Label -string "$label" "$plist" &&
+        plutil -insert ProgramArguments -array "$plist" &&
+        plutil -insert ProgramArguments.0 -string /bin/bash "$plist" &&
+        plutil -insert ProgramArguments.1 -string "$script_path" "$plist" || return 1
+    for arg in "${UPDATER_ARGS[@]}"; do
+        plutil -insert "ProgramArguments.$((i + 2))" -string "$arg" "$plist" || return 1
+        i=$((i + 1))
+    done
+    plutil -insert EnvironmentVariables -dictionary "$plist" &&
+        plutil -insert EnvironmentVariables.METALSHARP_UPDATER_DETACHED -string 1 "$plist" &&
+        plutil -insert EnvironmentVariables.METALSHARP_HOME -string "$MS_DIR" "$plist" &&
+        plutil -insert EnvironmentVariables.PATH -string "$PATH" "$plist" &&
+        plutil -insert EnvironmentVariables.HOME -string "$HOME" "$plist" &&
+        plutil -insert RunAtLoad -bool true "$plist" &&
+        plutil -insert KeepAlive -bool false "$plist" &&
+        plutil -insert AbandonProcessGroup -bool true "$plist" &&
+        plutil -insert ProcessType -string Interactive "$plist" &&
+        plutil -insert StandardOutPath -string "$UPDATER_LOG" "$plist" &&
+        plutil -insert StandardErrorPath -string "$UPDATER_LOG" "$plist" || return 1
+    # a finished run's job stays loaded (it is never restarted); take it out before loading this one
+    launchctl bootout "$domain/$label" 2>/dev/null || true
+    launchctl bootstrap "$domain" "$plist" || return 1
+}
+if [ -z "${METALSHARP_UPDATER_DETACHED:-}" ] && [ -z "${METALSHARP_UPDATER_NO_LAUNCHD:-}" ] &&
+    command -v launchctl >/dev/null 2>&1; then
+    # reported first: the job may report its own first step before this copy is gone
+    write_status "handed_off" 21 "Starting the installer..."
+    if handoff_to_launchd; then
+        exit 0
+    fi
+    echo "launchd did not take the installer; it goes on in this process"
+    UPDATER_PHASE=""
+fi
 
 run_privileged() {
     local command="$1"

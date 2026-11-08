@@ -25,7 +25,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define MIGRATION_VERSION "1.0.0"
+#define MIGRATION_VERSION "1.1.0"
 /* 7: setup.json records runtime_variant, and prefixes carry the Wine they were built for. */
 #define MIGRATION_SCHEMA  7
 
@@ -468,7 +468,7 @@ static bool runtime_ready(const char* home) {
         {"runtime/goldberg/x86/steam_api.dll", "f"},
         {"runtime/goldberg/x64/steam_api64.dll", "f"},
         {"configs/mtsp-rules.toml", "f"},
-        {"runtime/wine/etc/dxmt.conf", "f"},
+        {"runtime/wine/etc/mullion.conf", "f"},
         {"runtime/wine/lib/dxmt/metalsharp-dxmt-runtime.json", "f"},
         {"runtime/wine/lib/dxmt/x86_64-unix/winemetal.so", "f"},
         {"runtime/wine/lib/moltenvk-vkmt/libMoltenVK.dylib", "f"},
@@ -478,6 +478,11 @@ static bool runtime_ready(const char* home) {
         {"runtime/wine/lib/wine/x86_64-unix/ntdll.so", "f"},
     };
     bool ok = true;
+    {
+        /* mullion.conf, which a dxmt.conf from before becomes */
+        char conf[PATH_MAX];
+        (void)ms_wine_graphics_conf_path(home, conf, sizeof(conf));
+    }
     for (size_t i = 0; i < sizeof(required) / sizeof(required[0]); i++) {
         char* path = path_join(home, required[i][0]);
         bool present = path && (i == 0 ? access(path, X_OK) == 0 : file_nonempty_local(path));
@@ -534,7 +539,7 @@ static void runtime_missing_detail(const char* home, char* detail, size_t detail
                                            "runtime/goldberg/x86/steam_api.dll",
                                            "runtime/goldberg/x64/steam_api64.dll",
                                            "configs/mtsp-rules.toml",
-                                           "runtime/wine/etc/dxmt.conf",
+                                           "runtime/wine/etc/mullion.conf",
                                            "runtime/wine/lib/dxmt/metalsharp-dxmt-runtime.json",
                                            "runtime/wine/lib/moltenvk-vkmt/libMoltenVK.dylib",
                                            "runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json"};
@@ -608,6 +613,8 @@ const char* ms_migration_path_name(ms_migration_path path) {
         return "regular_to_fex";
     case MS_MIGRATION_PATH_FEX_UPDATE:
         return "fex_update";
+    case MS_MIGRATION_PATH_APP_UPDATE:
+        return "app_update";
     case MS_MIGRATION_PATH_NONE:
     default:
         return "none";
@@ -662,6 +669,16 @@ char* ms_migration_fex_welcome_dismiss_json(const char* home) {
                      : "{\"ok\":false,\"error\":\"could not record the welcome as shown\"}");
 }
 
+/* An update (FULL on the regular build, FEX_UPDATE on fex) of a home MetalSharp Wine runs, whose runtime is ready,
+ * only swaps the Wine app (MS_MIGRATION_PATH_APP_UPDATE). A move between the builds, a runtime that isn't ready, or
+ * the bundles' x86_64 runtime keep their path. */
+static ms_migration_path app_update_path(ms_migration_path path, bool ready) {
+    if (ready && ms_wine_metalsharp_launch_model() &&
+        (path == MS_MIGRATION_PATH_FULL || path == MS_MIGRATION_PATH_FEX_UPDATE))
+        return MS_MIGRATION_PATH_APP_UPDATE;
+    return path;
+}
+
 /* The migration path for this home: NONE without a setup.json, as the check reports it. */
 static ms_migration_path migration_path_for_home(const char* home) {
     char* setup_path = path_join(home, "setup.json");
@@ -678,8 +695,10 @@ static ms_migration_path migration_path_for_home(const char* home) {
         char* from_version = json_str(setup, "last_migrated_version");
         bool installed = json_bool(setup, "completed", false) || (prefix_path && exists(prefix_path));
         bool marker_needed = marker && ms_json_type_of(marker) == MS_JSON_OBJECT && json_bool(marker, "needed", false);
-        path = ms_migration_path_for(ms_wine_variant(), ms_wine_recorded_variant(home, recorded), from_version,
-                                     installed, marker_needed, runtime_ready(home));
+        bool ready = runtime_ready(home);
+        path = app_update_path(ms_migration_path_for(ms_wine_variant(), ms_wine_recorded_variant(home, recorded),
+                                                     from_version, installed, marker_needed, ready),
+                               ready);
         free(recorded);
         free(from_version);
     }
@@ -1656,7 +1675,7 @@ char* ms_migration_progress_json(const char* home) {
     if (!p)
         return NULL;
     out = raw_or(p,
-                 "{\"status\":\"idle\",\"step\":0,\"total\":0,\"message\":\"\",\"error\":null,\"version\":\"1.0.0\"}");
+                 "{\"status\":\"idle\",\"step\":0,\"total\":0,\"message\":\"\",\"error\":null,\"version\":\"1.1.0\"}");
     free(p);
     return out;
 }
@@ -1664,7 +1683,7 @@ char* ms_migration_report_json(const char* home) {
     char *p = path_join(home, "logs/migration-report-latest.json"), *out;
     if (!p)
         return NULL;
-    out = raw_or(p, "{\"schema_version\":1,\"status\":\"idle\",\"version\":\"1.0.0\",\"entries\":[],\"summary\":\"No "
+    out = raw_or(p, "{\"schema_version\":1,\"status\":\"idle\",\"version\":\"1.1.0\",\"entries\":[],\"summary\":\"No "
                     "migration has run yet.\"}");
     free(p);
     return out;
@@ -1719,9 +1738,10 @@ char* ms_migration_check_json(const char* home) {
         /* Installed by the other build: its prefixes move to this build's Wine. A setup.json
          * without runtime_variant was written by the regular build. */
         char* recorded = json_str(setup, "runtime_variant");
-        path = ms_migration_path_for(ms_wine_variant(), ms_wine_recorded_variant(home, recorded), legacy,
-                                     json_bool(setup, "completed", false) || exists(prefix_path), marker_needed,
-                                     ready);
+        path = app_update_path(
+            ms_migration_path_for(ms_wine_variant(), ms_wine_recorded_variant(home, recorded), legacy,
+                                  json_bool(setup, "completed", false) || exists(prefix_path), marker_needed, ready),
+            ready);
         variant_switch = path == MS_MIGRATION_PATH_REGULAR_TO_FEX || path == MS_MIGRATION_PATH_FEX_TO_REGULAR;
         free(recorded);
     }
@@ -1800,8 +1820,60 @@ static bool restore_prefixes_from_fex(const char* home) {
     return failed == 0;
 }
 
+/* MS_MIGRATION_PATH_APP_UPDATE: Wine stopped, the active runtime's Wine app swapped in place for the one the new
+ * MetalSharp.app carries, and the update recorded. User data, prefixes and the rest of the runtime stay as they are:
+ * Wine updates a prefix itself the first time it starts there (wine.inf's time differs from the prefix's), and the
+ * other runtime's app is swapped the same way when it is switched to. */
+static void app_update(const char* home) {
+    char error[512] = "";
+    bool swapped;
+    (void)write_migration_progress(home, "running", 1, "Stopping managed Wine processes...", NULL);
+    if (!stop_managed_wine_processes(home)) {
+        (void)write_migration_progress(home, "error", 1, "Could not stop managed Wine processes",
+                                       "managed_wine_shutdown_failed");
+        return;
+    }
+    (void)write_migration_progress(home, "running", 4, "Updating MetalSharp Wine...", NULL);
+    swapped = ms_wine_is_fex() ? ms_wine_fex_refresh_app(home, error, sizeof(error))
+                               : ms_setup_x86_64_refresh(home, error, sizeof(error));
+    /* both runtimes when both are installed: the other one's app too (laid out again when it is switched to) */
+    if (swapped && !ms_wine_refresh_inactive_app(home, error, sizeof(error))) {
+        char message[640];
+        snprintf(message, sizeof(message), "Could not update the other Wine runtime: %s",
+                 error[0] ? error : "unknown error");
+        ms_log_event(home, message);
+    }
+    if (!swapped) {
+        char message[640];
+        snprintf(message, sizeof(message), "Could not update MetalSharp Wine: %s", error[0] ? error : "unknown error");
+        (void)write_migration_progress(home, "error", 4, message, "wine_app_update_failed");
+        return;
+    }
+    write_setup_metadata(home);
+    if (!migration_metadata_current(home)) {
+        (void)write_migration_progress(home, "error", 7, "Update verification failed: migration metadata was not saved",
+                                       "migration_metadata_not_saved");
+        return;
+    }
+    {
+        char* marker = path_join(home, ".post-update-migration");
+        if (marker)
+            unlink(marker);
+        free(marker);
+    }
+    (void)write_migration_progress(home, "complete", 9, "MetalSharp is updated and ready.", NULL);
+}
+
 static void* migration_worker(void* opaque) {
     migration_job* job = (migration_job*)opaque;
+    if (job->path == MS_MIGRATION_PATH_APP_UPDATE) {
+        app_update(job->home);
+        unlink(job->lock_path);
+        free(job->home);
+        free(job->lock_path);
+        free(job);
+        return NULL;
+    }
     preserved_data preserved = {0};
     /* FEX -> FEX: user data stays where it is; setup brings the new MetalSharp Wine and runtime pieces. */
     bool lightweight = job->path == MS_MIGRATION_PATH_FEX_UPDATE;

@@ -13,7 +13,11 @@ bool ms_rosetta_available(void);
  * differs from the one recorded at the last check (or none is recorded), reinstall Rosetta, even
  * if it looks installed. Returns true when it ran the installer. */
 bool ms_rosetta_after_macos_upgrade(const char* metalsharp_home);
-/* The same check on a detached thread, so a slow download never holds up startup. */
+/* Rosetta 2 installed where it is missing (Apple silicon only): the x86_64 runtime needs it, also on the FEX
+ * build, which sets that runtime up next to its own. Returns whether Rosetta is there afterwards. */
+bool ms_rosetta_ensure(const char* metalsharp_home);
+/* The same check on a detached thread, so a slow download never holds up startup; it also installs Rosetta
+ * where it is missing (ms_rosetta_ensure). */
 void ms_rosetta_after_macos_upgrade_async(const char* metalsharp_home);
 
 #endif

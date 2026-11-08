@@ -211,8 +211,8 @@ static bool valid_pipeline(const char* pipeline) {
                                           "m11_32", "m10",      "m10_32", "m9",   "d3d9",    "fna_arm64"};
     if (!pipeline)
         return false;
-    /* The fex build's DXVK and OpenGL lanes. */
-    if (ms_wine_is_fex() && (!strcmp(pipeline, "dxvk") || !strcmp(pipeline, "wine_bare")))
+    /* the OpenGL lane (both runtimes) and MetalSharp Wine's DXVK lane */
+    if (!strcmp(pipeline, "wine_bare") || (ms_wine_routes_lane("dxvk") && !strcmp(pipeline, "dxvk")))
         return true;
     for (size_t index = 0; index < sizeof(allowed) / sizeof(allowed[0]); index++)
         if (!strcmp(pipeline, allowed[index]))
@@ -1541,7 +1541,7 @@ static bool epic_game_running(const char* home, const char* app_name) {
     char* path;
     if (process_running(read_process_pid_suffix(home, app_name, "launch.pid")))
         return true;
-    if (!ms_wine_is_fex() || (group = read_process_pid_suffix(home, app_name, "launch.pgid")) <= 1)
+    if (!ms_wine_metalsharp_launch_model() || (group = read_process_pid_suffix(home, app_name, "launch.pgid")) <= 1)
         return false;
     if (kill(-group, 0) == 0 || errno == EPERM)
         return true;
@@ -1553,7 +1553,7 @@ static bool epic_game_running(const char* home, const char* app_name) {
 
 char* ms_epic_running_json(const char* home) {
     /* The fex build lists by process group (launch.pgid outlives the supervisor's launch.pid). */
-    const char* suffix = ms_wine_is_fex() ? ".launch.pgid" : ".launch.pid";
+    const char* suffix = ms_wine_metalsharp_launch_model() ? ".launch.pgid" : ".launch.pid";
     char* processes_path = epic_join(home, "epic/processes");
     DIR* processes = processes_path ? opendir(processes_path) : NULL;
     ms_json_writer writer;
@@ -2024,7 +2024,7 @@ char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t bo
     }
     char pid_text[32];
     snprintf(pid_text, sizeof(pid_text), "%ld\n", (long)pid);
-    if (ms_wine_is_fex()) {
+    if (ms_wine_metalsharp_launch_model()) {
         pid_t group = getpgid(pid);
         char* group_path = epic_process_path(home, app_name, "launch.pgid");
         char group_text[32];

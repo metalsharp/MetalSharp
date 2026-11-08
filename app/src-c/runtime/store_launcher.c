@@ -32,9 +32,46 @@
 #include <libproc.h>
 #endif
 
-/* The routes a store game can take: Ubisoft's list. */
-static const char* const STORE_PIPELINE_IDS[] = {"d3dmetal", "dxmt", "dxmt_32", "vkd3d", "d3d9"};
-static const char* const STORE_PIPELINE_NAMES[] = {"D3DMetal", "DXMT", "DXMT (32-bit)", "VKD3D", "D3D9"};
+/* The routes a store game can be saved with: every runtime's lanes, and the bundles' x86_64 runtime's routes. */
+static const char* const STORE_PIPELINE_IDS[] = {"d3dmetal", "dxmt", "dxmt_32", "vkd3d", "d3d9", "dxvk", "wine_bare"};
+
+/* The lanes a store game is offered, as a Steam game is on the same runtime: MetalSharp Wine's on fex, the x86_64
+ * app runtime's (D3DMetal, VKD3D / DXVK, Mullion, OpenGL), else the bundles' x86_64 routes. */
+typedef struct {
+    const char* id;
+    const char* name;
+} store_lane;
+static const store_lane FEX_STORE_LANES[] = {
+    {"dxmt", "Mullion (DXMT)"}, {"vkd3d", "VKD3D-Proton"}, {"dxvk", "DXVK"}, {"wine_bare", "OpenGL"}};
+static const store_lane X86_64_STORE_LANES[] = {
+    {"d3dmetal", "D3DMetal"}, {"vkd3d", "VKD3D / DXVK"}, {"dxmt", "Mullion (DXMT)"}, {"wine_bare", "OpenGL"}};
+static const store_lane BUNDLES_STORE_LANES[] = {
+    {"d3dmetal", "D3DMetal"}, {"dxmt", "DXMT"}, {"dxmt_32", "DXMT (32-bit)"}, {"vkd3d", "VKD3D"}, {"d3d9", "D3D9"}};
+
+void ms_store_write_pipeline_options(ms_json_writer* w, const char* default_pipeline) {
+    const store_lane* lanes = BUNDLES_STORE_LANES;
+    size_t count = sizeof(BUNDLES_STORE_LANES) / sizeof(BUNDLES_STORE_LANES[0]);
+    const char* recommended = ms_wine_route_pipeline(default_pipeline);
+    if (ms_wine_is_fex()) {
+        lanes = FEX_STORE_LANES;
+        count = sizeof(FEX_STORE_LANES) / sizeof(FEX_STORE_LANES[0]);
+    } else if (ms_wine_metalsharp_launch_model()) {
+        lanes = X86_64_STORE_LANES;
+        count = sizeof(X86_64_STORE_LANES) / sizeof(X86_64_STORE_LANES[0]);
+    }
+    ms_json_writer_array_begin(w);
+    for (size_t i = 0; i < count; i++) {
+        ms_json_writer_object_begin(w);
+        ms_json_writer_key(w, "id");
+        ms_json_writer_string(w, lanes[i].id);
+        ms_json_writer_key(w, "name");
+        ms_json_writer_string(w, lanes[i].name);
+        ms_json_writer_key(w, "recommended");
+        ms_json_writer_bool(w, recommended && !strcmp(lanes[i].id, recommended));
+        ms_json_writer_object_end(w);
+    }
+    ms_json_writer_array_end(w);
+}
 
 char* ms_store_path_join(const char* a, const char* b) {
     size_t x, y;
@@ -913,18 +950,7 @@ void ms_store_write_game_json(ms_json_writer* w, const char* home, const ms_stor
     ms_json_writer_key(w, "preferred_pipeline");
     ms_json_writer_string(w, pipeline ? pipeline : provider->default_pipeline);
     ms_json_writer_key(w, "available_pipelines");
-    ms_json_writer_array_begin(w);
-    for (size_t i = 0; i < sizeof(STORE_PIPELINE_IDS) / sizeof(STORE_PIPELINE_IDS[0]); i++) {
-        ms_json_writer_object_begin(w);
-        ms_json_writer_key(w, "id");
-        ms_json_writer_string(w, STORE_PIPELINE_IDS[i]);
-        ms_json_writer_key(w, "name");
-        ms_json_writer_string(w, STORE_PIPELINE_NAMES[i]);
-        ms_json_writer_key(w, "recommended");
-        ms_json_writer_bool(w, !strcmp(STORE_PIPELINE_IDS[i], provider->default_pipeline));
-        ms_json_writer_object_end(w);
-    }
-    ms_json_writer_array_end(w);
+    ms_store_write_pipeline_options(w, provider->default_pipeline);
     ms_json_writer_object_end(w);
     free(pipeline);
     free(icon);

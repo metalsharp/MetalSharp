@@ -1,5 +1,5 @@
 //! Rendering for the live Sharp sources, reusing the approved card styling.
-use super::sharp_live::{ENGINE_OPTIONS, SharpConfirm, engine_options};
+use super::sharp_live::{SharpConfirm, engine_options};
 use super::*;
 use serde_json::Value;
 
@@ -883,13 +883,14 @@ impl SharpPreview {
                     }
                     body = body.child(actions);
                     if installed && live.open_bottle.contains(&id) {
-                        let mut options = vec![("auto".to_owned(), "Auto".to_owned())];
-                        options.extend(engine_options());
-                        let engine = live
-                            .gog_engines
-                            .get(&id)
-                            .cloned()
-                            .unwrap_or_else(|| "auto".into());
+                        let options = engine_options();
+                        let engine = super::sharp_live::engine_lane(
+                            live.gog_engines
+                                .get(&id)
+                                .map(String::as_str)
+                                .unwrap_or("auto"),
+                            super::sharp_live::STORE_AUTO_LANE,
+                        );
                         let engine_id = id.clone();
                         let exe_game = game.clone();
                         let mut content =
@@ -1101,8 +1102,7 @@ impl SharpPreview {
                     }
                     body = body.child(actions);
                     if installed && live.open_bottle.contains(&app) {
-                        let mut options = vec![("auto".to_owned(), "Auto".to_owned())];
-                        options.extend(engine_options());
+                        let options = engine_options();
                         let pipeline_app = app.clone();
                         let mouse_app = app.clone();
                         let exe_game = game.clone();
@@ -1112,10 +1112,10 @@ impl SharpPreview {
                             .gap(px(8.0))
                             .child(self.engine_picker(
                                 format!("epic-{app}"),
-                                match s(&game, "pipeline") {
-                                    "" => "auto".into(),
-                                    other => other.into(),
-                                },
+                                super::sharp_live::engine_lane(
+                                    s(&game, "pipeline"),
+                                    super::sharp_live::STORE_AUTO_LANE,
+                                ),
                                 options,
                                 move |this, value, cx| {
                                     this.update_epic_bottle(

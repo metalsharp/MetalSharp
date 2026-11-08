@@ -6,28 +6,69 @@ use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static FEX: AtomicBool = AtomicBool::new(false);
+static APP_FEX: AtomicBool = AtomicBool::new(false);
 
-/// True when the backend is the Arm64 build with FEX.
+/// True when the active Wine runtime is MetalSharp Wine (Arm64, FEX). A MetalSharp.app of either
+/// build can run either runtime (the FEX | x86_64 toggle), so this follows the user's choice.
 pub fn is_fex() -> bool {
     FEX.load(Ordering::Relaxed)
 }
 
-/// The backend's variant name: `fex` or `regular`.
+/// The active runtime's name: `fex` or `regular`.
 pub fn name() -> &'static str {
     if is_fex() { "fex" } else { "regular" }
 }
 
-/// Records the variant from a `/status` or `/update/check` reply. A reply without the field
-/// (an older backend) is the regular build.
-pub fn set_from_reply(reply: &Value) {
-    FEX.store(reply_is_fex(reply), Ordering::Relaxed);
+/// True when this MetalSharp.app is the FEX build (what updates download), whichever runtime is active.
+pub fn app_is_fex() -> bool {
+    APP_FEX.load(Ordering::Relaxed)
 }
 
-fn reply_is_fex(reply: &Value) -> bool {
+/// This MetalSharp.app's build: `fex` or `regular`.
+pub fn app_name() -> &'static str {
+    if app_is_fex() { "fex" } else { "regular" }
+}
+
+/// Records the active runtime (`variant`) and the app's build (`app_variant`) from a `/status`
+/// reply. A reply without them (an older backend) is the regular build, whose runtime is its own.
+pub fn set_from_reply(reply: &Value) {
+    let fex = reply_is(reply, "variant");
+    FEX.store(fex, Ordering::Relaxed);
+    let app = if reply.get("app_variant").is_some() {
+        reply_is(reply, "app_variant")
+    } else {
+        fex
+    };
+    APP_FEX.store(app, Ordering::Relaxed);
+}
+
+fn reply_is(reply: &Value, key: &str) -> bool {
     reply
-        .get("variant")
+        .get(key)
         .and_then(Value::as_str)
         .is_some_and(|variant| variant.eq_ignore_ascii_case("fex"))
+}
+
+/// The x86_64 runtime's lanes: MetalSharp Wine's (Mullion, VKD3D / DXVK, OpenGL on WineMetalGL) and D3DMetal,
+/// which runs only under Rosetta. VKD3D / DXVK is one lane: VKD3D-Proton's D3D12 with the full DXVK (D3D11 to D3D8).
+pub const X86_64_PIPELINE_OPTIONS: [(&str, &str); 4] = [
+    ("d3dmetal", "D3DMetal"),
+    ("vkd3d", "VKD3D / DXVK"),
+    ("dxmt", "Mullion (DXMT)"),
+    // Wine's own Direct3D on OpenGL, which WineMetalGL runs on Metal
+    ("wine_bare", "OpenGL"),
+];
+
+/// On the x86_64 runtime GPTK reads as D3DMetal, DXVK and the D3D9 route as VKD3D / DXVK, 32-bit
+/// DXMT as Mullion and Wine's own Direct3D as OpenGL, as the backend runs them. Mono/FNA stays.
+pub fn x86_64_pipeline(id: &str) -> &str {
+    match id {
+        "m13" | "gptk" => "d3dmetal",
+        "d3d9" | "m9" | "dxvk" | "dxvk_32" => "vkd3d",
+        "dxmt_32" | "m10" | "m11" | "m10_32" | "m11_32" => "dxmt",
+        "m32" | "wine" => "wine_bare",
+        other => other,
+    }
 }
 
 /// The pipelines a game can pick on FEX. D3DMetal, GPTK and the D3D9 route are not part of it
@@ -91,10 +132,13 @@ mod tests {
 
     #[test]
     fn missing_or_regular_variant_is_regular() {
-        assert!(!reply_is_fex(&json!({"ok": true})));
-        assert!(!reply_is_fex(&json!({"ok": true, "variant": "regular"})));
-        assert!(!reply_is_fex(&json!({"ok": true, "variant": null})));
-        assert!(reply_is_fex(&json!({"ok": true, "variant": "fex"})));
+        assert!(!reply_is(&json!({"ok": true}), "variant"));
+        assert!(!reply_is(
+            &json!({"ok": true, "variant": "regular"}),
+            "variant"
+        ));
+        assert!(!reply_is(&json!({"ok": true, "variant": null}), "variant"));
+        assert!(reply_is(&json!({"ok": true, "variant": "fex"}), "variant"));
     }
 
     #[test]
@@ -111,5 +155,14 @@ mod tests {
         }
         assert_eq!(fex_pipeline_label("wine_bare"), Some("OpenGL"));
         assert_eq!(fex_pipeline_label("auto"), None);
+    }
+
+    #[test]
+    fn x86_64_runs_dxvk_on_the_vkd3d_dxvk_lane() {
+        assert!(X86_64_PIPELINE_OPTIONS.iter().all(|(id, _)| *id != "dxvk"));
+        assert!(X86_64_PIPELINE_OPTIONS.contains(&("vkd3d", "VKD3D / DXVK")));
+        for id in ["dxvk", "dxvk_32", "d3d9", "m9", "vkd3d"] {
+            assert_eq!(x86_64_pipeline(id), "vkd3d", "{id}");
+        }
     }
 }

@@ -1,4 +1,5 @@
 #include "metalsharp_backend/setup.h"
+#include "metalsharp_backend/logs.h"
 
 #include <CommonCrypto/CommonDigest.h>
 
@@ -82,13 +83,16 @@ static bool adhoc_sign_native_bridge(const char* path) {
     return waited > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
+static bool native_bridge_signature_valid(const char* path);
+
 static bool sign_dxmt_native_bridges(const char* runtime_dir) {
     char *x64 = join_path(runtime_dir, "x86_64-unix/winemetal.so"),
          *x86 = join_path(runtime_dir, "i386-unix/winemetal.so");
-    bool ok = x64 && adhoc_sign_native_bridge(x64);
+    /* A bridge whose signature verifies (MetalSharp-Wine-x86_64.app's are Developer ID signed) keeps it */
+    bool ok = x64 && (native_bridge_signature_valid(x64) || adhoc_sign_native_bridge(x64));
     /* The bundled DXMT lane may include both x86_64 and i386 bridges. */
     if (x86 && access(x86, F_OK) == 0)
-        ok = adhoc_sign_native_bridge(x86) && ok;
+        ok = (native_bridge_signature_valid(x86) || adhoc_sign_native_bridge(x86)) && ok;
     free(x64);
     free(x86);
     return ok;
@@ -120,12 +124,12 @@ static char* setup_read_text(const char* path) {
     return data;
 }
 
-static bool sha256_matches(const char* path, const char* expected) {
-    FILE* file = fopen(path, "rb");
+/* path's SHA-256 in hex into actual (65 bytes) */
+static bool sha256_of(const char* path, char* actual) {
+    FILE* file = path ? fopen(path, "rb") : NULL;
     CC_SHA256_CTX context;
     unsigned char buffer[8192], digest[CC_SHA256_DIGEST_LENGTH];
     size_t count;
-    char actual[CC_SHA256_DIGEST_LENGTH * 2 + 1];
     if (!file || CC_SHA256_Init(&context) != 1) {
         if (file)
             fclose(file);
@@ -140,11 +144,17 @@ static bool sha256_matches(const char* path, const char* expected) {
     fclose(file);
     for (size_t i = 0; i < CC_SHA256_DIGEST_LENGTH; i++)
         snprintf(actual + (i * 2), 3, "%02x", digest[i]);
-    actual[sizeof(actual) - 1] = 0;
-    return expected && strcmp(actual, expected) == 0;
+    actual[CC_SHA256_DIGEST_LENGTH * 2] = 0;
+    return true;
+}
+
+static bool sha256_matches(const char* path, const char* expected) {
+    char actual[CC_SHA256_DIGEST_LENGTH * 2 + 1];
+    return expected && sha256_of(path, actual) && strcmp(actual, expected) == 0;
 }
 
 static bool mkdir_p(const char* path);
+static bool x86_64_runtime_from_app(const char* home);
 static bool run_brew_install(const char* package);
 static void optional_string(ms_json_writer*, const char*, const char*);
 
@@ -341,10 +351,6 @@ static bool extract_archive_member_to(const char* destination, const char* archi
     return child_succeeded(zstd_pid, &zstd_status) && child_succeeded(tar_pid, &tar_status);
 }
 
-static bool extract_bundle_archive(const char* home, const char* archive) {
-    return extract_archive_to(home, archive);
-}
-
 /* Runtime archives downloaded through a quarantined app or browser can cause
  * macOS to propagate execution-blocking metadata onto Wine executables. Clear
  * all runtime xattrs after extraction; the runtime is a locally unpacked,
@@ -470,54 +476,6 @@ static bool validate_wine_runtime(const char* home, const char* wine) {
     return ok;
 }
 
-static bool download_bundle_archive(const char* home, const char* name) {
-    char *cache = join_path(home, "cache/bundles"), *destination, *temporary;
-    pid_t pid, waited;
-    int wait_status;
-    if (!cache || !mkdir_p(cache)) {
-        free(cache);
-        return false;
-    }
-    destination = join_path(cache, name);
-    temporary = destination ? malloc(strlen(destination) + 16) : NULL;
-    if (temporary)
-        snprintf(temporary, strlen(destination) + 16, "%s.download", destination);
-    if (!destination || !temporary) {
-        free(cache);
-        free(destination);
-        free(temporary);
-        return false;
-    }
-    if (file_nonempty(destination)) {
-        free(cache);
-        free(destination);
-        free(temporary);
-        return true;
-    }
-    unlink(temporary);
-    pid = fork();
-    if (pid == 0) {
-        char url[512];
-        snprintf(url, sizeof(url), "https://github.com/metalsharp/MetalSharp/releases/download/bundles/%s", name);
-        execl("/usr/bin/curl", "curl", "--fail", "--location", "--silent", "--show-error", "--retry", "2",
-              "--connect-timeout", "30", "--max-time", "600", "-o", temporary, url, (char*)NULL);
-        _exit(127);
-    }
-    do
-        waited = waitpid(pid, &wait_status, 0);
-    while (waited < 0 && errno == EINTR);
-    bool ok = waited == pid && WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0 && file_nonempty(temporary);
-    if (ok) {
-        unlink(destination);
-        ok = rename(temporary, destination) == 0;
-    } else
-        unlink(temporary);
-    free(cache);
-    free(destination);
-    free(temporary);
-    return ok;
-}
-
 static bool copy_directory_contents(const char* source, const char* destination) {
     char* source_contents = join_path(source, ".");
     pid_t pid;
@@ -564,6 +522,27 @@ static char* find_setup_source(const char* relative) {
         free(current);
     }
     return access(relative, R_OK) == 0 ? strdup(relative) : NULL;
+}
+
+/* Whether a compiler is really installed (Xcode or its Command Line Tools), asked of xcode-select: running
+ * /usr/bin/clang without them opens macOS's "install the command line developer tools" dialog. Setup no longer
+ * needs them, so the shims it would build only get built where they are there. */
+bool ms_setup_clang_usable(void) {
+    char developer[PATH_MAX] = "", clang[PATH_MAX];
+    FILE* pipe = popen("/usr/bin/xcode-select -p 2>/dev/null", "r");
+    if (!pipe)
+        return false;
+    if (!fgets(developer, sizeof(developer), pipe))
+        developer[0] = '\0';
+    (void)pclose(pipe);
+    developer[strcspn(developer, "\r\n")] = '\0';
+    if (!developer[0])
+        return false;
+    return (snprintf(clang, sizeof(clang), "%s/usr/bin/clang", developer) < (int)sizeof(clang) &&
+            access(clang, X_OK) == 0) ||
+           (snprintf(clang, sizeof(clang), "%s/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang", developer) <
+                (int)sizeof(clang) &&
+            access(clang, X_OK) == 0);
 }
 
 static bool compile_fna_shim(const char* source, const char* destination, bool objective_c,
@@ -631,11 +610,13 @@ static void precompile_fna_shims(const char* home) {
         {"libfmod.dylib", "src/fna/shims/fmod_stub.c", false, true},
         {"libfmodstudio.dylib", "src/fna/shims/fmodstudio_stub.c", false, true}};
     char* dir = join_path(home, "runtime/shims");
+    bool clang = ms_setup_clang_usable();
     if (!dir || !mkdir_p(dir)) {
         free(dir);
         return;
     }
-    for (size_t i = 0; i < sizeof(specs) / sizeof(specs[0]); i++) {
+    /* the runtime carries these prebuilt; one that is missing is built only where a compiler is installed */
+    for (size_t i = 0; clang && i < sizeof(specs) / sizeof(specs[0]); i++) {
         char* source = find_setup_source(specs[i].source);
         char* destination = join_path(dir, specs[i].output);
         if (source && destination && !file_nonempty(destination))
@@ -1342,6 +1323,9 @@ static char* setup_path(const char* home) {
 }
 
 char* ms_setup_state_json(const char* metalsharp_home) {
+    /* a startup refresh laying the runtime out from a newer Wine app is not a runtime that needs migrating */
+    if (!ms_wine_refresh_wait(180))
+        fprintf(stderr, "warning: setup state read while MetalSharp Wine is still being updated\n");
     char* path = setup_path(metalsharp_home);
     ms_json* config = path == NULL ? NULL : read_json(path);
     char* runtime = runtime_status_json(metalsharp_home);
@@ -1676,13 +1660,24 @@ static bool moltenvk_runtime_ready(const char* home) {
     char *lane = join_path(home, "runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json"),
          *runtime = join_path(home, "runtime/wine/etc/vulkan/icd.d/MoltenVK_icd.json"),
          *library = join_path(home, libraries[0]);
+    /* A runtime laid out from MetalSharp-Wine-x86_64.app has the app's MoltenVK, which its signature covers (and
+     * signing changes the file): the expected hashes are the installed app's. */
+    char library_hash[CC_SHA256_DIGEST_LENGTH * 2 + 1] = MS_MOLTENVK_LIBRARY_SHA256,
+         lane_hash[CC_SHA256_DIGEST_LENGTH * 2 + 1] = MS_MOLTENVK_LANE_ICD_SHA256, contents[PATH_MAX];
     bool ready = true;
+    if (x86_64_runtime_from_app(home) && ms_wine_x86_64_app_contents(home, contents, sizeof(contents))) {
+        char* app_library = join_path(contents, "lib/wine/x86_64-unix/libMoltenVK.1.dylib");
+        char* app_lane = join_path(contents, "lib/moltenvk-vkmt/MoltenVK_icd.json");
+        ready = sha256_of(app_library, library_hash) && sha256_of(app_lane, lane_hash);
+        free(app_library);
+        free(app_lane);
+    }
     for (size_t i = 0; i < sizeof(libraries) / sizeof(libraries[0]); i++) {
         char* path = join_path(home, libraries[i]);
-        ready = ready && path && sha256_matches(path, MS_MOLTENVK_LIBRARY_SHA256);
+        ready = ready && path && sha256_matches(path, library_hash);
         free(path);
     }
-    ready = ready && lane && sha256_matches(lane, MS_MOLTENVK_LANE_ICD_SHA256) && runtime;
+    ready = ready && lane && sha256_matches(lane, lane_hash) && runtime;
     if (ready) {
         char* raw = setup_read_text(runtime);
         char parse_error[128];
@@ -1911,7 +1906,8 @@ char* ms_setup_dependencies_json(const char* metalsharp_home) {
     ms_json_writer_key(&writer, "ok");
     ms_json_writer_bool(&writer, true);
     ms_json_writer_key(&writer, "allInstalled");
-    ms_json_writer_bool(&writer, rosetta && xcode && wine_ready && host_ready && dxmt_ready);
+    /* the x86_64 runtime needs no compiler (its shims come prebuilt) */
+    ms_json_writer_bool(&writer, rosetta && wine_ready && host_ready && dxmt_ready);
     ms_json_writer_key(&writer, "platform");
     ms_json_writer_string(&writer, "macos");
     ms_json_writer_key(&writer, "dependencies");
@@ -1920,7 +1916,7 @@ char* ms_setup_dependencies_json(const char* metalsharp_home) {
                      false, "bash scripts/tools/install-homebrew.sh");
     ms_json_writer_object_end(&writer);
     dependency_begin(&writer, "xcode_cli", "Xcode Command Line Tools",
-                     "Provides clang for building native shims (CSteamworks, gdiplus stub)", xcode, true,
+                     "Optional: the x86_64 runtime brings its native shims prebuilt", xcode, false,
                      "xcode-select --install");
     ms_json_writer_object_end(&writer);
     dependency_begin(&writer, "rosetta", "Rosetta 2",
@@ -2164,42 +2160,255 @@ static void install_rosetta_step(const char* home, unsigned total) {
     write_install_progress(home, 3, total, "Rosetta 2", "done", "Rosetta 2 ready", NULL);
 }
 
-/* Steps 5-7 of the x86_64 build: the x86_64 Wine runtime bundle, its assets and VKD3D's MoltenVK. */
-static void install_x86_64_runtime_steps(const char* home, unsigned total) {
-    write_install_progress(home, 5, total, "Runtime Bundle Downloads", "installing", "Locating runtime bundles...",
-                           NULL);
-    {
-        char* archive = find_bundle_archive(home, "metalsharp-runtime.tar.zst");
-        char* existing_wine = join_path(home, "runtime/wine/bin/metalsharp-wine");
-        char* existing_host = join_path(home, "runtime/host/manifest.json");
-        bool already_ready = file_nonempty(existing_wine) && file_nonempty(existing_host);
-        if (archive) {
-            if (!extract_bundle_archive(home, archive)) {
-                write_install_progress(home, 5, total, "Runtime Bundle Downloads", "error",
-                                       "Failed to extract the MetalSharp runtime bundle",
-                                       "runtime bundle extraction failed");
-                free(archive);
-                free(existing_wine);
-                free(existing_host);
-                _exit(0);
-            }
-            free(archive);
-            if (!ms_setup_wine_wrapper_ensure(home))
-                fprintf(stderr, "warning: could not update MetalSharp Wine wrapper after runtime extraction\n");
-            write_install_progress(home, 5, total, "Runtime Bundle Downloads", "done", "Runtime bundle extracted",
-                                   NULL);
-        } else if (already_ready) {
-            write_install_progress(home, 5, total, "Runtime Bundle Downloads", "done", "Runtime bundle already present",
-                                   NULL);
+static bool set_tree_user_writable(const char* path);
+
+#define X86_64_APP_MARKER "runtime/wine/.metalsharp-x86_64-app"
+
+/* Whether runtime/ was laid out from MetalSharp-Wine-x86_64.app (stage_x86_64_runtime_from_app), not the bundles */
+static bool x86_64_runtime_from_app(const char* home) {
+    char* marker = join_path(home, X86_64_APP_MARKER);
+    bool from_app = marker && file_nonempty(marker);
+    free(marker);
+    return from_app;
+}
+
+/* cp -R from to, as APFS clones where the volume has them (no space until a file changes), else copies; no_clobber
+ * keeps files to has. The copy is made writable: MetalSharp writes into the runtime it lays out, and the app's own
+ * files are read-only. */
+static bool clone_tree(const char* from, const char* to, bool no_clobber) {
+    for (int attempt = 0; attempt < 2; attempt++) {
+        pid_t pid = fork();
+        int status = 0;
+        if (pid < 0)
+            return false;
+        if (pid == 0) {
+            int null = open("/dev/null", O_WRONLY);
+            if (null >= 0)
+                dup2(null, STDERR_FILENO);
+            if (attempt == 0)
+                execl("/bin/cp", "cp", no_clobber ? "-cRpn" : "-cRp", from, to, (char*)NULL);
+            else
+                execl("/bin/cp", "cp", no_clobber ? "-Rpn" : "-Rp", from, to, (char*)NULL);
+            _exit(127);
+        }
+        while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+        }
+        /* macOS's cp -n exits 1 when it kept a file that was there, which is what no_clobber asks for */
+        if (WIFEXITED(status) && (WEXITSTATUS(status) == 0 || (no_clobber && WEXITSTATUS(status) == 1)))
+            return set_tree_user_writable(to);
+    }
+    return false;
+}
+
+/* to replaced by a clone of from */
+static bool replace_tree(const char* from, const char* to) {
+    struct stat info;
+    char* parent = strdup(to);
+    char* slash = parent ? strrchr(parent, '/') : NULL;
+    bool ok = parent && slash && stat(from, &info) == 0;
+    if (ok) {
+        *slash = '\0';
+        (void)set_tree_user_writable(to);
+        remove_path_tree(to);
+        ok = mkdir_p(parent) && clone_tree(from, to, false);
+    }
+    free(parent);
+    return ok;
+}
+
+/* The x86_64 install's layout from the installed MetalSharp-Wine-x86_64.app, whose Contents is it
+ * (tools/package/build-wine-x86_64-app.sh): Contents/MacOS and share/metalsharp/wine-bin as runtime/wine/bin,
+ * Contents/{lib,share,include,libexec} as runtime/wine's, share/metalsharp/etc into runtime/wine/etc (files already
+ * there kept: MetalSharp and the user edit them), share/metalsharp/runtime/<name> as runtime/<name>,
+ * share/metalsharp/vkd3d as vkd3d, share/metalsharp/scripts/tools as scripts/tools and its shader-cache into
+ * shader-cache. Nothing is downloaded. */
+static bool stage_x86_64_runtime_from_app(const char* home, char* error, size_t error_size) {
+    static const char* const wine_trees[] = {"lib", "share", "include", "libexec"};
+    char contents[PATH_MAX], from[PATH_MAX], to[PATH_MAX];
+    DIR* dir;
+    struct dirent* entry;
+    FILE* marker;
+    bool ok;
+    if (!ms_wine_x86_64_app_contents(home, contents, sizeof(contents))) {
+        snprintf(error, error_size, "path too long");
+        return false;
+    }
+#define STAGE(src_fmt, src_arg, dst_rel)                                                                               \
+    (snprintf(from, sizeof(from), src_fmt, contents, src_arg) < (int)sizeof(from) &&                                   \
+     snprintf(to, sizeof(to), "%s/%s", home, dst_rel) < (int)sizeof(to) && replace_tree(from, to))
+    ok = STAGE("%s/%s", "MacOS", "runtime/wine/bin");
+    for (size_t i = 0; ok && i < sizeof(wine_trees) / sizeof(wine_trees[0]); i++) {
+        char rel[64];
+        snprintf(rel, sizeof(rel), "runtime/wine/%s", wine_trees[i]);
+        ok = STAGE("%s/%s", wine_trees[i], rel);
+    }
+    if (!ok) {
+        snprintf(error, error_size, "could not lay out runtime/wine from %s", contents);
+        return false;
+    }
+    /* the app's own MetalSharp tree is not part of runtime/wine; winebus's SDL2 link is set up by
+     * ms_setup_wine_sdl_ensure, into runtime/shims */
+    snprintf(to, sizeof(to), "%s/runtime/wine/share/metalsharp", home);
+    remove_path_tree(to);
+    snprintf(to, sizeof(to), "%s/runtime/wine/lib/libSDL2-2.0.0.dylib", home);
+    (void)unlink(to);
+    snprintf(from, sizeof(from), "%s/share/metalsharp/wine-bin/.", contents);
+    snprintf(to, sizeof(to), "%s/runtime/wine/bin", home);
+    ok = clone_tree(from, to, false);
+    snprintf(from, sizeof(from), "%s/share/metalsharp/etc/.", contents);
+    snprintf(to, sizeof(to), "%s/runtime/wine/etc", home);
+    ok = ok && mkdir_p(to) && clone_tree(from, to, true);
+    /* the rules the runtime's own Wine reads, which are the app's, not the user's */
+    snprintf(from, sizeof(from), "%s/share/metalsharp/etc/mscompatdb_rules.toml", contents);
+    snprintf(to, sizeof(to), "%s/runtime/wine/etc/mscompatdb_rules.toml", home);
+    ok = ok && (access(from, R_OK) != 0 || copy_file_path(from, to));
+    snprintf(from, sizeof(from), "%s/share/metalsharp/runtime", contents);
+    dir = ok ? opendir(from) : NULL;
+    ok = ok && dir;
+    while (ok && (entry = readdir(dir))) {
+        char rel[PATH_MAX];
+        if (entry->d_name[0] == '.')
+            continue;
+        snprintf(rel, sizeof(rel), "runtime/%s", entry->d_name);
+        ok = STAGE("%s/share/metalsharp/runtime/%s", entry->d_name, rel);
+    }
+    if (dir)
+        closedir(dir);
+    ok = ok && STAGE("%s/share/metalsharp/vkd3d/%s", "vkd3d-proton", "vkd3d/vkd3d-proton") &&
+         STAGE("%s/share/metalsharp/vkd3d/%s", "dxvk", "vkd3d/dxvk") &&
+         STAGE("%s/share/metalsharp/scripts/%s", "tools", "scripts/tools");
+#undef STAGE
+    snprintf(from, sizeof(from), "%s/share/metalsharp/shader-cache/.", contents);
+    snprintf(to, sizeof(to), "%s/shader-cache", home);
+    ok = ok && (access(from, R_OK) != 0 || (mkdir_p(to) && clone_tree(from, to, true)));
+    if (!ok) {
+        snprintf(error, error_size, "could not lay out the runtime from %s", contents);
+        return false;
+    }
+    /* which app build it came from: its SOURCES.txt (also the marker x86_64_runtime_from_app reads) */
+    snprintf(from, sizeof(from), "%s/share/metalsharp/SOURCES.txt", contents);
+    snprintf(to, sizeof(to), "%s/" X86_64_APP_MARKER, home);
+    if (access(from, R_OK) == 0)
+        ok = copy_file_path(from, to);
+    else if ((marker = fopen(to, "w"))) {
+        fputs("MetalSharp-Wine-x86_64.app\n", marker);
+        ok = fclose(marker) == 0;
+    } else
+        ok = false;
+    (void)chmod(to, 0644);
+    if (!ok)
+        snprintf(error, error_size, "could not write %s", to);
+    /* the app build runtime/ was laid out from (x86_64_runtime_staged) */
+    if (ok) {
+        char identity[256] = "", path[PATH_MAX];
+        FILE* file;
+        if (ms_wine_x86_64_app_identity(home, identity, sizeof(identity)) &&
+            snprintf(path, sizeof(path), "%s/runtime/wine/.metalsharp-x86_64-app-identity", home) < (int)sizeof(path) &&
+            (file = fopen(path, "w"))) {
+            fputs(identity, file);
+            fclose(file);
+        }
+    }
+    /* prefixes MetalSharp Wine set up keep ARM64X VC++ DLLs the x86_64 Wine cannot run */
+    if (ok)
+        (void)ms_wine_fit_prefix_vcrun(home, true);
+    return ok;
+}
+
+/* A MetalSharp update brings a newer MetalSharp-Wine-x86_64.app: the x86_64 runtime laid out from the installed one is
+ * laid out again from it when the backend starts, as MetalSharp Wine's app is refreshed (ms_wine_fex_refresh_async) */
+/* Whether runtime/ was laid out from the installed app build (not an older one, nor left half done) */
+static bool x86_64_runtime_staged(const char* home) {
+    char identity[256] = "", staged[256] = "", path[PATH_MAX];
+    FILE* file;
+    size_t length = 0;
+    if (!ms_wine_x86_64_app_identity(home, identity, sizeof(identity)) ||
+        snprintf(path, sizeof(path), "%s/runtime/wine/.metalsharp-x86_64-app-identity", home) >= (int)sizeof(path) ||
+        !(file = fopen(path, "r")))
+        return false;
+    length = fread(staged, 1, sizeof(staged) - 1, file);
+    fclose(file);
+    staged[length] = '\0';
+    return !strcmp(identity, staged);
+}
+
+bool ms_setup_x86_64_refresh(const char* home, char* error, size_t error_size) {
+    bool ok = true;
+    if (!ms_wine_is_fex() && x86_64_runtime_from_app(home) &&
+        (!ms_wine_x86_64_app_current(home) || !x86_64_runtime_staged(home))) {
+        ms_log_event(home, "Updating MetalSharp Wine (x86_64) from MetalSharp.app...");
+        char* dxmt = join_path(home, "runtime/wine/lib/dxmt");
+        /* as setup's graphics step does: Mullion's native bridges signed and its manifest, which setup's state reads
+         * (laying lib/ out again took both) */
+        ok = ms_wine_x86_64_install_app(home, error, error_size) &&
+             stage_x86_64_runtime_from_app(home, error, error_size) && dxmt && sign_dxmt_native_bridges(dxmt) &&
+             write_dxmt_manifest(dxmt);
+        if (ok) {
+            (void)ms_setup_wine_wrapper_ensure(home);
+            ms_log_event(home, "MetalSharp Wine (x86_64) updated");
         } else {
-            write_install_progress(home, 5, total, "Runtime Bundle Downloads", "error",
-                                   "Required runtime bundle is missing", "missing metalsharp-runtime.tar.zst");
-            free(existing_wine);
-            free(existing_host);
+            char message[640];
+            snprintf(message, sizeof(message), "MetalSharp Wine (x86_64) could not be updated: %s", error);
+            ms_log_event(home, message);
+        }
+        free(dxmt);
+    }
+    return ok;
+}
+
+static void* x86_64_refresh_thread(void* arg) {
+    char* home = arg;
+    char error[512] = "";
+    /* A pending or running migration swaps the app itself (ms_setup_x86_64_refresh), so the two never lay the
+     * runtime out at the same time. */
+    if (!ms_wine_fex_refresh_blocked(home)) {
+        (void)ms_setup_x86_64_refresh(home, error, sizeof(error));
+        /* and MetalSharp Wine (FEX), when it is installed too */
+        if (!ms_wine_refresh_inactive_app(home, error, sizeof(error)))
+            fprintf(stderr, "warning: could not refresh the other Wine runtime: %s\n", error);
+    }
+    free(home);
+    ms_wine_refresh_end();
+    return NULL;
+}
+
+void ms_setup_x86_64_refresh_async(const char* home) {
+    pthread_t thread;
+    char* copy = home ? strdup(home) : NULL;
+    if (!copy)
+        return;
+    ms_wine_refresh_begin();
+    if (pthread_create(&thread, NULL, x86_64_refresh_thread, copy) == 0)
+        pthread_detach(thread);
+    else {
+        free(copy);
+        ms_wine_refresh_end();
+    }
+}
+
+/* Steps 5-7 of the x86_64 build: MetalSharp Wine (x86_64) from its app, its assets and VKD3D's MoltenVK. */
+static void install_x86_64_runtime_steps(const char* home, unsigned total) {
+    char* app_source = ms_wine_x86_64_app_source();
+    if (app_source) {
+        /* MetalSharp carries MetalSharp-Wine-x86_64.app: the whole runtime, signed, with nothing to download */
+        char error[512] = "";
+        free(app_source);
+        write_install_progress(home, 5, total, "MetalSharp Wine (x86_64)", "installing",
+                               "Installing MetalSharp Wine (x86_64)...", NULL);
+        if (!ms_wine_x86_64_install_app(home, error, sizeof(error)) ||
+            !stage_x86_64_runtime_from_app(home, error, sizeof(error))) {
+            write_install_progress(home, 5, total, "MetalSharp Wine (x86_64)", "error",
+                                   "MetalSharp Wine (x86_64) could not be installed", error);
             _exit(0);
         }
-        free(existing_wine);
-        free(existing_host);
+        if (!ms_setup_wine_wrapper_ensure(home))
+            fprintf(stderr, "warning: could not update MetalSharp Wine wrapper after runtime install\n");
+        write_install_progress(home, 5, total, "MetalSharp Wine (x86_64)", "done", "MetalSharp Wine (x86_64) installed",
+                               NULL);
+    } else {
+        write_install_progress(home, 5, total, "MetalSharp Wine (x86_64)", "error",
+                               "MetalSharp Wine (x86_64) is missing", "download it from MetalSharp Wine's release");
+        _exit(0);
     }
     (void)clear_runtime_quarantine(home);
     if (!sign_wine_host_runtime(home)) {
@@ -2230,7 +2439,7 @@ static void install_x86_64_runtime_steps(const char* home, unsigned total) {
     char* host = join_path(home, "runtime/host/manifest.json");
     if (!home_required_files_ready(home, runtime_files, sizeof(runtime_files) / sizeof(runtime_files[0]))) {
         write_install_progress(home, 6, total, "Runtime Assets", "error",
-                               "Runtime assets are missing; install or download the MetalSharp runtime bundle first",
+                               "Runtime assets are missing; reinstall MetalSharp Wine (x86_64)",
                                "missing runtime assets");
         free(wine);
         free(host);
@@ -2254,7 +2463,7 @@ static void install_x86_64_runtime_steps(const char* home, unsigned total) {
     write_install_progress(home, 7, total, "VKD3D MoltenVK Runtime", "done", "VKD3D/MoltenVK runtime ready", NULL);
 }
 
-/* Steps 3 and 5-7 of the fex build: MetalSharp Wine instead of Rosetta and the runtime bundle. */
+/* Steps 3 and 5-7 of the fex build: MetalSharp Wine instead of Rosetta and the x86_64 runtime. */
 /* The fex build stages its support assets from MetalSharp Wine's share/metalsharp (the asset
  * bundles' own files, plus Mono and FAudio as archives/<name>.tar.zst) and MetalSharp.app's
  * configs and scripts, so setup needs no network. The app is read-only; copies are made writable. */
@@ -2405,7 +2614,18 @@ static void install_graphics_lane_steps(const char* home, unsigned total) {
     bool dxmt;
     write_install_progress(home, 11, total, "DXMT Graphics Runtimes", "installing", "Extracting graphics runtimes...",
                            NULL);
-    {
+    if (x86_64_runtime_from_app(home)) {
+        /* Mullion, VKD3D-Proton, DXVK and WFDXCompat came with MetalSharp-Wine-x86_64.app, signed */
+        char* dxmt = join_path(home, "runtime/wine/lib/dxmt");
+        bool graphics_ok = dxmt && sign_dxmt_native_bridges(dxmt) && write_dxmt_manifest(dxmt);
+        free(dxmt);
+        if (!graphics_ok) {
+            write_install_progress(home, 11, total, "Mullion Graphics", "error",
+                                   "Mullion graphics runtime is missing or could not be staged",
+                                   "missing runtime/wine/lib/dxmt");
+            _exit(0);
+        }
+    } else {
         char* archive = find_bundle_archive(home, "metalsharp-graphics-dll.tar.zst");
         char* temp = NULL;
         bool graphics_ok = true;
@@ -2485,13 +2705,22 @@ static void run_install_all_worker(const char* home) {
                                "Bundled icon, archive, and extraction tools ready", NULL);
     }
 
-    write_install_progress(home, 2, total, "System Tools", "installing", "Checking Xcode Command Line Tools...", NULL);
-    if (!install_xcode_cli()) {
-        write_install_progress(home, 2, total, "System Tools", "error", "Xcode Command Line Tools installation failed",
-                               "install manually with: xcode-select --install");
-        _exit(0);
+    /* The x86_64 runtime carries its native shims prebuilt, so its setup needs no compiler (Xcode's Command Line
+     * Tools); the FEX runtime's still checks for them. */
+    if (ms_wine_is_fex()) {
+        write_install_progress(home, 2, total, "System Tools", "installing", "Checking Xcode Command Line Tools...",
+                               NULL);
+        if (!install_xcode_cli()) {
+            write_install_progress(home, 2, total, "System Tools", "error",
+                                   "Xcode Command Line Tools installation failed",
+                                   "install manually with: xcode-select --install");
+            _exit(0);
+        }
+        write_install_progress(home, 2, total, "System Tools", "done", "System tools ready", NULL);
+    } else {
+        write_install_progress(home, 2, total, "System Tools", "done",
+                               "The x86_64 runtime brings its tools; Xcode's Command Line Tools are not needed", NULL);
     }
-    write_install_progress(home, 2, total, "System Tools", "done", "System tools ready", NULL);
     if (ms_wine_is_fex())
         write_install_progress(home, 3, total, "x86 Translation", "done",
                                "MetalSharp Wine runs x86 code with FEX; Rosetta 2 is not needed", NULL);
@@ -2506,27 +2735,22 @@ static void run_install_all_worker(const char* home) {
         _exit(0);
     }
     write_install_progress(home, 4, total, "Extract Tools (zstd)", "done", "Bundled zstd ready", NULL);
+    char* x86_64_app = ms_wine_is_fex() ? NULL : ms_wine_x86_64_app_source();
     if (ms_wine_is_fex()) {
-        write_install_progress(home, 5, total, "Runtime Bundle Downloads", "done",
+        write_install_progress(home, 5, total, "MetalSharp Wine", "done",
                                "MetalSharp Wine carries the runtime assets; nothing to download", NULL);
+    } else if (x86_64_app) {
+        /* MetalSharp carries MetalSharp-Wine-x86_64.app: the whole runtime */
+        free(x86_64_app);
     } else {
-        const char* bundles[] = {"metalsharp-runtime.tar.zst",       "metalsharp-graphics-dll.tar.zst",
-                                 "metalsharp-assets.tar.zst",        "fnalibs.tar.zst",
-                                 "metalsharp-scripts-tools.tar.zst", "metalsharp-steam.tar.zst"};
-        for (size_t i = 0; i < sizeof(bundles) / sizeof(bundles[0]); i++) {
-            char* archive = find_bundle_archive(home, bundles[i]);
-            bool available = archive != NULL;
-            free(archive);
-            if (!available) {
-                write_install_progress(home, 5, total, "Runtime Bundle Downloads", "downloading",
-                                       "Downloading required runtime bundles...", NULL);
-                available = download_bundle_archive(home, bundles[i]);
-            }
-            if (!available) {
-                write_install_progress(home, 5, total, "Runtime Bundle Downloads", "error",
-                                       "Required runtime bundle could not be downloaded", bundles[i]);
-                _exit(0);
-            }
+        /* MetalSharp Wine (x86_64) from MetalSharp Wine's release; the old runtime bundles are not used */
+        char error[512] = "";
+        write_install_progress(home, 5, total, "MetalSharp Wine (x86_64)", "downloading",
+                               "Downloading MetalSharp Wine (x86_64)...", NULL);
+        if (!ms_wine_fetch_runtime_app(home, "regular", error, sizeof(error))) {
+            write_install_progress(home, 5, total, "MetalSharp Wine (x86_64)", "error",
+                                   "MetalSharp Wine (x86_64) could not be downloaded", error);
+            _exit(0);
         }
     }
 
@@ -2554,10 +2778,13 @@ static void run_install_all_worker(const char* home) {
         const char* support_dirs[] = {"runtime/mono-x86", "runtime/mono-arm64", "runtime/shims", "runtime/fnalibs",
                                       "runtime/fna-kickstart"};
         write_install_progress(home, 9, total, "Support Assets", "installing", "Staging support assets...", NULL);
-        char* support_archive = ms_wine_is_fex() ? NULL : find_bundle_archive(home, "metalsharp-assets.tar.zst");
+        bool from_app = !ms_wine_is_fex() && x86_64_runtime_from_app(home);
+        char* support_archive =
+            ms_wine_is_fex() || from_app ? NULL : find_bundle_archive(home, "metalsharp-assets.tar.zst");
         bool support_ready =
             home_required_dirs_ready(home, support_dirs, sizeof(support_dirs) / sizeof(support_dirs[0]));
         bool support_ok = ms_wine_is_fex() ? fex_stage_support_assets(home)
+                          : from_app       ? support_ready
                                            : support_archive && (support_ready ||
                                                                  extract_split_bundle(home, "metalsharp-assets.tar.zst",
                                                                                       mapping, sizeof(mapping) /
@@ -2580,12 +2807,14 @@ static void run_install_all_worker(const char* home) {
         const char* const mapping[][2] = {{"scripts/tools", "scripts/tools"}};
         write_install_progress(home, 10, total, "Scripts and Tools", "installing", "Staging scripts and tools...",
                                NULL);
-        char* scripts_archive =
-            ms_wine_is_fex() ? NULL : find_bundle_archive(home, "metalsharp-scripts-tools.tar.zst");
+        bool from_app = !ms_wine_is_fex() && x86_64_runtime_from_app(home);
+        char* scripts_archive = ms_wine_is_fex() || from_app
+                                    ? NULL
+                                    : find_bundle_archive(home, "metalsharp-scripts-tools.tar.zst");
         bool scripts_ready = home_required_dirs_ready(home, (const char*[]){"scripts/tools"}, 1);
         bool scripts_ok =
-            (ms_wine_is_fex()
-                 ? fex_stage_scripts_tools(home)
+            (ms_wine_is_fex() ? fex_stage_scripts_tools(home)
+             : from_app       ? scripts_ready
                  : scripts_archive && (scripts_ready ||
                                        extract_split_bundle(home, "metalsharp-scripts-tools.tar.zst", mapping, 1))) &&
             home_required_dirs_ready(home, (const char*[]){"scripts/tools"}, 1);

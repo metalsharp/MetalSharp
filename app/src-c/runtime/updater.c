@@ -223,9 +223,11 @@ static bool has_dmg_suffix(const char* name) {
            tolower((unsigned char)name[length - 2]) == 'm' && tolower((unsigned char)name[length - 1]) == 'g';
 }
 
-/* The Arm64 build with FEX is meant for macOS 26.4 and newer; older systems are warned, not refused. */
-#define MS_FEX_MIN_MACOS_MAJOR 26
-#define MS_FEX_MIN_MACOS_MINOR 4
+/* The Arm64 build with FEX is meant for macOS 15 and newer (32-bit games on it need 26.4, for the cross-architecture
+ * entitlement's low 4GB); older systems are warned, not refused. */
+#define MS_FEX_MIN_MACOS_MAJOR 15
+#define MS_FEX_MIN_MACOS_MINOR 0
+#define MS_FEX_MIN_MACOS       "15.0"
 
 /* The host's macOS version ("26.4.1"), or METALSHARP_UPDATE_HOST_MACOS's for tests; empty if unknown. */
 static void host_macos_version(char* version, size_t size) {
@@ -305,7 +307,7 @@ static bool valid_variant(const char* variant) {
 }
 
 /*
- * /update/check for the build this backend is (ms_wine_variant()):
+ * /update/check for the build this backend is (ms_wine_app_variant(), whichever Wine runtime is active):
  *   available       a newer version of this build: on regular, exactly the old rule (a newer tag);
  *                   on fex, a newer tag that has a FEX asset
  *   download_url    this build's asset (regular_download_url / fex_download_url name each one)
@@ -335,7 +337,7 @@ char* ms_update_check_json(void) {
     body = release_field_json(release, "body");
     release_assets_find(release, &assets);
     host_macos_version(macos, sizeof(macos));
-    bool current_fex = ms_wine_is_fex();
+    bool current_fex = !strcmp(ms_wine_app_variant(), "fex");
     int latest_order = latest == NULL || latest[0] == '\0' ? -1 : version_compare(latest, MS_BACKEND_VERSION);
     const char* own_url = current_fex ? assets.fex_url : assets.regular_url;
     unsigned long long own_size = current_fex ? assets.fex_size : assets.regular_size;
@@ -350,7 +352,7 @@ char* ms_update_check_json(void) {
     ms_json_writer_key(&writer, "current_version");
     ms_json_writer_string(&writer, MS_BACKEND_VERSION);
     ms_json_writer_key(&writer, "variant");
-    ms_json_writer_string(&writer, ms_wine_variant());
+    ms_json_writer_string(&writer, ms_wine_app_variant());
     ms_json_writer_key(&writer, "latest_version");
     ms_json_writer_string(&writer, latest == NULL ? "" : latest);
     ms_json_writer_key(&writer, "available");
@@ -382,7 +384,7 @@ char* ms_update_check_json(void) {
     ms_json_writer_key(&writer, "fex_recommended");
     ms_json_writer_bool(&writer, fex_recommended(macos));
     ms_json_writer_key(&writer, "fex_min_macos");
-    ms_json_writer_string(&writer, "26.4");
+    ms_json_writer_string(&writer, MS_FEX_MIN_MACOS);
     ms_json_writer_key(&writer, "macos_version");
     ms_json_writer_string(&writer, macos);
     ms_json_writer_key(&writer, "macos_major");
@@ -564,7 +566,7 @@ char* ms_update_dmg_path_json(const char* metalsharp_home, const char* variant) 
  * the same field. With no body, or a body that names neither, it downloads the build this backend is.
  */
 char* ms_update_start_json(const char* metalsharp_home, const unsigned char* body, size_t body_length) {
-    bool fex = ms_wine_is_fex();
+    bool fex = !strcmp(ms_wine_app_variant(), "fex");
     if (body_length > 0) {
         char parse_error[128];
         ms_json* request = ms_json_parse((const char*)body, body_length, parse_error, sizeof(parse_error));

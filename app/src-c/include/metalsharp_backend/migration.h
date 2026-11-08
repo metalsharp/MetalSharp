@@ -26,6 +26,10 @@ typedef enum {
     MS_MIGRATION_PATH_FEX_TO_REGULAR,
     MS_MIGRATION_PATH_REGULAR_TO_FEX,
     MS_MIGRATION_PATH_FEX_UPDATE,
+    /* An update of a home MetalSharp Wine runs (fex, or the x86_64 app runtime) whose runtime is set up: the new
+     * MetalSharp.app is already in place, its Wine app is swapped in place, and each prefix updates itself the first
+     * time Wine starts in it. Nothing is reinstalled. */
+    MS_MIGRATION_PATH_APP_UPDATE,
 } ms_migration_path;
 ms_migration_path ms_migration_path_for(const char* running_variant, const char* recorded_variant,
                                         const char* from_version, bool installed, bool marker_needed,

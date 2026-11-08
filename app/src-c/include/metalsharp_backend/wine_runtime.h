@@ -67,9 +67,18 @@ void ms_wine_fex_unlock(int fd);
 /* A migration is pending (the updater's marker) or running (migration.lock): it reinstalls MetalSharp
  * Wine itself, so the startup refresh leaves it alone. */
 bool ms_wine_fex_refresh_blocked(const char* home);
+/* MetalSharp-Wine.app swapped in place for the one MetalSharp.app carries, when they differ (a MetalSharp update) */
+bool ms_wine_fex_refresh_app(const char* home, char* error, size_t error_size);
 /* At backend start, on a detached thread: once setup has installed MetalSharp Wine, reinstall it
  * when this MetalSharp carries a different build, and rewrite the facade's wrappers. */
 void ms_wine_fex_refresh_async(const char* home);
+/* The startup refreshes' gate: each async refresh begins and ends it; ms_wine_refresh_wait blocks until none runs
+ * (true) or the seconds pass (false). */
+/* The inactive runtime's Wine app updated from the one MetalSharp.app carries, when that runtime is installed. */
+bool ms_wine_refresh_inactive_app(const char* home, char* error, size_t error_size);
+void ms_wine_refresh_begin(void);
+void ms_wine_refresh_end(void);
+bool ms_wine_refresh_wait(unsigned seconds);
 /* The MetalSharp-Wine.app this MetalSharp carries, or NULL. Malloc'd. */
 char* ms_wine_fex_app_source(void);
 
@@ -98,7 +107,10 @@ bool ms_wine_fex_prefix_ready(const char* prefix);
  *   counted in *without_backup, since the x86_64 Wine must not run it. */
 /* The graphics config MetalSharp edits: Mullion's runtime/wine/etc/mullion.conf, named by
  * MULLION_CONFIG_FILE, on the fex build (a dxmt.conf from before is renamed to it once, keeping its
- * settings); DXMT's dxmt.conf and DXMT_CONFIG_FILE on the regular build. */
+ * settings), on both builds (a dxmt.conf from before becomes it). */
+/* Whether the D3D10/11 lane (runtime/wine/lib/dxmt) is Mullion: always on the fex build, on the regular build once
+ * MetalSharp-Wine-x86_64.app installed it (DXMT 0.80 from the bundles before). */
+bool ms_wine_dxmt_lane_is_mullion(const char* home);
 bool ms_wine_graphics_conf_path(const char* home, char* out, size_t out_size);
 const char* ms_wine_graphics_conf_env(void);
 
@@ -127,5 +139,49 @@ const char* ms_wine_setup_variant_to_record(const char* home);
 bool ms_wine_fex_convert_prefix(const char* home, const char* prefix, char* error, size_t error_size);
 unsigned ms_wine_fex_convert_prefixes(const char* home, char* error, size_t error_size);
 unsigned ms_wine_restore_x86_64_prefixes(const char* home, unsigned* without_backup);
+
+/* The regular build's x86_64 runtime as one signed app, MetalSharp-Wine-x86_64.app: where MetalSharp carries it
+ * (MetalSharp.app's Resources; $METALSHARP_WINE_X86_64_APP_SOURCE), its installed Contents in runtime/, and its
+ * install there (copied while its signature differs, verified, read-only). */
+char* ms_wine_x86_64_app_source(void);
+bool ms_wine_x86_64_app_contents(const char* home, char* out, size_t out_size);
+bool ms_wine_x86_64_install_app(const char* home, char* error, size_t error_size);
+
+/* Two runtimes in one home: the build's own and the other build's, which the user switches between (FEX | x86_64).
+ * ms_wine_is_fex() and ms_wine_variant() are the active runtime's; ms_wine_app_variant() is the build's, which
+ * updates keep. */
+const char* ms_wine_app_variant(void);
+/* A route Wine sets up by itself from GRAPHICS_BACKEND (launch.env): every lane on MetalSharp Wine, and the x86_64
+ * runtime's D3DMetal, VKD3D-Proton, Mullion and OpenGL lanes. Such a route stages no DLLs, sets no overrides and
+ * starts Steam games through the Steam client. */
+bool ms_wine_routes_lane(const char* pipeline);
+/* MetalSharp Wine's launch model: the FEX runtime, or the x86_64 one laid out from MetalSharp-Wine-x86_64.app. Games
+ * take their lane from launch.env, launcher clients keep theirs, and a game is tracked by its process group, which
+ * outlives the store tool (gogdl, legendary) that started it. */
+bool ms_wine_metalsharp_launch_model(void);
+void ms_wine_reload_active_runtime(void);
+/* The backend (main) follows config/active-runtime; other programs (the tests) keep the build's runtime */
+void ms_wine_use_active_runtime_setting(void);
+bool ms_wine_runtime_installed(const char* home, const char* variant);
+char* ms_wine_runtimes_json(const char* home);
+bool ms_wine_switch_runtime(const char* home, const char* target, char* error, size_t error_size);
+char* ms_wine_switch_runtime_json(const char* home, const char* body, size_t body_length);
+/* One runtime ("fex" or "regular") uninstalled; the active one only when the other is installed, switching to it
+ * first (*switched: the backend must restart). */
+bool ms_wine_uninstall_runtime(const char* home, const char* variant, bool* switched, char* error, size_t error_size);
+char* ms_wine_uninstall_runtime_json(const char* home, const char* body, size_t body_length);
+/* The other runtime's signed app, downloaded into <home>/downloads when MetalSharp.app does not carry it */
+char* ms_wine_runtime_download_json(const char* home, const char* body, size_t body_length);
+char* ms_wine_runtime_download_progress_json(void);
+/* A prefix's VC++ 2015-2022 runtime for the runtime it starts with: Microsoft's x64 DLLs in place of the ARM64X ones
+ * an installer put in under FEX (x86_64 true), or those back (false). Returns the DLLs changed. */
+unsigned ms_wine_fit_prefix_vcrun(const char* home, bool x86_64);
+bool ms_wine_repair_vcrun(const char* home, const char* prefix, char* error, size_t error_size);
+unsigned ms_wine_repair_prefixes_vcrun(const char* home, char* error, size_t error_size);
+char* ms_wine_repair_vcrun_json(const char* home);
+/* The runtime's (variant "fex" or "regular") MetalSharp Wine app from MetalSharp Wine's release into <home>/downloads */
+bool ms_wine_fetch_runtime_app(const char* home, const char* variant, char* error, size_t error_size);
+bool ms_wine_x86_64_app_current(const char* home);
+bool ms_wine_x86_64_app_identity(const char* home, char* out, size_t out_size);
 
 #endif

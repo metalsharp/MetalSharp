@@ -667,14 +667,15 @@ char* ms_battlenet_launch_game_json(const char* home, const char* body, size_t b
         goto done;
     }
     ms_steam_deploy_controller_input_shims(home, game->path);
-    /* A game Battle.net starts inherits its environment. On the x86_64 runtime a client running on
-     * another route is restarted on the game's (Battle.net's own UI renders with SwiftShader, so
-     * the route does not change it); on MetalSharp Wine games take theirs from launch.env. */
+    /* A game Battle.net starts inherits its environment. On the bundles' x86_64 runtime a client running on
+     * another route is restarted on the game's (Battle.net's own UI renders with SwiftShader, so the route does not
+     * change it); on MetalSharp Wine (fex, and the x86_64 app) the client keeps its lane and games take theirs from
+     * launch.env. */
     {
-        const char* client_pipeline = ms_wine_is_fex() || !game->uid[0] ? battlenet_lane() : pipeline;
+        const char* client_pipeline = ms_wine_metalsharp_launch_model() || !game->uid[0] ? battlenet_lane() : pipeline;
         bool running = battlenet_client_pid(home) > 0;
         running_lane = running ? battlenet_read_lane(home) : NULL;
-        if (running && !ms_wine_is_fex() && game->uid[0] &&
+        if (running && !ms_wine_metalsharp_launch_model() && game->uid[0] &&
             strcmp(running_lane ? running_lane : battlenet_lane(), client_pipeline)) {
             (void)battlenet_stop_prefix(home);
             running = false;

@@ -159,7 +159,7 @@ pub fn spawn_install(
     let mut command = std::process::Command::new("/bin/bash");
     crate::lifecycle::unmask_child_signals(&mut command);
     command.arg(script).args(install_args(
-        crate::variant::name(),
+        crate::variant::app_name(),
         variant,
         dmg_path,
         backend_pid,

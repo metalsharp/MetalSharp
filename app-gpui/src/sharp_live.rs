@@ -9,30 +9,36 @@ use std::time::Duration;
 
 const MS: fn(u64) -> Duration = Duration::from_millis;
 
-pub(super) const ENGINE_OPTIONS: [(&str, &str); 6] = [
-    ("d3dmetal", "D3DMetal"),
-    ("vkd3d", "VKD3D"),
-    ("d3d9", "D3D9"),
-    ("dxmt", "DXMT"),
-    ("dxmt_32", "DXMT(32)"),
-    ("fna_arm64", "Mono/FNA"),
-];
-
-/// The engine choices for this build: `ENGINE_OPTIONS`, or on FEX Mullion (DXMT), VKD3D-Proton,
-/// DXVK and OpenGL.
+/// The engine choices: the active runtime's lanes, as Steam games are offered them. On FEX
+/// Mullion (DXMT), VKD3D-Proton, DXVK and OpenGL; on x86_64 D3DMetal, VKD3D / DXVK, Mullion
+/// (DXMT) and OpenGL.
 pub(super) fn engine_options() -> Vec<(String, String)> {
-    if crate::variant::is_fex() {
-        crate::variant::FEX_PIPELINE_OPTIONS
-            .iter()
-            .map(|(i, l)| ((*i).to_owned(), (*l).to_owned()))
-            .collect()
+    let lanes: &[(&str, &str)] = if crate::variant::is_fex() {
+        &crate::variant::FEX_PIPELINE_OPTIONS
     } else {
-        ENGINE_OPTIONS
-            .iter()
-            .map(|(i, l)| ((*i).to_owned(), (*l).to_owned()))
-            .collect()
+        &crate::variant::X86_64_PIPELINE_OPTIONS
+    };
+    lanes
+        .iter()
+        .map(|(i, l)| ((*i).to_owned(), (*l).to_owned()))
+        .collect()
+}
+
+/// A saved engine as the lane it runs on, for the pickers: `auto` is the lane the backend gives an
+/// unset game (`auto_lane`), and an older route (D3D9, DXVK, 32-bit DXMT) is its lane's.
+pub(super) fn engine_lane(engine: &str, auto_lane: &str) -> String {
+    if engine.is_empty() || engine == "auto" {
+        return auto_lane.to_owned();
+    }
+    if crate::variant::is_fex() {
+        crate::variant::fex_pipeline(engine).to_owned()
+    } else {
+        crate::variant::x86_64_pipeline(engine).to_owned()
     }
 }
+
+/// The lane a GOG or Epic game saved as "auto" runs on: the backend's launch.env takes it as Mullion.
+pub(super) const STORE_AUTO_LANE: &str = "dxmt";
 
 /// A Sharp Library app's engine choices: this build's engines and OpenGL (Wine's own Direct3D,
 /// no graphics route), which is what an app saved as "auto" runs on.
@@ -47,10 +53,7 @@ pub(super) fn app_engine_options() -> Vec<(String, String)> {
 /// An app's engine for the pickers: one saved as "auto" (or none) launches with no graphics
 /// route, the same as OpenGL.
 pub(super) fn app_engine(app: &Value) -> String {
-    match s(app, "engine") {
-        "" | "auto" => "wine_bare".to_owned(),
-        other => other.to_owned(),
-    }
+    engine_lane(s(app, "engine"), "wine_bare")
 }
 
 /// A Game Jolt game's engine choices: the pipelines its entry lists, or this build's
@@ -72,19 +75,7 @@ pub(super) fn gamejolt_engine_options(game: &Value) -> Vec<(String, String)> {
                 list
             }
         })
-        .unwrap_or_else(|| {
-            if crate::variant::is_fex() {
-                return engine_options()
-                    .into_iter()
-                    .filter(|(id, _)| id != "fna_arm64")
-                    .collect();
-            }
-            ["d3dmetal", "vkd3d", "dxmt", "dxmt_32", "d3d9"]
-                .iter()
-                .filter_map(|id| ENGINE_OPTIONS.iter().find(|(i, _)| i == id))
-                .map(|(i, l)| ((*i).to_owned(), (*l).to_owned()))
-                .collect()
-        })
+        .unwrap_or_else(engine_options)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2466,5 +2457,26 @@ impl SharpPreview {
                 cx.notify();
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod engine_lane_tests {
+    use super::{STORE_AUTO_LANE, engine_lane, engine_options};
+
+    #[test]
+    fn x86_64_pages_offer_the_runtime_lanes_and_map_saved_routes_onto_them() {
+        let ids: Vec<String> = engine_options().into_iter().map(|(id, _)| id).collect();
+        assert_eq!(ids, ["d3dmetal", "vkd3d", "dxmt", "wine_bare"]);
+        assert_eq!(engine_lane("auto", STORE_AUTO_LANE), "dxmt");
+        assert_eq!(engine_lane("", "wine_bare"), "wine_bare");
+        for (saved, lane) in [
+            ("d3d9", "vkd3d"),
+            ("dxvk", "vkd3d"),
+            ("dxmt_32", "dxmt"),
+            ("m13", "d3dmetal"),
+        ] {
+            assert_eq!(engine_lane(saved, STORE_AUTO_LANE), lane, "{saved}");
+        }
     }
 }

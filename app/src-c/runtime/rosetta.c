@@ -194,9 +194,25 @@ bool ms_rosetta_available(void) {
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
+bool ms_rosetta_ensure(const char* home) {
+    bool installed;
+    char message[160];
+    if (!home || !host_is_arm64() || ms_rosetta_available())
+        return true;
+    ms_log_event(home, "Rosetta 2 is not installed: installing it for the x86_64 runtime");
+    installed = install_rosetta(home);
+    if (installed && host_macos_major() > 0)
+        record_major(home, host_macos_major());
+    snprintf(message, sizeof(message), "Rosetta 2 install %s", installed ? "succeeded" : "failed; see logs/rosetta.log");
+    ms_log_event(home, message);
+    return installed;
+}
+
 static void* rosetta_worker(void* arg) {
     char* home = arg;
-    (void)ms_rosetta_after_macos_upgrade(home);
+    /* the reinstall after a macOS upgrade, else an install where Rosetta is missing */
+    if (!ms_rosetta_after_macos_upgrade(home))
+        (void)ms_rosetta_ensure(home);
     free(home);
     return NULL;
 }

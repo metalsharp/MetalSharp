@@ -17,6 +17,8 @@ mod data_location_impl;
 mod drive_impl;
 #[path = "ui_live.rs"]
 mod live_impl;
+#[path = "ui_runtime.rs"]
+mod runtime_impl;
 #[path = "ui_steamcmd.rs"]
 mod steamcmd_impl;
 #[path = "ui_welcome.rs"]
@@ -685,6 +687,8 @@ pub struct MetalSharpApp {
     drive_prompt: Option<drive_impl::DrivePrompt>,
     /// An installed GOG or Epic game waiting on "Uninstall <game>?".
     game_uninstall_prompt: Option<LibGame>,
+    /// The FEX | x86_64 switch waiting on its prompt, download or restart.
+    runtime_switch: Option<runtime_impl::RuntimeSwitch>,
     uninstall_prompt: Option<drive_impl::UninstallPrompt>,
     hovered_card: Option<usize>,
     active_tab: LibraryTab,
@@ -749,6 +753,7 @@ impl MetalSharpApp {
             art_menu: None,
             drive_prompt: None,
             game_uninstall_prompt: None,
+            runtime_switch: None,
             uninstall_prompt: None,
             hovered_card: None,
             active_tab: LibraryTab::Play,
@@ -1073,7 +1078,7 @@ impl MetalSharpApp {
                         .unwrap_or_default()
                 };
                 // FEX marks the build this Mac runs; at the installed version it can't be picked.
-                let fex = crate::variant::is_fex();
+                let fex = crate::variant::app_is_fex();
                 let current = self.update_current_build();
                 let option =
                     |id: &'static str, name: String, detail: String, variant: &'static str| {
@@ -1150,7 +1155,7 @@ impl MetalSharpApp {
                                 )
                             } else {
                                 format!(
-                                    "MetalSharp Wine for Apple Silicon, running x86 games through FEX. Needs macOS 26.4 or newer.{}",
+                                    "MetalSharp Wine for Apple Silicon, running x86 games through FEX. Needs macOS 15 or newer.{}",
                                     size("fex_download_size")
                                 )
                             },
@@ -1189,7 +1194,7 @@ impl MetalSharpApp {
                 let (status, color) = match &detected {
                     Some(v) if recommended => (format!("This Mac is on macOS {v}."), 0x74d28a),
                     Some(v) => (
-                        format!("This Mac is on macOS {v}, older than 26.4."),
+                        format!("This Mac is on macOS {v}, older than 15."),
                         0xffd47f,
                     ),
                     None => (
@@ -1205,7 +1210,7 @@ impl MetalSharpApp {
                         .gap(px(14.0))
                         .child(title("Before you install the Arm64 build".into()))
                         .child(body(format!(
-                            "{} needs macOS 26.4 or newer. Please make sure this Mac is on macOS 26.4 or newer before you continue: on an older version it may not work on your system.",
+                            "{} needs macOS 15 or newer, and macOS 26.4 or newer for 32-bit games. Please make sure this Mac is on macOS 15 or newer before you continue: on an older version it may not work on your system.",
                             self.update_build_name("fex")
                         )))
                         .child(body(format!(
@@ -1848,7 +1853,7 @@ impl MetalSharpApp {
             } else {
                 div().flex_1()
             })
-            .children(self.render_view_toggle(layout, cx))
+            .child(self.render_runtime_toggle(layout, cx))
             .child(
                 div()
                     .relative()
@@ -1970,6 +1975,10 @@ impl MetalSharpApp {
             .children(
                 self.render_game_uninstall_prompt(viewport, cx)
                     .map(|prompt| gpui::deferred(prompt).with_priority(150)),
+            )
+            .children(
+                self.render_runtime_prompt(viewport, cx)
+                    .map(|prompt| gpui::deferred(prompt).with_priority(160)),
             )
             .children(
                 self.render_drive_prompt(viewport, cx)
@@ -2410,64 +2419,6 @@ impl MetalSharpApp {
                         ))
                 }))
                 .children(steam_menu),
-        )
-    }
-
-    /// Library/Collection switch, right of the search field in the header.
-    fn render_view_toggle(
-        &self,
-        layout: LibraryLayout,
-        cx: &mut Context<Self>,
-    ) -> Option<gpui::Div> {
-        if !self.page.has_collection() {
-            return None;
-        }
-        let border = rgba(0xe7eaec4d);
-        let fill = rgba(0x0c0f10b8);
-        let collection = matches!(
-            self.active_tab,
-            LibraryTab::Collection | LibraryTab::SharpLibrary
-        );
-        let segment = |id: &'static str, label: &'static str, on: bool, value: bool| {
-            div()
-                .id(id)
-                .h_full()
-                .flex()
-                .items_center()
-                .px(px(layout.scaled(14.0)))
-                .rounded(px(layout.scaled(6.0)))
-                .text_size(px(layout.scaled(12.5)))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(if on { 0xffffff } else { 0xaab4c4 }))
-                .when(on, |d| d.bg(rgba(0xffffff26)))
-                .cursor_pointer()
-                .on_click(cx.listener(move |this, _, _, cx| this.set_page_collection(value, cx)))
-                .child(label)
-        };
-        Some(
-            div()
-                .flex_none()
-                .h(px(layout.control_height))
-                .flex()
-                .items_center()
-                .gap(px(2.0))
-                .p(px(3.0))
-                .rounded(px(layout.scaled(8.0)))
-                .border_1()
-                .border_color(border)
-                .bg(fill)
-                .child(segment(
-                    "library-view-library",
-                    "Library",
-                    !collection,
-                    false,
-                ))
-                .child(segment(
-                    "library-view-collection",
-                    "Collection",
-                    collection,
-                    true,
-                )),
         )
     }
 
@@ -3919,6 +3870,12 @@ impl MetalSharpApp {
                     E::StartUpdate => this.open_update(cx),
                     E::SwitchBuild => this.open_switch(cx),
                     E::UpdateStatus(status) => this.live.update_status = Some(status.clone()),
+                    // the active runtime went: the backend restarts on the other one, as after a switch
+                    E::RuntimeUninstalled { restart } => {
+                        if *restart {
+                            this.restart_backend_after_runtime_change(cx);
+                        }
+                    }
                     E::SteamApiKeySaved(key, library) => {
                         this.live.steam_api_key = Some(key.clone());
                         match library {
@@ -4471,8 +4428,8 @@ impl MetalSharpApp {
         if !crate::variant::is_fex() {
             cells.push(row("Controller input", controller));
         }
-        // The FEX build's Metal HUD switch.
-        if crate::variant::is_fex() {
+        // The Metal HUD switch (both Wine runtimes).
+        {
             cells.push(row(
                 "Metal HUD",
                 div().flex().child(
@@ -4498,9 +4455,9 @@ impl MetalSharpApp {
                 .on_click(cx.listener(move |this, _, _, cx| this.set_msync(!msync, cx))),
             ),
         ));
-        // The FEX build's frame rate limit, for the lane the game runs on: Mullion's mullion.conf or
+        // The frame rate limit, for the lane the game runs on: Mullion's mullion.conf or
         // VKD3D-Proton's VKD3D_FRAME_RATE. Applies at the game's next start.
-        if crate::variant::is_fex() {
+        {
             if let Some(limit) = self.frame_rate_limit() {
                 let mut frame_rate = div().flex().gap(px(4.0));
                 for (index, (fps, text)) in

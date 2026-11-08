@@ -45,6 +45,10 @@ pub enum SettingsPreviewEvent {
     /// FEX only: the other build at this version, offered as a switch rather than an update.
     SwitchBuild,
     UpdateStatus(Value),
+    /// A Wine runtime was uninstalled; `restart`: it was the active one, so the backend now runs the other.
+    RuntimeUninstalled {
+        restart: bool,
+    },
     SteamApiKeySaved(String, Option<Vec<crate::library_model::LibGame>>),
     ReloadLibrary,
     RefreshLaunchers,
@@ -90,6 +94,8 @@ enum ConfirmAction {
     ClearMullionShared,
     /// Move the data folder to `move_target`.
     MoveData,
+    /// One Wine runtime, "fex" or "regular", uninstalled (the other stays).
+    UninstallRuntime(&'static str),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -186,6 +192,9 @@ pub struct SettingsPreview {
     pipeline_cache: Option<Value>,
     /// FEX only: each graphics lane's caches (`lanes` in `/cache/size`), by lane id.
     cache_lanes: Option<Value>,
+    /// /runtime/state: which Wine runtimes are installed, and the active one.
+    runtime_state: Option<Value>,
+    uninstalling_runtime: bool,
     confirm: Option<ConfirmAction>,
     /// Data Location: where the data folder is, the drives it can move to, and its size once counted.
     data_location: Option<crate::data_location::Location>,
@@ -207,6 +216,39 @@ impl Default for SettingsPreview {
 }
 
 /// The FEX build's cache rows: lane id (Mullion is "dxmt"), name, and what the lane keeps.
+/// The x86_64 runtime's lanes: the FEX runtime's, plus Apple's D3DMetal.
+const X86_64_CACHE_LANES: [(&str, &str, &str); 4] = [
+    (
+        "dxmt",
+        "Mullion (DXMT)",
+        "Mullion's shader databases per game, and Metal's pipeline cache that every Mullion game shares (cleared only after you confirm)",
+    ),
+    (
+        "vkd3d",
+        "VKD3D-Proton",
+        "VKD3D-Proton's pipeline cache and DXVK state caches for games on the VKD3D-Proton lane",
+    ),
+    (
+        "dxvk",
+        "DXVK",
+        "DXVK's state caches for games on the DXVK lane",
+    ),
+    (
+        "d3dmetal",
+        "D3DMetal",
+        "Metal's shader cache for games on Apple's D3DMetal lane",
+    ),
+];
+
+/// The active runtime's cache lanes (Settings shows one row each).
+fn cache_lanes() -> &'static [(&'static str, &'static str, &'static str)] {
+    if crate::variant::is_fex() {
+        &FEX_CACHE_LANES
+    } else {
+        &X86_64_CACHE_LANES
+    }
+}
+
 const FEX_CACHE_LANES: [(&str, &str, &str); 3] = [
     (
         "dxmt",
@@ -320,6 +362,8 @@ impl SettingsPreview {
             shader_cache: None,
             pipeline_cache: None,
             cache_lanes: None,
+            runtime_state: None,
+            uninstalling_runtime: false,
             confirm: None,
             data_location: None,
             data_drives: Vec::new(),
@@ -381,6 +425,7 @@ impl SettingsPreview {
             self.refresh_gamesdb_status(cx);
             self.refresh_config(cx);
             self.refresh_cache_sizes(cx);
+            self.refresh_runtime_state(cx);
             self.refresh_data_location(cx);
         }
     }
@@ -546,6 +591,71 @@ impl SettingsPreview {
                     this.cache_lanes = r.get("lanes").cloned();
                     cx.notify();
                 }
+            },
+        );
+    }
+
+    fn refresh_runtime_state(&mut self, cx: &mut Context<Self>) {
+        live::call(
+            cx,
+            "GET",
+            "/runtime/state",
+            None,
+            live::DEFAULT_TIMEOUT,
+            |this, r, cx| {
+                if let Some(r) = r.filter(is_ok) {
+                    this.runtime_state = Some(r);
+                    cx.notify();
+                }
+            },
+        );
+    }
+
+    /// Whether `variant`'s runtime is installed, per the last /runtime/state.
+    fn runtime_installed(&self, variant: &str) -> bool {
+        self.runtime_state
+            .as_ref()
+            .and_then(|s| s.get(variant))
+            .and_then(|v| v.get("installed"))
+            .and_then(Value::as_bool)
+            == Some(true)
+    }
+
+    /// Settings' "Uninstall FEX" / "Uninstall x86_64": that runtime only (the backend refuses the last one).
+    fn uninstall_runtime(&mut self, variant: &'static str, cx: &mut Context<Self>) {
+        if self.uninstalling_runtime {
+            return;
+        }
+        self.uninstalling_runtime = true;
+        let name = if variant == "fex" { "FEX" } else { "x86_64" };
+        toast::info(cx, format!("Uninstalling the {name} Wine runtime…"));
+        cx.notify();
+        live::call(
+            cx,
+            "POST",
+            "/runtime/uninstall",
+            Some(json!({ "variant": variant })),
+            std::time::Duration::from_secs(300),
+            move |this, r, cx| {
+                this.uninstalling_runtime = false;
+                match r.as_ref() {
+                    Some(r) if is_ok(r) => {
+                        toast::success(cx, format!("The {name} Wine runtime is uninstalled"));
+                        let restart = r.get("restart").and_then(Value::as_bool) == Some(true);
+                        cx.emit(SettingsPreviewEvent::RuntimeUninstalled { restart });
+                    }
+                    r => toast::error(
+                        cx,
+                        format!(
+                            "Could not uninstall the {name} Wine runtime: {}",
+                            r.and_then(|r| r.get("error"))
+                                .and_then(Value::as_str)
+                                .unwrap_or("no reply")
+                        ),
+                    ),
+                }
+                this.refresh_runtime_state(cx);
+                cx.notify();
             },
         );
     }
@@ -1100,7 +1210,7 @@ impl SettingsPreview {
         }
     }
 
-    /// `kind` is "shader" or "pipeline", or on FEX a lane from `FEX_CACHE_LANES`.
+    /// `kind` is "shader" or "pipeline", or a lane from `cache_lanes()`.
     fn clear_cache(&mut self, kind: &'static str, cx: &mut Context<Self>) {
         self.clear_cache_with(kind, false, cx);
     }
@@ -1117,7 +1227,7 @@ impl SettingsPreview {
 
     /// `shared`: also Metal's Mullion cache in the user's cache folder (asked first).
     fn clear_cache_with(&mut self, kind: &'static str, shared: bool, cx: &mut Context<Self>) {
-        let lane = FEX_CACHE_LANES.iter().find(|(id, ..)| *id == kind);
+        let lane = cache_lanes().iter().find(|(id, ..)| *id == kind);
         let body = match lane {
             Some((id, ..)) => json!({"type": "lane", "lane": id, "shared": shared}),
             None => json!({"type": kind}),
@@ -1496,9 +1606,20 @@ impl SettingsPreview {
             ),
             ConfirmAction::Uninstall => (
                 "Uninstall MetalSharp?".into(),
-                "Permanently delete the Steam, Ubisoft, GOG and Epic Wine prefixes, bottles, Steam installation, Wine runtime, shader caches, and settings? The app will close after cleanup.".into(),
+                "Permanently delete the Steam, Ubisoft, GOG and Epic Wine prefixes, bottles, Steam installation, both Wine runtimes (FEX and x86_64), shader caches, and settings, and move MetalSharp to the Trash? The app will close after cleanup.".into(),
                 "Uninstall".into(),
             ),
+            ConfirmAction::UninstallRuntime(variant) => {
+                let (name, other) = if variant == "fex" { ("FEX", "x86_64") } else { ("x86_64", "FEX") };
+                (
+                    format!("Uninstall the {name} Wine runtime?").into(),
+                    format!(
+                        "Delete the {name} Wine runtime and its shader caches? Your prefixes, games and settings stay, and MetalSharp keeps running on the {other} runtime. You can set {name} up again from the FEX | x86_64 toggle."
+                    )
+                    .into(),
+                    format!("Uninstall {name}").into(),
+                )
+            }
             ConfirmAction::SwitchToMac => (
                 "Switch Steam Client".into(),
                 "Stop Wine Steam and start Mac Steam?".into(),
@@ -1585,6 +1706,9 @@ impl SettingsPreview {
                                         match action {
                                             ConfirmAction::ForceKill => this.force_kill(cx),
                                             ConfirmAction::Uninstall => this.uninstall(cx),
+                                            ConfirmAction::UninstallRuntime(variant) => {
+                                                this.uninstall_runtime(variant, cx)
+                                            }
                                             ConfirmAction::SwitchToMac => {
                                                 this.switch_to_mac_steam(cx)
                                             }
@@ -2030,9 +2154,9 @@ impl Render for SettingsPreview {
                 s.set_retina(next, cx)
             }),
         );
-        // The FEX build's VKD3D-Proton lane: MoltenVK's experimental ray tracing pipelines, for DXR 1.1
+        // The VKD3D-Proton lane (both Wine runtimes): MoltenVK's experimental ray tracing pipelines, for DXR 1.1
         // and feature level 12_2.
-        let ray_tracing = crate::variant::is_fex().then(|| {
+        let ray_tracing = Some(()).map(|_| {
             self.row(
                 "Ray Tracing (VKD3D-Proton)",
                 "MoltenVK's experimental ray tracing, so VKD3D-Proton games get DXR 1.1 and feature level 12_2",
@@ -2280,37 +2404,16 @@ impl Render for SettingsPreview {
                     ),
             )
         };
-        let shader_cache = self.shader_cache.clone();
-        let pipeline_cache = self.pipeline_cache.clone();
-        let shader = cache_row(
-            self,
-            "clear-shader",
-            self.tr("ui.settings.shaderCache"),
-            self.tr("ui.settingsDesc.shader"),
-            shader_cache.as_ref(),
-            "shader",
-            true,
-            cx,
-        );
-        let pipeline = cache_row(
-            self,
-            "clear-pipeline",
-            self.tr("ui.settings.pipelineCache"),
-            self.tr("ui.settingsDesc.pipeline"),
-            pipeline_cache.as_ref(),
-            "pipeline",
-            false,
-            cx,
-        );
-        // FEX: one row per graphics lane, each with its real size and its own Clear.
-        let cache_lanes = self.cache_lanes.clone();
-        let lane_rows: Vec<_> = if crate::variant::is_fex() {
-            FEX_CACHE_LANES
+        // One row per graphics lane of the active runtime, each with its real size and its own Clear.
+        let lane_sizes = self.cache_lanes.clone();
+        let lane_rows: Vec<_> = {
+            cache_lanes()
                 .iter()
                 .map(|(lane, name, desc)| {
                     let button: &'static str = match *lane {
                         "dxmt" => "clear-cache-dxmt",
                         "vkd3d" => "clear-cache-vkd3d",
+                        "d3dmetal" => "clear-cache-d3dmetal",
                         _ => "clear-cache-dxvk",
                     };
                     cache_row(
@@ -2318,15 +2421,13 @@ impl Render for SettingsPreview {
                         button,
                         format!("{name} Cache").into(),
                         (*desc).into(),
-                        cache_lanes.as_ref().and_then(|lanes| lanes.get(*lane)),
+                        lane_sizes.as_ref().and_then(|lanes| lanes.get(*lane)),
                         lane,
                         true,
                         cx,
                     )
                 })
                 .collect()
-        } else {
-            Vec::new()
         };
         let status = app.update_status.clone().unwrap_or(Value::Null);
         let status_ok = is_ok(&status);
@@ -2394,7 +2495,7 @@ impl Render for SettingsPreview {
         } else {
             "x86_64"
         };
-        let switch = (crate::variant::is_fex()
+        let switch = (crate::variant::app_is_fex()
             && status_ok
             && !available
             && !app.update_downloading
@@ -2439,6 +2540,30 @@ impl Render for SettingsPreview {
                     .child(self.text_control(format!("{}%", app.update_progress.round() as u32))),
             )
         });
+        // One runtime only, for a user who wants just one of the two: offered when both are installed (the last
+        // one goes with "Uninstall MetalSharp").
+        let both_installed = self.runtime_installed("fex") && self.runtime_installed("regular");
+        let runtime_uninstalls: Vec<_> = [
+            ("fex", "uninstall-fex", "Uninstall FEX", "Delete the FEX Wine runtime (Arm64 with FEX) and its shader caches, keeping the x86_64 one, your prefixes and settings"),
+            ("regular", "uninstall-x86_64", "Uninstall x86_64", "Delete the x86_64 Wine runtime (Rosetta 2) and its shader caches, keeping the FEX one, your prefixes and settings"),
+        ]
+        .into_iter()
+        .filter(|_| both_installed)
+        .map(|(variant, id, label, desc)| {
+            self.row(
+                label,
+                desc,
+                self.action_button(id, label, false)
+                    .bg(rgba(0xff5c5c1f))
+                    .border_color(rgba(0xff5c5c8c))
+                    .text_color(rgb(if p.light { 0xa33131 } else { 0xff8585 }))
+                    .on_click(cx.listener(move |s, _, _, cx| {
+                        s.confirm = Some(ConfirmAction::UninstallRuntime(variant));
+                        cx.notify()
+                    })),
+            )
+        })
+        .collect();
         let uninstall = self.row(
             self.tr("ui.settings.uninstall"),
             self.tr("ui.settingsDesc.uninstall"),
@@ -2523,15 +2648,7 @@ impl Render for SettingsPreview {
             ),
             (
                 SettingsSection::Cache,
-                self.card(
-                    self.tr("settings.cache"),
-                    if crate::variant::is_fex() {
-                        div().children(lane_rows)
-                    } else {
-                        div().child(shader).child(pipeline.border_b_0())
-                    },
-                    false,
-                ),
+                self.card(self.tr("settings.cache"), div().children(lane_rows), false),
             ),
             (
                 SettingsSection::Updates,
@@ -2565,7 +2682,10 @@ impl Render for SettingsPreview {
                 SettingsSection::Danger,
                 self.card(
                     self.tr("ui.settings.dangerZone"),
-                    div().child(kill).child(uninstall.border_b_0()),
+                    div()
+                        .child(kill)
+                        .children(runtime_uninstalls)
+                        .child(uninstall.border_b_0()),
                     true,
                 ),
             ),

@@ -43,6 +43,7 @@
 #include "metalsharp_backend/library_locations.h"
 #include "metalsharp_backend/launcher_uninstall.h"
 #include "metalsharp_backend/updater.h"
+#include "metalsharp_backend/rosetta.h"
 #include "metalsharp_backend/wine_runtime.h"
 
 #include <ctype.h>
@@ -55,6 +56,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #ifndef O_NOFOLLOW
@@ -104,8 +106,8 @@ static char* make_json(const char* version, const char* home, bool dev_mode) {
         free(quoted_home);
         return NULL;
     }
-    needed = snprintf(NULL, 0, "{\"ok\":true,\"version\":%s,\"variant\":\"%s\",\"pid\":%ld,\"dev_mode\":%s,\"metalsharp_home\":%s}",
-                      quoted_version, ms_wine_variant(), (long)getpid(), dev_mode ? "true" : "false", quoted_home);
+    needed = snprintf(NULL, 0, "{\"ok\":true,\"version\":%s,\"variant\":\"%s\",\"app_variant\":\"%s\",\"pid\":%ld,\"dev_mode\":%s,\"metalsharp_home\":%s}",
+                      quoted_version, ms_wine_variant(), ms_wine_app_variant(), (long)getpid(), dev_mode ? "true" : "false", quoted_home);
     if (needed < 0) {
         free(quoted_version);
         free(quoted_home);
@@ -114,8 +116,8 @@ static char* make_json(const char* version, const char* home, bool dev_mode) {
     body = (char*)malloc((size_t)needed + 1);
     if (body != NULL) {
         (void)snprintf(body, (size_t)needed + 1,
-                       "{\"ok\":true,\"version\":%s,\"variant\":\"%s\",\"pid\":%ld,\"dev_mode\":%s,\"metalsharp_home\":%s}",
-                       quoted_version, ms_wine_variant(), (long)getpid(), dev_mode ? "true" : "false", quoted_home);
+                       "{\"ok\":true,\"version\":%s,\"variant\":\"%s\",\"app_variant\":\"%s\",\"pid\":%ld,\"dev_mode\":%s,\"metalsharp_home\":%s}",
+                       quoted_version, ms_wine_variant(), ms_wine_app_variant(), (long)getpid(), dev_mode ? "true" : "false", quoted_home);
     }
     free(quoted_version);
     free(quoted_home);
@@ -255,6 +257,90 @@ static const char* image_type(const char* path) {
     return type ? type : "image/jpeg";
 }
 
+/* The newest image matching a grid art glob pattern (<appid>.* also matches the <appid>.json logo-position file). */
+/* Whether a request body contains text (bodies are not NUL-terminated). */
+static bool body_mentions(const void* body, size_t length, const char* text) {
+    size_t text_length = strlen(text);
+    const char* bytes = body;
+    for (size_t i = 0; bytes && text_length && i + text_length <= length; i++)
+        if (!memcmp(bytes + i, text, text_length))
+            return true;
+    return false;
+}
+
+static bool newest_grid_art(const char* pattern, char* newest, size_t newest_size, struct stat* newest_stat) {
+    glob_t results;
+    bool found = false;
+    memset(&results, 0, sizeof(results));
+    memset(newest_stat, 0, sizeof(*newest_stat));
+    newest[0] = '\0';
+    if (glob(pattern, GLOB_NOSORT, NULL, &results) == 0) {
+        for (size_t m = 0; m < (size_t)results.gl_pathc; m++) {
+            struct stat st;
+            if (known_image_type(results.gl_pathv[m]) == NULL)
+                continue;
+            if (stat(results.gl_pathv[m], &st) != 0 || !S_ISREG(st.st_mode))
+                continue;
+            if (!found || st.st_mtime > newest_stat->st_mtime) {
+                snprintf(newest, newest_size, "%s", results.gl_pathv[m]);
+                *newest_stat = st;
+                found = true;
+            }
+        }
+    }
+    globfree(&results);
+    return found;
+}
+
+/* MetalSharp's copy of a custom grid image Steam has (custom-art/steam-grid/<its name>), replacing a copy of the same
+ * art kind under another extension; nothing is written when the copy is already as new. */
+static void keep_grid_art(const char* home, const char* stem_pattern, const char* source,
+                          const struct stat* source_stat, const unsigned char* data, size_t length) {
+    char dir[PATH_MAX], kept[PATH_MAX], old_pattern[PATH_MAX], temp[PATH_MAX];
+    const char* name = strrchr(source, '/');
+    struct stat kept_stat;
+    glob_t old;
+    FILE* file;
+    name = name ? name + 1 : source;
+    if (snprintf(dir, sizeof(dir), "%s/custom-art/steam-grid", home) >= (int)sizeof(dir) ||
+        snprintf(kept, sizeof(kept), "%s/%s", dir, name) >= (int)sizeof(kept) ||
+        snprintf(temp, sizeof(temp), "%s.tmp", kept) >= (int)sizeof(temp))
+        return;
+    if (stat(kept, &kept_stat) == 0 && kept_stat.st_mtime >= source_stat->st_mtime &&
+        kept_stat.st_size == source_stat->st_size)
+        return;
+    {
+        char parent[PATH_MAX];
+        snprintf(parent, sizeof(parent), "%s/custom-art", home);
+        (void)mkdir(parent, 0700);
+        (void)mkdir(dir, 0700);
+    }
+    memset(&old, 0, sizeof(old));
+    if (snprintf(old_pattern, sizeof(old_pattern), "%s/%s", dir, stem_pattern) < (int)sizeof(old_pattern) &&
+        glob(old_pattern, GLOB_NOSORT, NULL, &old) == 0) {
+        for (size_t i = 0; i < (size_t)old.gl_pathc; i++)
+            if (strcmp(old.gl_pathv[i], kept) && known_image_type(old.gl_pathv[i]))
+                (void)unlink(old.gl_pathv[i]);
+    }
+    globfree(&old);
+    file = fopen(temp, "wb");
+    if (!file)
+        return;
+    if (fwrite(data, 1, length, file) != length) {
+        fclose(file);
+        (void)unlink(temp);
+        return;
+    }
+    if (fclose(file) != 0 || rename(temp, kept) != 0) {
+        (void)unlink(temp);
+        return;
+    }
+    {
+        struct timeval times[2] = {{source_stat->st_atime, 0}, {source_stat->st_mtime, 0}};
+        (void)utimes(kept, times);
+    }
+}
+
 /* Serve user-authored Steam grid artwork for the library UI. Steam Art
  * Manager (and Steam's own "Set Custom Image") writes custom art to
  * <userdata>/<account>/config/grid/ using Steam's grid file naming:
@@ -289,25 +375,12 @@ static bool handle_grid_art(const ms_http_request* request, ms_http_response* re
              metalsharp_home, filename);
     char newest[PATH_MAX] = {0};
     struct stat newest_stat;
-    memset(&newest_stat, 0, sizeof(newest_stat));
-    glob_t results;
-    memset(&results, 0, sizeof(results));
-    if (glob(pattern, GLOB_NOSORT, NULL, &results) == 0) {
-        for (size_t m = 0; m < (size_t)results.gl_pathc; m++) {
-            struct stat st;
-            /* <appid>.* also matches the <appid>.json logo-position file. */
-            if (known_image_type(results.gl_pathv[m]) == NULL)
-                continue;
-            if (stat(results.gl_pathv[m], &st) != 0 || !S_ISREG(st.st_mode))
-                continue;
-            if (newest[0] == '\0' || st.st_mtime > newest_stat.st_mtime) {
-                snprintf(newest, sizeof(newest), "%s", results.gl_pathv[m]);
-                newest_stat = st;
-            }
-        }
-    }
-    globfree(&results);
-    if (newest[0] == '\0') {
+    bool from_steam = newest_grid_art(pattern, newest, sizeof(newest), &newest_stat);
+    /* MetalSharp keeps its own copy of the custom art it serves (custom-art/steam-grid), so it stays through updates
+     * and anything that replaces Steam's userdata: Steam's file when there is one, else the copy. */
+    char kept_pattern[PATH_MAX];
+    snprintf(kept_pattern, sizeof(kept_pattern), "%s/custom-art/steam-grid/%s", metalsharp_home, filename);
+    if (!from_steam && !newest_grid_art(kept_pattern, newest, sizeof(newest), &newest_stat)) {
         set_json_response(response, 404, strdup("{\"ok\":false,\"error\":\"no custom grid art\"}"));
         return true;
     }
@@ -317,6 +390,8 @@ static bool handle_grid_art(const ms_http_request* request, ms_http_response* re
         set_json_response(response, 500, strdup("{\"ok\":false,\"error\":\"failed to read grid art\"}"));
         return true;
     }
+    if (from_steam)
+        keep_grid_art(metalsharp_home, filename, newest, &newest_stat, data, length);
     response->status = 200;
     response->content_type = image_type(newest);
     response->body = data;
@@ -350,6 +425,64 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     }
     if (strcmp(request->method, "GET") == 0 && strncmp(request->path, "/art/grid/", 10) == 0) {
         return handle_grid_art(request, response, context->metalsharp_home);
+    }
+    /* the two Wine runtimes (FEX | x86_64): which is active and installed, and the switch between them, after which
+     * the frontend restarts the backend on the other one */
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/runtime/state") == 0) {
+        body = ms_wine_runtimes_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/runtime/download") == 0) {
+        body = ms_wine_runtime_download_json(context->metalsharp_home, (const char*)request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/runtime/download/progress") == 0) {
+        body = ms_wine_runtime_download_progress_json();
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/runtime/switch") == 0) {
+        ms_log_event(context->metalsharp_home, "Wine runtime switch requested");
+        /* The x86_64 runtime runs under Rosetta 2: a FEX install's first switch to it (and one after a macOS
+         * upgrade removed Rosetta) installs Rosetta first. */
+        if (request->body && request->body_length &&
+            body_mentions(request->body, request->body_length, "\"regular\"") &&
+            !ms_rosetta_ensure(context->metalsharp_home)) {
+            set_json_response(response, 200,
+                              strdup("{\"ok\":false,\"error\":\"Rosetta 2 could not be installed, and the x86_64 "
+                                     "runtime needs it. See ~/.metalsharp/logs/rosetta.log.\"}"));
+            return true;
+        }
+        body = ms_wine_switch_runtime_json(context->metalsharp_home, (const char*)request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/runtime/vcrun/repair") == 0) {
+        ms_log_event(context->metalsharp_home, "VC++ runtime repair requested");
+        body = ms_wine_repair_vcrun_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/runtime/uninstall") == 0) {
+        ms_log_event(context->metalsharp_home, "Wine runtime uninstall requested");
+        body = ms_wine_uninstall_runtime_json(context->metalsharp_home, (const char*)request->body,
+                                              request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
     }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/runtime/host-abi") == 0) {
         body = host_abi_json(context->metalsharp_home);
@@ -388,14 +521,14 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         return true;
     }
     /* The fex build's frame rate limit; the regular build has no such route. */
-    if (ms_wine_is_fex() && strcmp(request->method, "GET") == 0 && strcmp(request->path, "/framerate") == 0) {
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/framerate") == 0) {
         body = ms_frame_rate_get_json(context->metalsharp_home);
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);
         return true;
     }
-    if (ms_wine_is_fex() && strcmp(request->method, "POST") == 0 && strcmp(request->path, "/framerate") == 0) {
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/framerate") == 0) {
         int status = 500;
         body = ms_frame_rate_set_json(context->metalsharp_home, request->body, request->body_length, &status);
         if (body == NULL)
@@ -957,10 +1090,10 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/update/dmg-path") == 0) {
         body = ms_update_dmg_path_json(
             context->metalsharp_home,
-            request->query == NULL                     ? ms_wine_variant()
+            request->query == NULL                     ? ms_wine_app_variant()
             : strcmp(request->query, "variant=fex") == 0 ? "fex"
             : strcmp(request->query, "variant=regular") == 0 ? "regular"
-                                                             : ms_wine_variant());
+                                                             : ms_wine_app_variant());
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);

@@ -700,7 +700,7 @@ static bool dxmt_conf_has(const char* home, const char* line) {
     char text[4096];
     size_t length;
     FILE* file;
-    snprintf(path, sizeof(path), "%s/runtime/wine/etc/dxmt.conf", home);
+    snprintf(path, sizeof(path), "%s/runtime/wine/etc/mullion.conf", home);
     file = fopen(path, "rb");
     if (!file)
         return false;
@@ -710,7 +710,7 @@ static bool dxmt_conf_has(const char* home, const char* line) {
     return strstr(text, line) != NULL;
 }
 
-/* MetalFX off reaches WineMetalGL through dxmt.conf (factor 1.00), and the
+/* MetalFX off reaches WineMetalGL through mullion.conf (dxmt.conf before) (factor 1.00), and the
  * environment the Steam client hands its games carries no factor and no
  * DXMT_METALFX_SPATIAL_SWAPCHAIN=0, so a later toggle still applies. */
 /* Upgrading to macOS 27 can leave Rosetta uninstalled: the backend reinstalls it when the macOS
@@ -880,14 +880,14 @@ static void test_metalfx_route_env(const char* home) {
     assert(response && strstr(response, "\"factor\":1.75"));
     free(response);
     assert(dxmt_conf_has(home, "d3d11.metalSpatialUpscaleFactor = 1.75"));
-    /* A dxmt.conf left at a factor while MetalFX is off (before this fix) is
+    /* A mullion.conf left at a factor while MetalFX is off (before this fix) is
      * corrected when a route is applied. */
     response = ms_metalfx_set_json(home, (const unsigned char*)off, strlen(off));
     free(response);
     {
         char path[PATH_MAX];
         FILE* file;
-        snprintf(path, sizeof(path), "%s/runtime/wine/etc/dxmt.conf", home);
+        snprintf(path, sizeof(path), "%s/runtime/wine/etc/mullion.conf", home);
         file = fopen(path, "wb");
         assert(file);
         fputs("d3d11.metalSpatialUpscaleFactor = 1.75\nd3d11.preferredMaxFrameRate = 60\n", file);

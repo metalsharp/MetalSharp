@@ -108,9 +108,14 @@ jobs:
 
   build:
     name: Build DMG
+    # The x86_64 build: MetalSharp.app around MetalSharp Wine's signed and notarized
+    # MetalSharp-Wine-x86_64.app, carried unchanged. No runtime bundles.
     # Decoupled from developer-sdk: the DMG must build and the GitHub Release
     # must publish even when the D3D12 developer SDK build is disabled (=0).
     runs-on: ${{ vars.METALSHARP_RELEASE_RUNNER == 'local' && fromJSON('["self-hosted","macOS","ARM64","metalsharp-release"]') || 'macos-26' }}
+    env:
+      METALSHARP_WINE_REPO: metalsharp/MetalSharp-Wine
+      METALSHARP_WINE_TAG: v6.0
     steps:
       - uses: actions/checkout@v7
         with:
@@ -138,24 +143,35 @@ jobs:
       - name: Build C backend
         run: make -C app/src-c
 
-      - name: Download bundles for DMG
+      - name: Download and verify MetalSharp Wine (x86_64)
+        # The x86_64 build carries MetalSharp-Wine-x86_64.app from MetalSharp Wine's release, unchanged:
+        # the whole runtime. No runtime bundles.
         run: |
-          METALSHARP_REPAIR_BUNDLES=0 METALSHARP_REQUIRE_X87SIDECAR=1 METALSHARP_REPAIR_M12=0 tools/dmg/create-bundles.sh
-          tools/dmg/stage-release-bundles.sh app/bundles dist/staged-bundles
-          for required in \
-            metalsharp-graphics-dll.tar.zst \
-            metalsharp-runtime.tar.zst \
-            metalsharp-assets.tar.zst \
-            metalsharp-scripts-tools.tar.zst \
-            metalsharp-steam.tar.zst
-          do
-            test -s "app/bundles/$required"
-          done
-          ls -lh app/bundles/
-          find dist/staged-bundles -type d | sort | sed -n '1,120p'
+          set -euo pipefail
+          WINE_DIR="$RUNNER_TEMP/metalsharp-wine-x86_64"
+          ZIP="MetalSharp-Wine-${METALSHARP_WINE_TAG#v}-x86_64.zip"
+          rm -rf "$WINE_DIR"
+          mkdir -p "$WINE_DIR/download" "$WINE_DIR/app"
+          gh release download "$METALSHARP_WINE_TAG" -R "$METALSHARP_WINE_REPO" \
+            -p "$ZIP" -p SHA256SUMS -D "$WINE_DIR/download"
+          expected="$(awk -v zip="$ZIP" '{ name = $2; sub(/^\*/, "", name) } name == zip { print $1 }' "$WINE_DIR/download/SHA256SUMS")"
+          actual="$(shasum -a 256 "$WINE_DIR/download/$ZIP" | awk '{print $1}')"
+          test "$(printf '%s\n' "$expected" | grep -c .)" = 1
+          if [ "$expected" != "$actual" ]; then
+            echo "$ZIP sha256 $actual does not match SHA256SUMS ($expected)" >&2
+            exit 1
+          fi
+          ditto -x -k "$WINE_DIR/download/$ZIP" "$WINE_DIR/app"
+          rm -f "$WINE_DIR/download/$ZIP"
+          WINE_APP="$WINE_DIR/app/MetalSharp-Wine-x86_64.app"
+          test -x "$WINE_APP/Contents/MacOS/wine"
+          codesign --verify --deep --strict --verbose=2 "$WINE_APP"
+          codesign --display --verbose=4 "$WINE_APP" 2>&1 | grep -E '^(Identifier|Authority|TeamIdentifier|CDHash)='
+          xcrun stapler validate "$WINE_APP" || echo "MetalSharp-Wine-x86_64.app carries no stapled ticket"
+          echo "METALSHARP_WINE_X86_64_APP=$WINE_APP" >> "$GITHUB_ENV"
+          echo "METALSHARP_WINE_SHA256=$actual" >> "$GITHUB_ENV"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          METALSHARP_BUNDLE_REPO: ${{ github.repository }}
 
       - name: Check Apple signing credentials
         id: apple-signing
@@ -199,13 +215,19 @@ jobs:
         # ready; ad-hoc otherwise. Notarization happens on the final DMG.
         run: |
           set -euo pipefail
+          METALSHARP_GPUI_REQUIRE_BUNDLES=0 \
           METALSHARP_GPUI_SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}" app-gpui/package-app.sh
 
       - name: Package DMG
         run: tools/dmg/package-gpui-dmg.sh app-gpui/target/MetalSharp.app dist/gpui
 
-      - name: Verify DMG runtime assets
-        run: tools/dmg/verify-dmg-runtime-assets.sh dist/gpui/MetalSharp-*-arm64.dmg
+      - name: Verify DMG
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.apple-signing.outputs.ready }}" != "true" ]; then
+            export METALSHARP_X86_64_VERIFY_ALLOW_ADHOC=1
+          fi
+          tools/dmg/verify-x86_64-dmg.sh dist/gpui/MetalSharp-*-arm64.dmg "$METALSHARP_WINE_X86_64_APP"
 
       - name: Sign and notarize distributable DMG
         if: steps.apple-signing.outputs.ready == 'true'
@@ -224,12 +246,14 @@ jobs:
           test "${{ steps.apple-signing.outputs.ready }}" = "true"
           tools/dmg/verify-notarization.sh app-gpui/target/MetalSharp.app
           tools/dmg/verify-notarization.sh dist/gpui/MetalSharp-*-arm64.dmg
+          tools/dmg/verify-x86_64-dmg.sh dist/gpui/MetalSharp-*-arm64.dmg "$METALSHARP_WINE_X86_64_APP"
 
       - name: Mark signed DMG
         if: steps.apple-signing.outputs.ready == 'true'
         run: |
           printf '%s\n' \
             "MetalSharp DMG was packaged with Apple Developer ID signing and notarization." \
+            "It carries MetalSharp-Wine-x86_64.app from $METALSHARP_WINE_REPO $METALSHARP_WINE_TAG (zip sha256 $METALSHARP_WINE_SHA256), unmodified." \
             > dist/gpui/DMG-SIGNING.txt
 
       - name: Mark unsigned DMG
@@ -238,6 +262,7 @@ jobs:
           printf '%s\n' \
             "MetalSharp DMG was packaged without Apple Developer ID signing because release secrets are not configured." \
             "Configure MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD, and one notarization credential set to produce a notarized DMG." \
+            "It carries MetalSharp-Wine-x86_64.app from $METALSHARP_WINE_REPO $METALSHARP_WINE_TAG (zip sha256 $METALSHARP_WINE_SHA256), unmodified." \
             > dist/gpui/DMG-SIGNING.txt
 
       - name: Record release identity
@@ -256,7 +281,6 @@ jobs:
             dist/gpui/*.dmg
             dist/gpui/DMG-SIGNING.txt
             dist/gpui/RELEASE-TAG.txt
-            dist/bundles/metalsharp-bundle-manifest.tsv
 
   build-fex:
     name: Build FEX DMG
@@ -266,7 +290,7 @@ jobs:
     runs-on: ${{ vars.METALSHARP_RELEASE_RUNNER == 'local' && fromJSON('["self-hosted","macOS","ARM64","metalsharp-release"]') || 'macos-26' }}
     env:
       METALSHARP_WINE_REPO: metalsharp/MetalSharp-Wine
-      METALSHARP_WINE_TAG: v4.0
+      METALSHARP_WINE_TAG: v6.0
       METALSHARP_VARIANT: fex
     steps:
       - uses: actions/checkout@v7
@@ -461,7 +485,6 @@ jobs:
           mkdir -p release-flat
           find release -type f -name '*.dmg' -exec cp {} release-flat/ \;
           find release -type f -name 'DMG-SIGNING.txt' -exec cp {} release-flat/ \;
-          find release -type f -name 'metalsharp-bundle-manifest.tsv' -exec cp {} release-flat/ \;
           find release-fex -type f -name 'MetalSharp-*-arm64-FEX.dmg' -exec cp {} release-flat/ \;
           find release-fex -type f -name 'DMG-SIGNING-FEX.txt' -exec cp {} release-flat/ \;
           test "$(find release-flat -type f -name '*.dmg' | wc -l | tr -d ' ')" -ge 1
@@ -476,7 +499,6 @@ jobs:
             echo "::warning::The FEX build did not succeed ($FEX_RESULT); this release carries the regular DMG only."
             test "$(find release-flat -type f -name '*FEX*' | wc -l | tr -d ' ')" -eq 0
           fi
-          test -s release-flat/metalsharp-bundle-manifest.tsv
           find release-flat -type f -print | sort
         env:
           FEX_RESULT: ${{ needs.build-fex.result }}
@@ -488,5 +510,4 @@ jobs:
             release-flat/*.dmg
             release-flat/DMG-SIGNING.txt
             release-flat/DMG-SIGNING-FEX.txt
-            release-flat/metalsharp-bundle-manifest.tsv
           generate_release_notes: true

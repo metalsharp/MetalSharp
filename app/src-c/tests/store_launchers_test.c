@@ -180,6 +180,51 @@ static void test_helpers(const char* home) {
     free(volume);
 }
 
+/* A store game's lanes are the runtime's, as a Steam game's are: MetalSharp Wine's on fex, the x86_64 app runtime's
+ * (with its marker), else the bundles' x86_64 routes. */
+static const char* lane_ids(const char* default_pipeline, char* out, size_t out_size) {
+    ms_json_writer w;
+    char* text;
+    char error[96];
+    ms_json* lanes;
+    size_t used = 0;
+    ms_json_writer_init(&w);
+    ms_store_write_pipeline_options(&w, default_pipeline);
+    text = ms_json_writer_take(&w);
+    lanes = text ? ms_json_parse(text, strlen(text), error, sizeof(error)) : NULL;
+    out[0] = 0;
+    for (size_t i = 0; lanes && i < ms_json_array_length(lanes); i++) {
+        const ms_json* lane = ms_json_array_get(lanes, i);
+        char* id = NULL;
+        bool recommended = false;
+        (void)ms_json_as_string(ms_json_object_get(lane, "id"), &id);
+        (void)ms_json_as_bool(ms_json_object_get(lane, "recommended"), &recommended);
+        used += (size_t)snprintf(out + used, out_size - used, "%s%s%s", used ? " " : "", id ? id : "?",
+                                 recommended ? "*" : "");
+        free(id);
+    }
+    ms_json_free(lanes);
+    free(text);
+    return out;
+}
+
+static void test_store_lanes(const char* home) {
+    char ids[256], marker[PATH_MAX];
+    if (ms_wine_is_fex()) {
+        assert(!strcmp(lane_ids("d3dmetal", ids, sizeof(ids)), "dxmt vkd3d* dxvk wine_bare"));
+        assert(!strcmp(lane_ids("dxmt", ids, sizeof(ids)), "dxmt* vkd3d dxvk wine_bare"));
+        return;
+    }
+    assert(!strcmp(lane_ids("d3dmetal", ids, sizeof(ids)), "d3dmetal* dxmt dxmt_32 vkd3d d3d9"));
+    snprintf(marker, sizeof(marker), "%s/runtime/wine/.metalsharp-x86_64-app", home);
+    fixture(home, "runtime/wine/.metalsharp-x86_64-app", "");
+    setenv("METALSHARP_HOME", home, 1);
+    assert(!strcmp(lane_ids("d3dmetal", ids, sizeof(ids)), "d3dmetal* vkd3d dxmt wine_bare"));
+    assert(!strcmp(lane_ids("d3d9", ids, sizeof(ids)), "d3dmetal vkd3d* dxmt wine_bare"));
+    unsetenv("METALSHARP_HOME");
+    unlink(marker);
+}
+
 static void test_rockstar(const char* home) {
     static const char registry[] =
         "WINE REGISTRY Version 2\n"
@@ -282,12 +327,23 @@ static void test_rockstar(const char* home) {
     {
         const ms_json* pipelines = ms_json_object_get(game, "available_pipelines");
         bool recommended = false;
-        assert(ms_json_array_length(pipelines) == 5);
-        assert(string_is(ms_json_array_get(pipelines, 0), "id", "d3dmetal"));
-        assert(ms_json_as_bool(ms_json_object_get(ms_json_array_get(pipelines, 0), "recommended"), &recommended) &&
-               recommended);
-        assert(ms_json_as_bool(ms_json_object_get(ms_json_array_get(pipelines, 1), "recommended"), &recommended) &&
-               !recommended);
+        /* the runtime's lanes, as a Steam game is offered them; Rockstar's D3DMetal default is VKD3D-Proton on fex */
+        if (ms_wine_is_fex()) {
+            assert(ms_json_array_length(pipelines) == 4);
+            assert(string_is(ms_json_array_get(pipelines, 0), "id", "dxmt"));
+            assert(string_is(ms_json_array_get(pipelines, 3), "id", "wine_bare"));
+            assert(ms_json_as_bool(ms_json_object_get(ms_json_array_get(pipelines, 1), "recommended"), &recommended) &&
+                   recommended);
+            assert(ms_json_as_bool(ms_json_object_get(ms_json_array_get(pipelines, 0), "recommended"), &recommended) &&
+                   !recommended);
+        } else {
+            assert(ms_json_array_length(pipelines) == 5);
+            assert(string_is(ms_json_array_get(pipelines, 0), "id", "d3dmetal"));
+            assert(ms_json_as_bool(ms_json_object_get(ms_json_array_get(pipelines, 0), "recommended"), &recommended) &&
+                   recommended);
+            assert(ms_json_as_bool(ms_json_object_get(ms_json_array_get(pipelines, 1), "recommended"), &recommended) &&
+                   !recommended);
+        }
     }
     game = game_with(games, "rockstar_id", "max-payne-3");
     assert(game && string_is(game, "name", "Max Payne 3") &&
@@ -594,6 +650,7 @@ int main(int argc, char** argv) {
     test_appid_namespaces();
     test_helpers(home);
     route_fixtures(home);
+    test_store_lanes(home);
     test_rockstar(home);
     test_battlenet(home);
     test_battlenet_elsewhere(home);

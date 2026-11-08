@@ -572,21 +572,23 @@ char* ms_rockstar_launch_game_json(const char* home, const char* body, size_t bo
     }
     ms_steam_deploy_controller_input_shims(home, game->path);
     ms_steam_prepare_rockstar_client(home, pipeline, client);
-    /* The launcher hands its environment to the games it starts. On the x86_64 runtime a launcher
-     * running with another game's route is restarted with this one's; MetalSharp Wine's launcher
-     * runs on Mullion for every game. */
+    /* The launcher hands its environment to the games it starts. On the bundles' x86_64 runtime a launcher running
+     * with another game's route is restarted with this one's. On MetalSharp Wine the launcher keeps its lane for
+     * every game (Mullion on fex, D3DMetal with WFDXCompat's companion on the x86_64 app), and each game takes its
+     * own from launch.env. */
     {
         char lane[64];
         bool running = rockstar_launcher_pid(home) > 0;
         rockstar_lane_key(pipeline, client, lane, sizeof(lane));
         running_lane = running ? rockstar_read_lane(home) : NULL;
-        if (running && !ms_wine_is_fex() && strcmp(running_lane ? running_lane : "d3dmetal", lane)) {
+        if (running && !ms_wine_metalsharp_launch_model() && strcmp(running_lane ? running_lane : "d3dmetal", lane)) {
             rockstar_process_set set = {games, count};
             (void)rockstar_stop_processes(home, &set);
             running = false;
         }
         if (!running) {
-            if (!rockstar_start_launcher(home, ms_wine_is_fex() ? rockstar_launcher_lane() : pipeline, client)) {
+            if (!rockstar_start_launcher(home, ms_wine_metalsharp_launch_model() ? rockstar_launcher_lane() : pipeline,
+                                         client)) {
                 snprintf(failure, sizeof(failure), "Could not start the Rockstar Games Launcher for %s", game->name);
                 goto done;
             }
