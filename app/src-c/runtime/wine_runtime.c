@@ -840,6 +840,40 @@ bool ms_wine_fex_refresh_app(const char* home, char* error, size_t error_size) {
     return home && refresh_app(home, true, error, error_size);
 }
 
+/* The startup refreshes (MetalSharp Wine's app here, the x86_64 runtime's in setup.c) run on threads of their own.
+ * While one runs, the runtime it lays out is half there, so setup's state waits for them (ms_wine_refresh_wait):
+ * otherwise an update that brings a newer Wine app opens the setup wizard as if the runtime needed migrating. */
+static pthread_mutex_t refresh_gate_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t refresh_gate_done = PTHREAD_COND_INITIALIZER;
+static int refresh_gate_pending;
+
+void ms_wine_refresh_begin(void) {
+    pthread_mutex_lock(&refresh_gate_lock);
+    refresh_gate_pending++;
+    pthread_mutex_unlock(&refresh_gate_lock);
+}
+
+void ms_wine_refresh_end(void) {
+    pthread_mutex_lock(&refresh_gate_lock);
+    if (refresh_gate_pending > 0 && --refresh_gate_pending == 0)
+        pthread_cond_broadcast(&refresh_gate_done);
+    pthread_mutex_unlock(&refresh_gate_lock);
+}
+
+bool ms_wine_refresh_wait(unsigned seconds) {
+    struct timespec deadline;
+    bool done;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += seconds;
+    pthread_mutex_lock(&refresh_gate_lock);
+    while (refresh_gate_pending > 0)
+        if (pthread_cond_timedwait(&refresh_gate_done, &refresh_gate_lock, &deadline) != 0)
+            break;
+    done = refresh_gate_pending == 0;
+    pthread_mutex_unlock(&refresh_gate_lock);
+    return done;
+}
+
 static void* refresh_thread(void* argument) {
     char* home = argument;
     char error[512] = "";
@@ -847,6 +881,7 @@ static void* refresh_thread(void* argument) {
     if (!ms_wine_fex_refresh_blocked(home) && !refresh_app(home, false, error, sizeof(error)))
         fprintf(stderr, "warning: could not refresh MetalSharp Wine: %s\n", error);
     free(home);
+    ms_wine_refresh_end();
     return NULL;
 }
 
@@ -855,8 +890,10 @@ void ms_wine_fex_refresh_async(const char* home) {
     char* copy = home ? strdup(home) : NULL;
     if (!copy)
         return;
+    ms_wine_refresh_begin();
     if (pthread_create(&thread, NULL, refresh_thread, copy) != 0) {
         free(copy);
+        ms_wine_refresh_end();
         return;
     }
     pthread_detach(thread);

@@ -72,6 +72,11 @@ bool ms_wine_fex_refresh_app(const char* home, char* error, size_t error_size);
 /* At backend start, on a detached thread: once setup has installed MetalSharp Wine, reinstall it
  * when this MetalSharp carries a different build, and rewrite the facade's wrappers. */
 void ms_wine_fex_refresh_async(const char* home);
+/* The startup refreshes' gate: each async refresh begins and ends it; ms_wine_refresh_wait blocks until none runs
+ * (true) or the seconds pass (false). */
+void ms_wine_refresh_begin(void);
+void ms_wine_refresh_end(void);
+bool ms_wine_refresh_wait(unsigned seconds);
 /* The MetalSharp-Wine.app this MetalSharp carries, or NULL. Malloc'd. */
 char* ms_wine_fex_app_source(void);
 

@@ -1352,6 +1352,9 @@ static char* setup_path(const char* home) {
 }
 
 char* ms_setup_state_json(const char* metalsharp_home) {
+    /* a startup refresh laying the runtime out from a newer Wine app is not a runtime that needs migrating */
+    if (!ms_wine_refresh_wait(180))
+        fprintf(stderr, "warning: setup state read while MetalSharp Wine is still being updated\n");
     char* path = setup_path(metalsharp_home);
     ms_json* config = path == NULL ? NULL : read_json(path);
     char* runtime = runtime_status_json(metalsharp_home);
@@ -2389,16 +2392,22 @@ static void* x86_64_refresh_thread(void* arg) {
     if (!ms_wine_fex_refresh_blocked(home))
         (void)ms_setup_x86_64_refresh(home, error, sizeof(error));
     free(home);
+    ms_wine_refresh_end();
     return NULL;
 }
 
 void ms_setup_x86_64_refresh_async(const char* home) {
     pthread_t thread;
     char* copy = home ? strdup(home) : NULL;
-    if (copy && pthread_create(&thread, NULL, x86_64_refresh_thread, copy) == 0)
+    if (!copy)
+        return;
+    ms_wine_refresh_begin();
+    if (pthread_create(&thread, NULL, x86_64_refresh_thread, copy) == 0)
         pthread_detach(thread);
-    else
+    else {
         free(copy);
+        ms_wine_refresh_end();
+    }
 }
 
 /* Steps 5-7 of the x86_64 build: the x86_64 Wine runtime bundle, its assets and VKD3D's MoltenVK. */
