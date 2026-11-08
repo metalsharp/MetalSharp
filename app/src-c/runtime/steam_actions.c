@@ -1492,7 +1492,7 @@ static void ensure_carbon_interpose_shim(const char* home, const char* game_dir)
         source =
             strdup("/Applications/MetalSharp.app/Contents/Resources/runtime/shim-sources/fna/shims/carbon_interpose.c");
     }
-    if (source && output && access(source, R_OK) == 0 && access(output, R_OK) != 0) {
+    if (source && output && access(source, R_OK) == 0 && access(output, R_OK) != 0 && ms_setup_clang_usable()) {
         char* argv[] = {(char*)"/usr/bin/clang", (char*)"clang", (char*)"-shared", (char*)"-fPIC", (char*)"-arch",
                         (char*)"x86_64",         (char*)"-o",    output,           source,         NULL};
         if (run_fna_tool("/usr/bin/clang", argv) && access(output, R_OK) == 0) {
@@ -1976,6 +1976,39 @@ static bool files_match(const char* left, const char* right) {
     return match;
 }
 
+/* Whether a DLL in a game folder is one MetalSharp put there, by what it is: every route DLL MetalSharp has staged
+ * (Wine's, DXMT's and Mullion's, D3DMetal's, and the lane copies marked so) is a Wine builtin, with "Wine builtin DLL"
+ * in its DOS stub, which no Windows game ships; the DXVK and VKD3D-Proton builds for macOS name MoltenVK or MetalSharp.
+ * Copies an older MetalSharp staged match none of today's files byte for byte and, before 1.0, no manifest lists
+ * them; left in place they shadow the lane the game runs on now. A game's own DLL (or its own DXVK) has neither. */
+static bool staged_by_metalsharp(const char* path) {
+    static const char* const marks[] = {"MoltenVK", "metalsharp", "MetalSharp"};
+    unsigned char buffer[65536 + 32];
+    size_t carry = 0, length, total = 0;
+    bool found = false;
+    FILE* file = fopen(path, "rb");
+    if (!file)
+        return false;
+    length = fread(buffer, 1, 0x60, file);
+    if (length >= 0x50 && buffer[0] == 'M' && buffer[1] == 'Z' && !memcmp(buffer + 0x40, "Wine builtin DLL", 16))
+        found = true;
+    rewind(file);
+    /* the rest: a bounded scan for the macOS builds' marks (DLLs are tens of MB at most) */
+    while (!found && total < (256u << 20) && (length = fread(buffer + carry, 1, 65536, file)) > 0) {
+        size_t size = carry + length;
+        for (size_t m = 0; !found && m < sizeof(marks) / sizeof(marks[0]); m++) {
+            size_t mark_length = strlen(marks[m]);
+            for (size_t i = 0; !found && i + mark_length <= size; i++)
+                found = buffer[i] == (unsigned char)marks[m][0] && !memcmp(buffer + i, marks[m], mark_length);
+        }
+        total += length;
+        carry = size < 32 ? size : 32;
+        memmove(buffer, buffer + size - carry, carry);
+    }
+    fclose(file);
+    return found;
+}
+
 static void remove_stale_route_dlls(const char* home, const char* pipeline, const char* game_dir,
                                     const char* executable) {
     static const char* const names[] = {"d3d12.dll",     "d3d12core.dll",
@@ -2017,14 +2050,14 @@ static void remove_stale_route_dlls(const char* home, const char* pipeline, cons
         *slash = '\0';
         dirs[1] = exe_dir;
     }
-    /* Run for every pipeline transition. A route DLL is removed after a byte-for-byte comparison
-     * against a bundled known artifact, or, on the fex build, when the folder's manifest lists it as
-     * staged (copies from an older MetalSharp Wine no longer match), so a game's own DLL is never
-     * removed. */
+    /* Run before every launch, on both runtimes. A route DLL is removed when the folder's manifest lists it as
+     * staged, after a byte-for-byte comparison against a bundled known artifact, or when it is one MetalSharp
+     * staged by what it is (staged_by_metalsharp: copies from an older MetalSharp that no longer match), so a
+     * game's own DLL is never removed. */
     for (size_t d = 0; d < 2; d++) {
         if (!dirs[d] || (d == 1 && dirs[0] && !strcmp(dirs[0], dirs[1])))
             continue;
-        if (ms_wine_is_fex()) {
+        {
             char* manifest = route_manifest_path(dirs[d]);
             char* listed = manifest ? read_bounded_file(manifest) : NULL;
             for (char *save = NULL, *line = listed ? strtok_r(listed, "\n", &save) : NULL; line;
@@ -2065,6 +2098,9 @@ static void remove_stale_route_dlls(const char* home, const char* pipeline, cons
                     break;
                 }
             }
+            /* one an older MetalSharp staged, which nothing today matches */
+            if (access(target, F_OK) == 0 && staged_by_metalsharp(target))
+                (void)unlink(target);
             free(target);
         }
     }
@@ -2647,8 +2683,11 @@ char* ms_steam_prepare_bottle_route_json(const char* home, const char* bottle_id
         free(fnalibs);
         goto done;
     }
-    if (!ms_wine_is_fex() && (!strcmp(canonical, "m13") || !strcmp(canonical, "d3dmetal") ||
-                              !strcmp(canonical, "m32") || !strcmp(canonical, "wine_bare")))
+    /* the bundles' x86_64 runtime stages D3DMetal's DLLs itself (d3dmetal.c); a runtime that routes its lanes
+     * (both MetalSharp Wine apps) stages nothing, so these routes too clear what older versions left */
+    if (!ms_wine_is_fex() && !ms_wine_routes_lane(canonical) &&
+        (!strcmp(canonical, "m13") || !strcmp(canonical, "d3dmetal") || !strcmp(canonical, "m32") ||
+         !strcmp(canonical, "wine_bare")))
         goto done;
     if (game_dir && access(game_dir, F_OK) == 0)
         executable = preferred_steam_game_executable(game_dir, (unsigned)appid, canonical);
@@ -6533,7 +6572,8 @@ static char* performance_core_shim(const char* home) {
     char* shims = join(home, "runtime/shims");
     snprintf(source, sizeof(source), "%s/../runtime/shim-sources/wine/shims/cpu_topology_interpose.c",
              bundle_dir ? bundle_dir : "/Applications/MetalSharp.app/Contents/Resources/bundles");
-    if (output && shims && access(output, R_OK) != 0 && access(source, R_OK) == 0 && ensure_directory(shims)) {
+    if (output && shims && access(output, R_OK) != 0 && access(source, R_OK) == 0 && ensure_directory(shims) &&
+        ms_setup_clang_usable()) {
         char* argv[] = {(char*)"/usr/bin/clang",
                         (char*)"-dynamiclib",
                         (char*)"-O2",

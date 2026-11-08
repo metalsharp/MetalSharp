@@ -153,16 +153,29 @@ static void write_summary(ms_json_writer* writer, const char* path) {
     ms_json_writer_object_end(writer);
 }
 
-/* The FEX build's caches, per graphics lane. Each game's go in shader-cache/fex-<lane>/<appid> and
- * pipeline-cache/fex-<lane>/<appid> (steam_actions.c set_launch_cache_env). Mullion is "dxmt"
- * (and "dxmt_32"); Metal's own pipeline cache for its games is in the user's cache folder,
- * mullion/<exe>/com.apple.metal, beside Mullion's shader databases for games started without
- * MetalSharp's environment. */
+/* The caches per graphics lane, on both runtimes. Each game's go in shader-cache/<lane>/<appid> and
+ * pipeline-cache/<lane>/<appid> (steam_actions.c set_launch_cache_env), where the FEX runtime's lanes are
+ * fex-<lane>. Mullion is "dxmt" (and "dxmt_32"); Metal's own pipeline cache for its games is in the user's
+ * cache folder, mullion/<exe>/com.apple.metal, beside Mullion's shader databases for games started without
+ * MetalSharp's environment. The x86_64 runtime also has D3DMetal's lane, whose Metal shader cache the launch
+ * points at its folder (MTL_SHADER_CACHE_DIR). */
 static const char* const fex_cache_lanes[] = {"dxmt", "vkd3d", "dxvk"};
+static const char* const x86_64_cache_lanes[] = {"dxmt", "vkd3d", "dxvk", "d3dmetal"};
+
+static const char* const* cache_lanes(size_t* count) {
+    if (ms_wine_is_fex()) {
+        *count = sizeof(fex_cache_lanes) / sizeof(fex_cache_lanes[0]);
+        return fex_cache_lanes;
+    }
+    *count = sizeof(x86_64_cache_lanes) / sizeof(x86_64_cache_lanes[0]);
+    return x86_64_cache_lanes;
+}
 
 static bool fex_cache_lane(const char* lane) {
-    for (size_t i = 0; lane && i < sizeof(fex_cache_lanes) / sizeof(fex_cache_lanes[0]); i++)
-        if (!strcmp(lane, fex_cache_lanes[i]))
+    size_t count;
+    const char* const* lanes = cache_lanes(&count);
+    for (size_t i = 0; lane && i < count; i++)
+        if (!strcmp(lane, lanes[i]))
             return true;
     return false;
 }
@@ -170,11 +183,12 @@ static bool fex_cache_lane(const char* lane) {
 /* The folders MetalSharp owns for a lane, per game: up to four, written to roots[]; returns how many. */
 static size_t fex_lane_roots(const char* home, const char* lane, char roots[6][PATH_MAX]) {
     static const char* const kinds[] = {"shader-cache", "pipeline-cache"};
+    const char* prefix = ms_wine_is_fex() ? "fex-" : "";
     size_t count = 0;
     for (size_t k = 0; k < 2; k++) {
-        snprintf(roots[count++], PATH_MAX, "%s/%s/fex-%s", home, kinds[k], lane);
+        snprintf(roots[count++], PATH_MAX, "%s/%s/%s%s", home, kinds[k], prefix, lane);
         if (!strcmp(lane, "dxmt"))
-            snprintf(roots[count++], PATH_MAX, "%s/%s/fex-dxmt_32", home, kinds[k]);
+            snprintf(roots[count++], PATH_MAX, "%s/%s/%sdxmt_32", home, kinds[k], prefix);
     }
     return count;
 }
@@ -199,7 +213,7 @@ static unsigned long long fex_lane_apps(const char* home, const char* lane) {
     for (size_t r = 0; r < count; r++) {
         DIR* dir;
         struct dirent* entry;
-        if (strstr(roots[r], "-cache/fex-") == NULL || (dir = opendir(roots[r])) == NULL)
+        if ((dir = opendir(roots[r])) == NULL)
             continue;
         while ((entry = readdir(dir)) != NULL) {
             bool known = false;
@@ -309,13 +323,15 @@ char* ms_cache_size_json(const char* metalsharp_home) {
     write_summary(&writer, shader);
     ms_json_writer_key(&writer, "pipeline_cache");
     write_summary(&writer, pipeline);
-    /* The FEX build also reports each lane's caches. */
-    if (ms_wine_is_fex()) {
+    /* Each lane's caches, for the active runtime's lanes. */
+    {
+        size_t count;
+        const char* const* lanes = cache_lanes(&count);
         ms_json_writer_key(&writer, "lanes");
         ms_json_writer_object_begin(&writer);
-        for (size_t i = 0; i < sizeof(fex_cache_lanes) / sizeof(fex_cache_lanes[0]); i++) {
-            ms_json_writer_key(&writer, fex_cache_lanes[i]);
-            write_fex_lane_summary(&writer, metalsharp_home, fex_cache_lanes[i]);
+        for (size_t i = 0; i < count; i++) {
+            ms_json_writer_key(&writer, lanes[i]);
+            write_fex_lane_summary(&writer, metalsharp_home, lanes[i]);
         }
         ms_json_writer_object_end(&writer);
     }
@@ -343,9 +359,9 @@ char* ms_cache_clear_json(const char* metalsharp_home, const unsigned char* body
             type = requested;
         }
     }
-    /* The FEX build clears one lane's caches: {"type":"lane","lane":"dxmt"|"vkd3d"|"dxvk"}, and with
-     * "shared":true Mullion's shared Metal cache too. */
-    if (ms_wine_is_fex() && type && !strcmp(type, "lane")) {
+    /* One lane's caches: {"type":"lane","lane":"dxmt"|"vkd3d"|"dxvk", or "d3dmetal" on the x86_64 runtime}, and
+     * with "shared":true Mullion's shared Metal cache too. */
+    if (type && !strcmp(type, "lane")) {
         char* lane = NULL;
         char* lane_result;
         bool shared = false;

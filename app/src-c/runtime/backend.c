@@ -43,6 +43,7 @@
 #include "metalsharp_backend/library_locations.h"
 #include "metalsharp_backend/launcher_uninstall.h"
 #include "metalsharp_backend/updater.h"
+#include "metalsharp_backend/rosetta.h"
 #include "metalsharp_backend/wine_runtime.h"
 
 #include <ctype.h>
@@ -257,6 +258,16 @@ static const char* image_type(const char* path) {
 }
 
 /* The newest image matching a grid art glob pattern (<appid>.* also matches the <appid>.json logo-position file). */
+/* Whether a request body contains text (bodies are not NUL-terminated). */
+static bool body_mentions(const void* body, size_t length, const char* text) {
+    size_t text_length = strlen(text);
+    const char* bytes = body;
+    for (size_t i = 0; bytes && text_length && i + text_length <= length; i++)
+        if (!memcmp(bytes + i, text, text_length))
+            return true;
+    return false;
+}
+
 static bool newest_grid_art(const char* pattern, char* newest, size_t newest_size, struct stat* newest_stat) {
     glob_t results;
     bool found = false;
@@ -440,7 +451,26 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/runtime/switch") == 0) {
         ms_log_event(context->metalsharp_home, "Wine runtime switch requested");
+        /* The x86_64 runtime runs under Rosetta 2: a FEX install's first switch to it (and one after a macOS
+         * upgrade removed Rosetta) installs Rosetta first. */
+        if (request->body && request->body_length &&
+            body_mentions(request->body, request->body_length, "\"regular\"") &&
+            !ms_rosetta_ensure(context->metalsharp_home)) {
+            set_json_response(response, 200,
+                              strdup("{\"ok\":false,\"error\":\"Rosetta 2 could not be installed, and the x86_64 "
+                                     "runtime needs it. See ~/.metalsharp/logs/rosetta.log.\"}"));
+            return true;
+        }
         body = ms_wine_switch_runtime_json(context->metalsharp_home, (const char*)request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/runtime/uninstall") == 0) {
+        ms_log_event(context->metalsharp_home, "Wine runtime uninstall requested");
+        body = ms_wine_uninstall_runtime_json(context->metalsharp_home, (const char*)request->body,
+                                              request->body_length);
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);

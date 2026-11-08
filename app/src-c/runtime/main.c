@@ -137,7 +137,8 @@ int main(void) {
         ms_log_event(context.metalsharp_home, message);
     }
     ms_epic_sync_on_startup(context.metalsharp_home);
-    if (!ms_wine_is_fex())
+    /* the x86_64 runtime runs under Rosetta, whether it is the active one or set aside on the FEX build */
+    if (!ms_wine_is_fex() || ms_wine_runtime_installed(context.metalsharp_home, "regular"))
         ms_rosetta_after_macos_upgrade_async(context.metalsharp_home);
 
     for (attempt = 1; attempt <= 30 && !stop_requested; ++attempt) {

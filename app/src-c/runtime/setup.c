@@ -576,6 +576,27 @@ static char* find_setup_source(const char* relative) {
     return access(relative, R_OK) == 0 ? strdup(relative) : NULL;
 }
 
+/* Whether a compiler is really installed (Xcode or its Command Line Tools), asked of xcode-select: running
+ * /usr/bin/clang without them opens macOS's "install the command line developer tools" dialog. Setup no longer
+ * needs them, so the shims it would build only get built where they are there. */
+bool ms_setup_clang_usable(void) {
+    char developer[PATH_MAX] = "", clang[PATH_MAX];
+    FILE* pipe = popen("/usr/bin/xcode-select -p 2>/dev/null", "r");
+    if (!pipe)
+        return false;
+    if (!fgets(developer, sizeof(developer), pipe))
+        developer[0] = '\0';
+    (void)pclose(pipe);
+    developer[strcspn(developer, "\r\n")] = '\0';
+    if (!developer[0])
+        return false;
+    return (snprintf(clang, sizeof(clang), "%s/usr/bin/clang", developer) < (int)sizeof(clang) &&
+            access(clang, X_OK) == 0) ||
+           (snprintf(clang, sizeof(clang), "%s/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang", developer) <
+                (int)sizeof(clang) &&
+            access(clang, X_OK) == 0);
+}
+
 static bool compile_fna_shim(const char* source, const char* destination, bool objective_c,
                              bool undefined_dynamic_lookup) {
     pid_t pid;
@@ -641,11 +662,13 @@ static void precompile_fna_shims(const char* home) {
         {"libfmod.dylib", "src/fna/shims/fmod_stub.c", false, true},
         {"libfmodstudio.dylib", "src/fna/shims/fmodstudio_stub.c", false, true}};
     char* dir = join_path(home, "runtime/shims");
+    bool clang = ms_setup_clang_usable();
     if (!dir || !mkdir_p(dir)) {
         free(dir);
         return;
     }
-    for (size_t i = 0; i < sizeof(specs) / sizeof(specs[0]); i++) {
+    /* the runtime carries these prebuilt; one that is missing is built only where a compiler is installed */
+    for (size_t i = 0; clang && i < sizeof(specs) / sizeof(specs[0]); i++) {
         char* source = find_setup_source(specs[i].source);
         char* destination = join_path(dir, specs[i].output);
         if (source && destination && !file_nonempty(destination))
@@ -1935,7 +1958,8 @@ char* ms_setup_dependencies_json(const char* metalsharp_home) {
     ms_json_writer_key(&writer, "ok");
     ms_json_writer_bool(&writer, true);
     ms_json_writer_key(&writer, "allInstalled");
-    ms_json_writer_bool(&writer, rosetta && xcode && wine_ready && host_ready && dxmt_ready);
+    /* the x86_64 runtime needs no compiler (its shims come prebuilt) */
+    ms_json_writer_bool(&writer, rosetta && wine_ready && host_ready && dxmt_ready);
     ms_json_writer_key(&writer, "platform");
     ms_json_writer_string(&writer, "macos");
     ms_json_writer_key(&writer, "dependencies");
@@ -1944,7 +1968,7 @@ char* ms_setup_dependencies_json(const char* metalsharp_home) {
                      false, "bash scripts/tools/install-homebrew.sh");
     ms_json_writer_object_end(&writer);
     dependency_begin(&writer, "xcode_cli", "Xcode Command Line Tools",
-                     "Provides clang for building native shims (CSteamworks, gdiplus stub)", xcode, true,
+                     "Optional: the x86_64 runtime brings its native shims prebuilt", xcode, false,
                      "xcode-select --install");
     ms_json_writer_object_end(&writer);
     dependency_begin(&writer, "rosetta", "Rosetta 2",
@@ -2389,8 +2413,12 @@ static void* x86_64_refresh_thread(void* arg) {
     char error[512] = "";
     /* A pending or running migration swaps the app itself (ms_setup_x86_64_refresh), so the two never lay the
      * runtime out at the same time. */
-    if (!ms_wine_fex_refresh_blocked(home))
+    if (!ms_wine_fex_refresh_blocked(home)) {
         (void)ms_setup_x86_64_refresh(home, error, sizeof(error));
+        /* and MetalSharp Wine (FEX), when it is installed too */
+        if (!ms_wine_refresh_inactive_app(home, error, sizeof(error)))
+            fprintf(stderr, "warning: could not refresh the other Wine runtime: %s\n", error);
+    }
     free(home);
     ms_wine_refresh_end();
     return NULL;
@@ -2761,13 +2789,22 @@ static void run_install_all_worker(const char* home) {
                                "Bundled icon, archive, and extraction tools ready", NULL);
     }
 
-    write_install_progress(home, 2, total, "System Tools", "installing", "Checking Xcode Command Line Tools...", NULL);
-    if (!install_xcode_cli()) {
-        write_install_progress(home, 2, total, "System Tools", "error", "Xcode Command Line Tools installation failed",
-                               "install manually with: xcode-select --install");
-        _exit(0);
+    /* The x86_64 runtime carries its native shims prebuilt, so its setup needs no compiler (Xcode's Command Line
+     * Tools); the FEX runtime's still checks for them. */
+    if (ms_wine_is_fex()) {
+        write_install_progress(home, 2, total, "System Tools", "installing", "Checking Xcode Command Line Tools...",
+                               NULL);
+        if (!install_xcode_cli()) {
+            write_install_progress(home, 2, total, "System Tools", "error",
+                                   "Xcode Command Line Tools installation failed",
+                                   "install manually with: xcode-select --install");
+            _exit(0);
+        }
+        write_install_progress(home, 2, total, "System Tools", "done", "System tools ready", NULL);
+    } else {
+        write_install_progress(home, 2, total, "System Tools", "done",
+                               "The x86_64 runtime brings its tools; Xcode's Command Line Tools are not needed", NULL);
     }
-    write_install_progress(home, 2, total, "System Tools", "done", "System tools ready", NULL);
     if (ms_wine_is_fex())
         write_install_progress(home, 3, total, "x86 Translation", "done",
                                "MetalSharp Wine runs x86 code with FEX; Rosetta 2 is not needed", NULL);

@@ -3870,6 +3870,12 @@ impl MetalSharpApp {
                     E::StartUpdate => this.open_update(cx),
                     E::SwitchBuild => this.open_switch(cx),
                     E::UpdateStatus(status) => this.live.update_status = Some(status.clone()),
+                    // the active runtime went: the backend restarts on the other one, as after a switch
+                    E::RuntimeUninstalled { restart } => {
+                        if *restart {
+                            this.restart_backend_after_runtime_change(cx);
+                        }
+                    }
                     E::SteamApiKeySaved(key, library) => {
                         this.live.steam_api_key = Some(key.clone());
                         match library {

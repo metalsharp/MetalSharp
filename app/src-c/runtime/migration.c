@@ -1836,6 +1836,13 @@ static void app_update(const char* home) {
     (void)write_migration_progress(home, "running", 4, "Updating MetalSharp Wine...", NULL);
     swapped = ms_wine_is_fex() ? ms_wine_fex_refresh_app(home, error, sizeof(error))
                                : ms_setup_x86_64_refresh(home, error, sizeof(error));
+    /* both runtimes when both are installed: the other one's app too (laid out again when it is switched to) */
+    if (swapped && !ms_wine_refresh_inactive_app(home, error, sizeof(error))) {
+        char message[640];
+        snprintf(message, sizeof(message), "Could not update the other Wine runtime: %s",
+                 error[0] ? error : "unknown error");
+        ms_log_event(home, message);
+    }
     if (!swapped) {
         char message[640];
         snprintf(message, sizeof(message), "Could not update MetalSharp Wine: %s", error[0] ? error : "unknown error");

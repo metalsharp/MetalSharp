@@ -74,6 +74,8 @@ bool ms_wine_fex_refresh_app(const char* home, char* error, size_t error_size);
 void ms_wine_fex_refresh_async(const char* home);
 /* The startup refreshes' gate: each async refresh begins and ends it; ms_wine_refresh_wait blocks until none runs
  * (true) or the seconds pass (false). */
+/* The inactive runtime's Wine app updated from the one MetalSharp.app carries, when that runtime is installed. */
+bool ms_wine_refresh_inactive_app(const char* home, char* error, size_t error_size);
 void ms_wine_refresh_begin(void);
 void ms_wine_refresh_end(void);
 bool ms_wine_refresh_wait(unsigned seconds);
@@ -164,6 +166,10 @@ bool ms_wine_runtime_installed(const char* home, const char* variant);
 char* ms_wine_runtimes_json(const char* home);
 bool ms_wine_switch_runtime(const char* home, const char* target, char* error, size_t error_size);
 char* ms_wine_switch_runtime_json(const char* home, const char* body, size_t body_length);
+/* One runtime ("fex" or "regular") uninstalled; the active one only when the other is installed, switching to it
+ * first (*switched: the backend must restart). */
+bool ms_wine_uninstall_runtime(const char* home, const char* variant, bool* switched, char* error, size_t error_size);
+char* ms_wine_uninstall_runtime_json(const char* home, const char* body, size_t body_length);
 /* The other runtime's signed app, downloaded into <home>/downloads when MetalSharp.app does not carry it */
 char* ms_wine_runtime_download_json(const char* home, const char* body, size_t body_length);
 char* ms_wine_runtime_download_progress_json(void);

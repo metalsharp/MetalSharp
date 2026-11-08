@@ -76,6 +76,26 @@ impl MetalSharpApp {
         );
     }
 
+    /// After Settings uninstalled the active runtime: the backend switched to the other one, so it starts again
+    /// on that one, as after a switch from the toggle.
+    pub(super) fn restart_backend_after_runtime_change(&mut self, cx: &mut Context<Self>) {
+        let Some(live) = Live::get(cx) else { return };
+        cx.spawn(async move |this, cx| {
+            let started = cx
+                .background_executor()
+                .spawn(async move { live.start_backend() })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                match started {
+                    Ok(()) => this.after_backend_started(cx),
+                    Err(error) => toast::error(cx, error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     fn confirm_runtime_switch(&mut self, cx: &mut Context<Self>) {
         let Some(switch) = self.runtime_switch.as_mut() else {
             return;

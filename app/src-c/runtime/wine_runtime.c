@@ -634,6 +634,30 @@ bool ms_wine_x86_64_install_app(const char* home, char* error, size_t error_size
     return ok;
 }
 
+/* The other runtime's Wine app, when that runtime is installed too (kept aside while this one is active), updated from
+ * the one MetalSharp.app carries, so an update brings both runtimes up to date and not only the active one. Only the
+ * app is replaced: what its runtime laid out stays aside, and is laid out again from the new app when the user switches
+ * to it (its identity differs). A runtime that is not installed stays uninstalled. */
+bool ms_wine_refresh_inactive_app(const char* home, char* error, size_t error_size) {
+    const char* other = ms_wine_is_fex() ? "regular" : "fex";
+    bool fex = !strcmp(other, "fex");
+    char* source;
+    int lock;
+    bool ok;
+    if (!home || !ms_wine_runtime_installed(home, other))
+        return true;
+    if (!(source = fex ? ms_wine_fex_app_source() : ms_wine_x86_64_app_source()))
+        return true; /* this MetalSharp carries no newer one */
+    if ((lock = ms_wine_fex_lock(home, true)) < 0) {
+        free(source);
+        set_error(error, error_size, "could not lock MetalSharp Wine", home);
+        return false;
+    }
+    ok = install_app_locked(home, source, fex ? "MetalSharp-Wine.app" : WINE_X86_64_APP, error, error_size);
+    ms_wine_fex_unlock(lock);
+    return ok;
+}
+
 /* Takes source (freed here) */
 static bool install_app_locked(const char* home, char* source, const char* name, char* error, size_t error_size) {
     char app[PATH_MAX], staging[PATH_MAX], old[PATH_MAX], runtime[PATH_MAX], log[PATH_MAX], logs[PATH_MAX];
@@ -880,6 +904,9 @@ static void* refresh_thread(void* argument) {
     /* A pending or running migration swaps the app itself (ms_wine_fex_refresh_app). */
     if (!ms_wine_fex_refresh_blocked(home) && !refresh_app(home, false, error, sizeof(error)))
         fprintf(stderr, "warning: could not refresh MetalSharp Wine: %s\n", error);
+    /* and the x86_64 runtime's app, when it is installed too */
+    if (!ms_wine_fex_refresh_blocked(home) && !ms_wine_refresh_inactive_app(home, error, sizeof(error)))
+        fprintf(stderr, "warning: could not refresh the other Wine runtime: %s\n", error);
     free(home);
     ms_wine_refresh_end();
     return NULL;
@@ -1401,6 +1428,98 @@ char* ms_wine_switch_runtime_json(const char* home, const char* body, size_t bod
     }
     ms_json_writer_object_end(&writer);
     free(target);
+    ms_json_free(request);
+    return ms_json_writer_take(&writer);
+}
+
+/* --- One runtime uninstalled -------------------------------------------------------------------------------------
+ * Settings' "Uninstall FEX" / "Uninstall x86_64": that runtime's Wine app, its laid-out files (active in runtime/ or
+ * kept aside), its download and its lanes' caches go; prefixes, which both runtimes share, stay. The active runtime
+ * goes only when the other is installed: the switch to it comes first (and the backend restarts on it). The last
+ * runtime stays: removing it is "Uninstall MetalSharp". MetalSharp.app still carries the apps, so either runtime can
+ * be set up again from the FEX | x86_64 toggle. */
+bool ms_wine_uninstall_runtime(const char* home, const char* variant, bool* switched, char* error, size_t error_size) {
+    static const char* const fex_caches[] = {"shader-cache/fex-dxmt", "shader-cache/fex-dxmt_32",
+                                             "shader-cache/fex-vkd3d", "shader-cache/fex-dxvk",
+                                             "pipeline-cache/fex-dxmt", "pipeline-cache/fex-dxmt_32",
+                                             "pipeline-cache/fex-vkd3d", "pipeline-cache/fex-dxvk"};
+    static const char* const x86_64_caches[] = {
+        "shader-cache/dxmt",     "shader-cache/dxmt_32",   "shader-cache/vkd3d",     "shader-cache/dxvk",
+        "shader-cache/d3dmetal", "pipeline-cache/dxmt",    "pipeline-cache/dxmt_32", "pipeline-cache/vkd3d",
+        "pipeline-cache/dxvk",   "pipeline-cache/d3dmetal"};
+    const char* other;
+    const char* app;
+    const char* const* caches;
+    size_t cache_count;
+    char path[PATH_MAX];
+    int lock;
+    bool ok = true;
+    if (switched)
+        *switched = false;
+    if (!home || !variant || (strcmp(variant, "fex") && strcmp(variant, "regular"))) {
+        set_error(error, error_size, "unknown runtime", variant);
+        return false;
+    }
+    other = !strcmp(variant, "fex") ? "regular" : "fex";
+    app = !strcmp(variant, "fex") ? "MetalSharp-Wine.app" : WINE_X86_64_APP;
+    caches = !strcmp(variant, "fex") ? fex_caches : x86_64_caches;
+    cache_count = !strcmp(variant, "fex") ? sizeof(fex_caches) / sizeof(fex_caches[0])
+                                          : sizeof(x86_64_caches) / sizeof(x86_64_caches[0]);
+    if (!strcmp(variant, ms_wine_variant())) {
+        if (!ms_wine_runtime_installed(home, other)) {
+            set_error(error, error_size, "it is the only Wine runtime installed; Uninstall MetalSharp removes it",
+                      variant);
+            return false;
+        }
+        if (!ms_wine_switch_runtime(home, other, error, error_size))
+            return false;
+        if (switched)
+            *switched = true;
+    }
+    if ((lock = ms_wine_fex_lock(home, true)) < 0) {
+        set_error(error, error_size, "could not lock", home);
+        return false;
+    }
+    ok = runtime_stash(home, variant, path, sizeof(path)) && remove_tree(path) &&
+         format_path(path, sizeof(path), "%s/runtime/%s", home, app) && remove_tree(path) &&
+         format_path(path, sizeof(path), "%s/downloads/%s", home, app) && remove_tree(path);
+    ms_wine_fex_unlock(lock);
+    if (!ok) {
+        set_error(error, error_size, "could not remove the runtime's files", path);
+        return false;
+    }
+    /* its lanes' caches (what is left of a folder that cannot be removed does no harm) */
+    for (size_t i = 0; i < cache_count; i++)
+        if (format_path(path, sizeof(path), "%s/%s", home, caches[i]))
+            (void)remove_tree(path);
+    return true;
+}
+
+char* ms_wine_uninstall_runtime_json(const char* home, const char* body, size_t body_length) {
+    char error[PATH_MAX + 128] = "";
+    ms_json* request = body && body_length ? ms_json_parse(body, body_length, NULL, 0) : NULL;
+    const ms_json* value = request ? ms_json_object_get(request, "variant") : NULL;
+    char* variant = NULL;
+    bool switched = false, ok;
+    ms_json_writer writer;
+    if (value)
+        (void)ms_json_as_string(value, &variant);
+    ok = ms_wine_uninstall_runtime(home, variant, &switched, error, sizeof(error));
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, ok);
+    ms_json_writer_key(&writer, "active");
+    ms_json_writer_string(&writer, ms_wine_variant());
+    /* the backend restarts on the runtime it switched to */
+    ms_json_writer_key(&writer, "restart");
+    ms_json_writer_bool(&writer, switched);
+    if (!ok) {
+        ms_json_writer_key(&writer, "error");
+        ms_json_writer_string(&writer, error[0] ? error : "could not uninstall the Wine runtime");
+    }
+    ms_json_writer_object_end(&writer);
+    free(variant);
     ms_json_free(request);
     return ms_json_writer_take(&writer);
 }
