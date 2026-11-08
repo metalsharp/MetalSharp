@@ -2352,6 +2352,18 @@ bool ms_setup_x86_64_refresh(const char* home, char* error, size_t error_size) {
             ms_log_event(home, message);
         }
         free(dxmt);
+    } else if (!ms_wine_is_fex() && x86_64_runtime_from_app(home)) {
+        /* The manifest's version follows MetalSharp's, so an update that keeps the same Wine app (or comes while
+         * x86_64 is the inactive runtime) leaves it stale, and setup's state would call the runtime unmigrated. */
+        char* dxmt = join_path(home, "runtime/wine/lib/dxmt");
+        char* version = dxmt ? manifest_version(dxmt) : NULL;
+        if (dxmt && required_ready(dxmt, dxmt_unix, sizeof(dxmt_unix) / sizeof(dxmt_unix[0])) &&
+            (!version || strcmp(version, MS_DXMT_VERSION)) && !write_dxmt_manifest(dxmt)) {
+            snprintf(error, error_size, "could not update %s/%s", dxmt, MS_DXMT_MANIFEST);
+            ok = false;
+        }
+        free(version);
+        free(dxmt);
     }
     return ok;
 }
