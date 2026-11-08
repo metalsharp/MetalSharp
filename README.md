@@ -20,11 +20,7 @@ ___
 <div align="center">
 
 
-### Github deleted all of my stars after I temporarily privated the repo. Please help bring me back!
-
----
-
-MetalSharp is a Free Wine 11.17 x86_64 (MacOS 15+) / Wine 11.20 with FEX (MacOS 26.4+) Custom-Built Runtime That Runs Windows Applications / Games on Apple Silicon, Built Inside a GPUI Application. MetalSharp Aims to Make The Process of Launching Your Games Easy Without Extra Needed Configuration Steps. 
+MetalSharp is a Free Wine 11.17 x86_64 / Wine 11.20 with FEX (MacOS 15+) Custom-Built Runtime That Runs Windows Applications / Games on Apple Silicon, Built Inside a GPUI Application. MetalSharp Aims to Make The Process of Launching Your Games Easy Without Extra Needed Configuration Steps. 
 
 <img width="1186" height="861" alt="Screenshot 2026-11-08 at 1 09 05 AM" src="https://github.com/user-attachments/assets/f6867751-1863-490d-b9bc-a1ce9b3c5c94" />
 
@@ -97,12 +93,12 @@ ___
 For x86_64 Version Under Rosetta: 
 
 - Apple Silicon Mac M1-M5, MacOS 15+
-- About ~12 GB free space
+- About ~4 GB Free Space (Extra Prefixes, or 'Bottles' Take up More Space. 
 
 For Arm64 Version with FEX (MetalSharp Wine 4.0): 
 
 - Apple Silicon Mac M1-M5, MacOS 26.4+
-- About ~12GB free space 
+- About ~4 GB Free Space (Extra Prefixes, or 'Bottles' Take up More Space. 
 
 ## Developer Setup
 
