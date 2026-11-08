@@ -1738,12 +1738,14 @@ char* ms_wine_uninstall_runtime_json(const char* home, const char* body, size_t 
     return ms_json_writer_take(&writer);
 }
 
-/* --- The other runtime, downloaded -------------------------------------------------------------------------------
- * A MetalSharp.app carries its own build's Wine app only. The other one comes as a zip of the signed app (the
- * runtime's release asset: $METALSHARP_RUNTIME_URL_FEX / $METALSHARP_RUNTIME_URL_REGULAR, else MetalSharp's
- * wine-runtimes release), unpacked into <home>/downloads, where setup takes it from (app_source). */
+/* --- The Wine runtime, downloaded -------------------------------------------------------------------------------
+ * The Wine runtime a MetalSharp.app does not carry comes from MetalSharp Wine's release: the zip of the signed app
+ * (MetalSharp-Wine-<version>-arm64.zip for FEX, -x86_64.zip for the x86_64 runtime; $METALSHARP_RUNTIME_URL_FEX /
+ * $METALSHARP_RUNTIME_URL_REGULAR override it), unpacked into <home>/downloads, where setup takes it from
+ * (app_source). Never MetalSharp's old runtime bundles. */
 
-#define RUNTIME_RELEASE_URL "https://github.com/metalsharp/MetalSharp/releases/download/wine-runtimes/"
+#define MS_WINE_RELEASE_VERSION "6.0"
+#define RUNTIME_RELEASE_URL "https://github.com/metalsharp/MetalSharp-Wine/releases/download/v" MS_WINE_RELEASE_VERSION "/"
 
 typedef struct {
     pthread_mutex_t lock;
@@ -1764,42 +1766,74 @@ static bool runtime_download_url(const char* variant, char* out, size_t out_size
     const char* configured = getenv(!strcmp(variant, "fex") ? "METALSHARP_RUNTIME_URL_FEX" : "METALSHARP_RUNTIME_URL_REGULAR");
     if (configured && configured[0])
         return snprintf(out, out_size, "%s", configured) < (int)out_size;
-    return snprintf(out, out_size, "%s%s.zip", RUNTIME_RELEASE_URL, runtime_app_name(variant)) < (int)out_size;
+    return snprintf(out, out_size, "%sMetalSharp-Wine-%s-%s.zip", RUNTIME_RELEASE_URL, MS_WINE_RELEASE_VERSION,
+                    !strcmp(variant, "fex") ? "arm64" : "x86_64") < (int)out_size;
 }
 
-static void download_fail(const char* message) {
-    pthread_mutex_lock(&runtime_download.lock);
-    snprintf(runtime_download.error, sizeof(runtime_download.error), "%s", message);
-    runtime_download.ok = false;
-    runtime_download.done = true;
-    runtime_download.running = false;
-    pthread_mutex_unlock(&runtime_download.lock);
-}
-
-static void* runtime_download_worker(void* arg) {
-    char* home = arg;
-    char variant[16], url[PATH_MAX], downloads[PATH_MAX], zip[PATH_MAX], unpack[PATH_MAX], app[PATH_MAX], unpacked[PATH_MAX],
+/* The runtime's app downloaded, unpacked, its signature checked, and kept at <home>/downloads/<app>. NULL on success,
+ * else what failed. partial (optional) gets the zip's path while it downloads, for the progress. */
+static const char* fetch_runtime_app(const char* home, const char* variant, void (*partial)(const char* zip)) {
+    char url[PATH_MAX], downloads[PATH_MAX], zip[PATH_MAX], unpack[PATH_MAX], app[PATH_MAX], unpacked[PATH_MAX],
         log[PATH_MAX];
-    const char* name;
-    pthread_mutex_lock(&runtime_download.lock);
-    snprintf(variant, sizeof(variant), "%s", runtime_download.variant);
-    pthread_mutex_unlock(&runtime_download.lock);
-    name = runtime_app_name(variant);
+    const char* name = runtime_app_name(variant);
     if (!runtime_download_url(variant, url, sizeof(url)) ||
         !format_path(downloads, sizeof(downloads), "%s/%s", home, "downloads") || !ensure_dir(downloads) ||
         !format_path(zip, sizeof(zip), "%s/%s.zip.part", downloads, name) ||
         !format_path(unpack, sizeof(unpack), "%s/.unpack-%s", downloads, variant) ||
         !format_path(app, sizeof(app), "%s/%s", downloads, name) ||
         !format_path(unpacked, sizeof(unpacked), "%s/%s", unpack, name) ||
-        !format_path(log, sizeof(log), "%s/%s", home, "logs/runtime-download.log")) {
-        free(home);
-        download_fail("could not prepare the download");
-        return NULL;
+        !format_path(log, sizeof(log), "%s/%s", home, "logs/runtime-download.log"))
+        return "could not prepare the download";
+    if (partial)
+        partial(zip);
+    {
+        const char* const fetch[] = {"/usr/bin/curl", "-fL", "--retry", "3", "-o", zip, url, NULL};
+        const char* const extract[] = {"/usr/bin/ditto", "-x", "-k", zip, unpack, NULL};
+        (void)remove_tree(unpack);
+        if (!run_wait(fetch, NULL, log, 3600)) {
+            (void)unlink(zip);
+            return "could not download the Wine runtime";
+        }
+        if (!run_wait(extract, NULL, log, 900) || access(unpacked, R_OK) != 0) {
+            (void)unlink(zip);
+            (void)remove_tree(unpack);
+            return "the download is not a Wine runtime";
+        }
+        (void)unlink(zip);
     }
+    if (!app_signature_valid(unpacked, log)) {
+        (void)remove_tree(unpack);
+        return "the downloaded Wine runtime's signature did not verify";
+    }
+    if (!remove_tree(app) || rename(unpacked, app) != 0) {
+        (void)remove_tree(unpack);
+        return "could not keep the downloaded Wine runtime";
+    }
+    (void)remove_tree(unpack);
+    return NULL;
+}
+
+bool ms_wine_fetch_runtime_app(const char* home, const char* variant, char* error, size_t error_size) {
+    const char* failure = home && variant ? fetch_runtime_app(home, variant, NULL) : "no runtime";
+    if (failure)
+        set_error(error, error_size, failure, NULL);
+    return failure == NULL;
+}
+
+static void runtime_download_partial(const char* zip) {
     pthread_mutex_lock(&runtime_download.lock);
     snprintf(runtime_download.partial, sizeof(runtime_download.partial), "%s", zip);
     pthread_mutex_unlock(&runtime_download.lock);
-    {
+}
+
+static void* runtime_download_worker(void* arg) {
+    char* home = arg;
+    char variant[16], url[PATH_MAX];
+    const char* failure;
+    pthread_mutex_lock(&runtime_download.lock);
+    snprintf(variant, sizeof(variant), "%s", runtime_download.variant);
+    pthread_mutex_unlock(&runtime_download.lock);
+    if (runtime_download_url(variant, url, sizeof(url))) {
         /* its size, for the progress */
         char command[PATH_MAX * 2];
         FILE* pipe;
@@ -1814,42 +1848,11 @@ static void* runtime_download_worker(void* arg) {
             pclose(pipe);
         }
     }
-    {
-        const char* const fetch[] = {"/usr/bin/curl", "-fL", "--retry", "3", "-o", zip, url, NULL};
-        const char* const extract[] = {"/usr/bin/ditto", "-x", "-k", zip, unpack, NULL};
-        (void)ensure_dir(home);
-        (void)remove_tree(unpack);
-        if (!run_wait(fetch, NULL, log, 3600)) {
-            (void)unlink(zip);
-            free(home);
-            download_fail("could not download the Wine runtime");
-            return NULL;
-        }
-        if (!run_wait(extract, NULL, log, 900) || access(unpacked, R_OK) != 0) {
-            (void)unlink(zip);
-            (void)remove_tree(unpack);
-            free(home);
-            download_fail("the download is not a Wine runtime");
-            return NULL;
-        }
-        (void)unlink(zip);
-    }
-    if (!app_signature_valid(unpacked, log)) {
-        (void)remove_tree(unpack);
-        free(home);
-        download_fail("the downloaded Wine runtime's signature did not verify");
-        return NULL;
-    }
-    if (!remove_tree(app) || rename(unpacked, app) != 0) {
-        (void)remove_tree(unpack);
-        free(home);
-        download_fail("could not keep the downloaded Wine runtime");
-        return NULL;
-    }
-    (void)remove_tree(unpack);
+    failure = fetch_runtime_app(home, variant, runtime_download_partial);
     free(home);
     pthread_mutex_lock(&runtime_download.lock);
-    runtime_download.ok = true;
+    snprintf(runtime_download.error, sizeof(runtime_download.error), "%s", failure ? failure : "");
+    runtime_download.ok = failure == NULL;
     runtime_download.done = true;
     runtime_download.running = false;
     pthread_mutex_unlock(&runtime_download.lock);

@@ -228,9 +228,10 @@ if [ "${METALSHARP_GPUI_PACKAGE_BACKEND:-0}" = "1" ]; then
   if [ "$VARIANT" = "regular" ]; then
   BUNDLE_SOURCE="${METALSHARP_GPUI_BUNDLE_SOURCE:-$ROOT/app/bundles}"
   archives=(metalsharp-runtime metalsharp-assets metalsharp-graphics-dll metalsharp-scripts-tools metalsharp-steam fnalibs)
-  # with MetalSharp-Wine-x86_64.app, only the bundles the backend and updater read themselves
-  [ "$CARRIES_WINE_APP" = 1 ] && archives=(metalsharp-scripts-tools metalsharp-steam)
-  for archive in "${archives[@]}"; do
+  # with MetalSharp-Wine-x86_64.app, none: it carries the runtime, assets, Steam's files and the tools, and
+  # Resources/scripts/tools has the updater
+  [ "$CARRIES_WINE_APP" = 1 ] && archives=()
+  for archive in ${archives[@]+"${archives[@]}"}; do
     source="$BUNDLE_SOURCE/$archive.tar.zst"
     if [ ! -s "$source" ]; then
       if [ "${METALSHARP_GPUI_REQUIRE_BUNDLES:-0}" = "1" ]; then

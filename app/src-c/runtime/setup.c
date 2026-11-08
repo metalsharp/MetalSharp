@@ -351,10 +351,6 @@ static bool extract_archive_member_to(const char* destination, const char* archi
     return child_succeeded(zstd_pid, &zstd_status) && child_succeeded(tar_pid, &tar_status);
 }
 
-static bool extract_bundle_archive(const char* home, const char* archive) {
-    return extract_archive_to(home, archive);
-}
-
 /* Runtime archives downloaded through a quarantined app or browser can cause
  * macOS to propagate execution-blocking metadata onto Wine executables. Clear
  * all runtime xattrs after extraction; the runtime is a locally unpacked,
@@ -477,54 +473,6 @@ static bool validate_wine_runtime(const char* home, const char* wine) {
     ok = pid > 0 && WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0;
     free(logs);
     free(logpath);
-    return ok;
-}
-
-static bool download_bundle_archive(const char* home, const char* name) {
-    char *cache = join_path(home, "cache/bundles"), *destination, *temporary;
-    pid_t pid, waited;
-    int wait_status;
-    if (!cache || !mkdir_p(cache)) {
-        free(cache);
-        return false;
-    }
-    destination = join_path(cache, name);
-    temporary = destination ? malloc(strlen(destination) + 16) : NULL;
-    if (temporary)
-        snprintf(temporary, strlen(destination) + 16, "%s.download", destination);
-    if (!destination || !temporary) {
-        free(cache);
-        free(destination);
-        free(temporary);
-        return false;
-    }
-    if (file_nonempty(destination)) {
-        free(cache);
-        free(destination);
-        free(temporary);
-        return true;
-    }
-    unlink(temporary);
-    pid = fork();
-    if (pid == 0) {
-        char url[512];
-        snprintf(url, sizeof(url), "https://github.com/metalsharp/MetalSharp/releases/download/bundles/%s", name);
-        execl("/usr/bin/curl", "curl", "--fail", "--location", "--silent", "--show-error", "--retry", "2",
-              "--connect-timeout", "30", "--max-time", "600", "-o", temporary, url, (char*)NULL);
-        _exit(127);
-    }
-    do
-        waited = waitpid(pid, &wait_status, 0);
-    while (waited < 0 && errno == EINTR);
-    bool ok = waited == pid && WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0 && file_nonempty(temporary);
-    if (ok) {
-        unlink(destination);
-        ok = rename(temporary, destination) == 0;
-    } else
-        unlink(temporary);
-    free(cache);
-    free(destination);
-    free(temporary);
     return ok;
 }
 
@@ -2438,7 +2386,7 @@ void ms_setup_x86_64_refresh_async(const char* home) {
     }
 }
 
-/* Steps 5-7 of the x86_64 build: the x86_64 Wine runtime bundle, its assets and VKD3D's MoltenVK. */
+/* Steps 5-7 of the x86_64 build: MetalSharp Wine (x86_64) from its app, its assets and VKD3D's MoltenVK. */
 static void install_x86_64_runtime_steps(const char* home, unsigned total) {
     char* app_source = ms_wine_x86_64_app_source();
     if (app_source) {
@@ -2458,41 +2406,9 @@ static void install_x86_64_runtime_steps(const char* home, unsigned total) {
         write_install_progress(home, 5, total, "MetalSharp Wine (x86_64)", "done", "MetalSharp Wine (x86_64) installed",
                                NULL);
     } else {
-        write_install_progress(home, 5, total, "Runtime Bundle Downloads", "installing", "Locating runtime bundles...",
-                               NULL);
-    }
-    if (!x86_64_runtime_from_app(home)) {
-        char* archive = find_bundle_archive(home, "metalsharp-runtime.tar.zst");
-        char* existing_wine = join_path(home, "runtime/wine/bin/metalsharp-wine");
-        char* existing_host = join_path(home, "runtime/host/manifest.json");
-        bool already_ready = file_nonempty(existing_wine) && file_nonempty(existing_host);
-        if (archive) {
-            if (!extract_bundle_archive(home, archive)) {
-                write_install_progress(home, 5, total, "Runtime Bundle Downloads", "error",
-                                       "Failed to extract the MetalSharp runtime bundle",
-                                       "runtime bundle extraction failed");
-                free(archive);
-                free(existing_wine);
-                free(existing_host);
-                _exit(0);
-            }
-            free(archive);
-            if (!ms_setup_wine_wrapper_ensure(home))
-                fprintf(stderr, "warning: could not update MetalSharp Wine wrapper after runtime extraction\n");
-            write_install_progress(home, 5, total, "Runtime Bundle Downloads", "done", "Runtime bundle extracted",
-                                   NULL);
-        } else if (already_ready) {
-            write_install_progress(home, 5, total, "Runtime Bundle Downloads", "done", "Runtime bundle already present",
-                                   NULL);
-        } else {
-            write_install_progress(home, 5, total, "Runtime Bundle Downloads", "error",
-                                   "Required runtime bundle is missing", "missing metalsharp-runtime.tar.zst");
-            free(existing_wine);
-            free(existing_host);
-            _exit(0);
-        }
-        free(existing_wine);
-        free(existing_host);
+        write_install_progress(home, 5, total, "MetalSharp Wine (x86_64)", "error",
+                               "MetalSharp Wine (x86_64) is missing", "download it from MetalSharp Wine's release");
+        _exit(0);
     }
     (void)clear_runtime_quarantine(home);
     if (!sign_wine_host_runtime(home)) {
@@ -2523,7 +2439,7 @@ static void install_x86_64_runtime_steps(const char* home, unsigned total) {
     char* host = join_path(home, "runtime/host/manifest.json");
     if (!home_required_files_ready(home, runtime_files, sizeof(runtime_files) / sizeof(runtime_files[0]))) {
         write_install_progress(home, 6, total, "Runtime Assets", "error",
-                               "Runtime assets are missing; install or download the MetalSharp runtime bundle first",
+                               "Runtime assets are missing; reinstall MetalSharp Wine (x86_64)",
                                "missing runtime assets");
         free(wine);
         free(host);
@@ -2547,7 +2463,7 @@ static void install_x86_64_runtime_steps(const char* home, unsigned total) {
     write_install_progress(home, 7, total, "VKD3D MoltenVK Runtime", "done", "VKD3D/MoltenVK runtime ready", NULL);
 }
 
-/* Steps 3 and 5-7 of the fex build: MetalSharp Wine instead of Rosetta and the runtime bundle. */
+/* Steps 3 and 5-7 of the fex build: MetalSharp Wine instead of Rosetta and the x86_64 runtime. */
 /* The fex build stages its support assets from MetalSharp Wine's share/metalsharp (the asset
  * bundles' own files, plus Mono and FAudio as archives/<name>.tar.zst) and MetalSharp.app's
  * configs and scripts, so setup needs no network. The app is read-only; copies are made writable. */
@@ -2821,29 +2737,20 @@ static void run_install_all_worker(const char* home) {
     write_install_progress(home, 4, total, "Extract Tools (zstd)", "done", "Bundled zstd ready", NULL);
     char* x86_64_app = ms_wine_is_fex() ? NULL : ms_wine_x86_64_app_source();
     if (ms_wine_is_fex()) {
-        write_install_progress(home, 5, total, "Runtime Bundle Downloads", "done",
+        write_install_progress(home, 5, total, "MetalSharp Wine", "done",
                                "MetalSharp Wine carries the runtime assets; nothing to download", NULL);
     } else if (x86_64_app) {
-        /* MetalSharp-Wine-x86_64.app carries what the bundles have */
+        /* MetalSharp carries MetalSharp-Wine-x86_64.app: the whole runtime */
         free(x86_64_app);
     } else {
-        const char* bundles[] = {"metalsharp-runtime.tar.zst",       "metalsharp-graphics-dll.tar.zst",
-                                 "metalsharp-assets.tar.zst",        "fnalibs.tar.zst",
-                                 "metalsharp-scripts-tools.tar.zst", "metalsharp-steam.tar.zst"};
-        for (size_t i = 0; i < sizeof(bundles) / sizeof(bundles[0]); i++) {
-            char* archive = find_bundle_archive(home, bundles[i]);
-            bool available = archive != NULL;
-            free(archive);
-            if (!available) {
-                write_install_progress(home, 5, total, "Runtime Bundle Downloads", "downloading",
-                                       "Downloading required runtime bundles...", NULL);
-                available = download_bundle_archive(home, bundles[i]);
-            }
-            if (!available) {
-                write_install_progress(home, 5, total, "Runtime Bundle Downloads", "error",
-                                       "Required runtime bundle could not be downloaded", bundles[i]);
-                _exit(0);
-            }
+        /* MetalSharp Wine (x86_64) from MetalSharp Wine's release; the old runtime bundles are not used */
+        char error[512] = "";
+        write_install_progress(home, 5, total, "MetalSharp Wine (x86_64)", "downloading",
+                               "Downloading MetalSharp Wine (x86_64)...", NULL);
+        if (!ms_wine_fetch_runtime_app(home, "regular", error, sizeof(error))) {
+            write_install_progress(home, 5, total, "MetalSharp Wine (x86_64)", "error",
+                                   "MetalSharp Wine (x86_64) could not be downloaded", error);
+            _exit(0);
         }
     }
 

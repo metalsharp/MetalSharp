@@ -5000,9 +5000,12 @@ static bool select_wine_ntdll(const char* home, const char* pipeline) {
 
 /* The fex build's Steam files are MetalSharp Wine's share/metalsharp/steam (the steam bundle's
  * own files); it has no bundle archive. */
+/* Steam's files MetalSharp Wine carries (share/metalsharp/steam), from the active runtime's app: MetalSharp-Wine.app
+ * under FEX, MetalSharp-Wine-x86_64.app under the x86_64 runtime */
 static bool fex_steam_file(const char* home, const char* name, char* out, size_t out_size) {
     char contents[PATH_MAX];
-    return ms_wine_is_fex() && ms_wine_app_contents(home, contents, sizeof(contents)) &&
+    return (ms_wine_is_fex() ? ms_wine_app_contents(home, contents, sizeof(contents))
+                             : ms_wine_x86_64_app_contents(home, contents, sizeof(contents))) &&
            snprintf(out, out_size, "%s/share/metalsharp/steam/%s", contents, name) < (int)out_size &&
            access(out, R_OK) == 0;
 }
@@ -5080,47 +5083,6 @@ static bool steamwebhelper_wrapper_valid(const char* path) {
     return strncmp(output, STEAMWEBHELPER_WRAPPER_SHA256, 64) == 0;
 }
 
-static char* download_steam_bundle_archive(const char* home) {
-    char* bundles = join(home, "cache/bundles");
-    char* archive;
-    char* temporary;
-    pid_t pid;
-    if (!bundles || !ensure_directory(bundles)) {
-        free(bundles);
-        return NULL;
-    }
-    archive = join(bundles, "metalsharp-steam.tar.zst");
-    temporary = join(bundles, "metalsharp-steam.tar.zst.download");
-    free(bundles);
-    if (!archive || !temporary) {
-        free(archive);
-        free(temporary);
-        return NULL;
-    }
-    if (access(archive, R_OK) == 0) {
-        free(temporary);
-        return archive;
-    }
-    pid = fork();
-    if (pid < 0)
-        goto fail;
-    if (pid == 0) {
-        execl("/usr/bin/curl", "curl", "--fail", "--location", "--silent", "--show-error", "--retry", "3", "-o",
-              temporary, "https://github.com/metalsharp/MetalSharp/releases/download/bundles/metalsharp-steam.tar.zst",
-              (char*)NULL);
-        _exit(127);
-    }
-    if (!wait_child_success(pid) || rename(temporary, archive) != 0)
-        goto fail;
-    free(temporary);
-    return archive;
-fail:
-    (void)unlink(temporary);
-    free(archive);
-    free(temporary);
-    return NULL;
-}
-
 static char* extract_steamwebhelper_wrapper(const char* home) {
     char* cache = join(home, "cache/steam");
     char* cached = cache ? join(cache, "steamwebhelper.exe") : NULL;
@@ -5140,8 +5102,6 @@ static char* extract_steamwebhelper_wrapper(const char* home) {
         goto done;
     }
     archive = find_bundled_steam_archive(home);
-    if (!archive)
-        archive = download_steam_bundle_archive(home);
     if (!cache || !cached || !archive || !unzstd || !ensure_directory(cache))
         goto done;
     temporary = join(home, "cache/.steam-webhelper-extract");

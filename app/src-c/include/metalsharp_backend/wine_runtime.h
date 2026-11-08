@@ -179,6 +179,8 @@ unsigned ms_wine_fit_prefix_vcrun(const char* home, bool x86_64);
 bool ms_wine_repair_vcrun(const char* home, const char* prefix, char* error, size_t error_size);
 unsigned ms_wine_repair_prefixes_vcrun(const char* home, char* error, size_t error_size);
 char* ms_wine_repair_vcrun_json(const char* home);
+/* The runtime's (variant "fex" or "regular") MetalSharp Wine app from MetalSharp Wine's release into <home>/downloads */
+bool ms_wine_fetch_runtime_app(const char* home, const char* variant, char* error, size_t error_size);
 bool ms_wine_x86_64_app_current(const char* home);
 bool ms_wine_x86_64_app_identity(const char* home, char* out, size_t out_size);
 
