@@ -6685,25 +6685,27 @@ static void set_direct_game_env(const char* home, const char* prefix, unsigned i
         setenv("WINEDLLOVERRIDES", pipeline_overrides(env_pipeline), 1);
     else
         unsetenv("WINEDLLOVERRIDES");
-    /* The x86_64 runtime (MetalSharp-Wine-x86_64.app): Microsoft's VC++ 2015-2022 runtime ahead of Wine's. Wine
-     * prefers its own builtin for a DLL in System32, and its msvcp140 lacks parts of the C++ library games link
-     * against (std::get_new_handler, which BeamNG.drive's mimalloc calls first thing: "unimplemented function"). The
-     * prefix has Microsoft's x64 DLLs (the VC++ installer's, or the ones swapped in for the ARM64X ones the FEX
-     * runtime put there); native,builtin loads them, and Wine's still serve where they are missing. MetalSharp Wine
-     * (FEX) loads the ARM64X ones its own way. Rides in launch.env, so games Steam starts get it too. */
-    if (x86_64_metalsharp_wine()) {
+    /* Both MetalSharp Wine runtimes: Microsoft's VC++ 2015-2022 runtime ahead of Wine's. Wine prefers its own
+     * builtin for a DLL in System32, and its msvcp140 lacks parts of the C++ library games link against
+     * (std::get_new_handler, which BeamNG.drive's mimalloc calls when an allocation fails: "unimplemented function").
+     * The prefix has Microsoft's DLLs: the VC++ installer's (ARM64X under FEX), and Microsoft's x64 ones swapped in
+     * under the x86_64 runtime; native,builtin loads them, and Wine's still serve where they are missing. Rides in
+     * launch.env, so games Steam starts get it too. */
+    if (ms_wine_is_fex() || x86_64_metalsharp_wine()) {
         static const char vcrun[] = "concrt140,msvcp140,msvcp140_1,msvcp140_2,msvcp140_atomic_wait,"
                                     "msvcp140_codecvt_ids,vcomp140,vcruntime140,vcruntime140_1=n,b";
         const char* overrides = getenv("WINEDLLOVERRIDES");
         char combined[1024];
-        char* game_dir = ms_steam_game_dir(home, id);
-        /* and CrashRpt off where it sits beside Chromium (crashrpt_beside_chromium): the game carries on without
-         * its crash reporter, as it does when CrashRpt cannot install */
+        char* game_dir = x86_64_metalsharp_wine() ? ms_steam_game_dir(home, id) : NULL;
+        /* the x86_64 runtime: CrashRpt off where it sits beside Chromium (crashrpt_beside_chromium); the game
+         * carries on without its crash reporter, as it does when CrashRpt cannot install */
         bool crashrpt = game_dir && crashrpt_beside_chromium(game_dir, 1);
         snprintf(combined, sizeof(combined), "%s%s%s%s", overrides ? overrides : "", overrides && overrides[0] ? ";" : "",
                  vcrun, crashrpt ? ";crashrpt=d" : "");
         setenv("WINEDLLOVERRIDES", combined, 1);
         free(game_dir);
+    }
+    if (x86_64_metalsharp_wine()) {
         /* Windows code reads its thread block gs-relative (mimalloc v3's per-thread heap, which BeamNG.drive uses
          * through its allocator: without it every allocation fails and the game aborts at startup). The x86_64
          * Wine points GSBASE at the TEB only for Mullion's processes and programs that use fibers unless told to;
