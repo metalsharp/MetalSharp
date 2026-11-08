@@ -35,21 +35,16 @@ MetalSharp is a Free Wine 11.17 x86_64 / Wine 11.20 with FEX (MacOS 15+) Custom-
 
 Download the DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into `/Applications`, and open it. Each release has two builds:
 
-- `MetalSharp-<version>-arm64.dmg`: the x86_64 Wine build under Rosetta (MacOS 15+).
-- `MetalSharp-<version>-arm64-FEX.dmg`: the Arm64 build with FEX and MetalSharp Wine (MacOS 26.4+), in early access.
+- `MetalSharp-arm64.dmg`: the x86_64 Wine build under Rosetta (MacOS 15+).
+- `MetalSharp-arm64-FEX.dmg`: the Arm64 build with FEX and MetalSharp Wine (MacOS 26.4+), in early access.
 
-The in-app updater keeps the build you have, and can switch between them.
-
-The setup wizard handles installing the remaining runtime dependencies. Installed games automatically sync into the User Library.
+The in-app updater keeps the build you have, and can switch between them. Installed games automatically sync into the User Library.
 
 Alternatively, Install MetalSharp from the official **_Homebrew_** tap:
 
 ```bash
 brew install --cask metalsharp/tap/metalsharp
 ```
-
-Homebrew installs MetalSharp.app in `/Applications`. Updates are handled in-app with the included updater. 
-
 
 For Direct Access to What is Installed During Setup, See Here:
 - [MetalSharp-Wine x86_64](https://github.com/metalsharp/MetalSharp-Wine)
