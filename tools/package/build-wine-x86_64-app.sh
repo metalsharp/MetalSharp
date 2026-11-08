@@ -373,8 +373,16 @@ apple_signed() {  # (no grep -q in a pipe: under pipefail its early exit fails t
 }
 # Inside out: frameworks, then every other Mach-O (in parallel: none of them contains another), then the main
 # executable and the bundle. Apple-signed code (D3DMetal, libd3dshared, Metal Shader Converter) keeps Apple's signature.
+# A framework that isn't Apple's (the asset bundle's GPTK copy) has Mach-O files of its own besides its binary
+# (Resources/libdxcompiler.dylib, ...), which notarization checks one by one: they are signed before the framework
 find "$C" -name '*.framework' -type d -prune | while read -r fw; do
-  apple_signed "$fw" || codesign "${opts[@]}" "$fw"
+  apple_signed "$fw" && continue
+  find "$fw" -type f ! -path "$fw/Versions/*/_CodeSignature/*" | while read -r f; do
+    [ "$(head -c 4 "$f" | xxd -p)" = cffaedfe ] || [ "$(head -c 4 "$f" | xxd -p)" = cafebabe ] || continue
+    [ "$f" -ef "$fw/$(basename "$fw" .framework)" ] && continue
+    codesign "${opts[@]}" "$f"
+  done
+  codesign "${opts[@]}" "$fw"
 done
 # the Mach-O files, by their magic in one pass (file(1) on each of the tree's files took minutes)
 python3 -I - "$C" > "$WORK/macho.list" <<'PY'
