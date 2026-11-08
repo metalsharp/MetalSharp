@@ -2,7 +2,9 @@
 
 <p align="center">
   
-<img width="700" alt="MetalSharp x MetalSharp Wine" src="https://github.com/user-attachments/assets/cf430743-5d8d-4433-bd4f-b76544c5c95d" />
+<img width="400" alt="MetalSharp X MetalSharp Wine" src="https://github.com/user-attachments/assets/59a8cd89-f8d5-41eb-ba1e-2bb5839ef8d6" />
+
+
 
 </p>
 
