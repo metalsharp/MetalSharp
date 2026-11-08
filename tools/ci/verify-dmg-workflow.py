@@ -188,7 +188,11 @@ def check_workflows() -> None:
         "app-gpui/package-app.sh",
         'METALSHARP_GPUI_SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}"',
         "tools/dmg/package-gpui-dmg.sh app-gpui/target/MetalSharp.app dist/gpui",
-        "tools/dmg/verify-dmg-runtime-assets.sh dist/gpui/MetalSharp-*-arm64.dmg",
+        # the x86_64 DMG carries MetalSharp-Wine-x86_64.app from MetalSharp Wine's release, no runtime bundles
+        "METALSHARP_WINE_REPO: metalsharp/MetalSharp-Wine",
+        'ZIP="MetalSharp-Wine-${METALSHARP_WINE_TAG#v}-x86_64.zip"',
+        'echo "METALSHARP_WINE_X86_64_APP=$WINE_APP" >> "$GITHUB_ENV"',
+        'tools/dmg/verify-x86_64-dmg.sh dist/gpui/MetalSharp-*-arm64.dmg "$METALSHARP_WINE_X86_64_APP"',
     ]:
         if required not in release:
             fail(f"release workflow missing publish step: {required}")
@@ -204,6 +208,9 @@ def check_workflows() -> None:
     for excluded in [
         "metalsharp-electron.tar.zst",
         "metalsharp-d3d12-developer-sdk.tar.zst",
+        "tools/dmg/create-bundles.sh",
+        "tools/dmg/stage-release-bundles.sh",
+        "metalsharp-bundle-manifest.tsv",
     ]:
         if excluded in dmg_job:
             fail(f"DMG release job must not package or check excluded bundle: {excluded}")

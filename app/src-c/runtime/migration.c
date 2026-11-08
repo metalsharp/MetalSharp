@@ -25,7 +25,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define MIGRATION_VERSION "1.0.0"
+#define MIGRATION_VERSION "1.1.0"
 /* 7: setup.json records runtime_variant, and prefixes carry the Wine they were built for. */
 #define MIGRATION_SCHEMA  7
 
@@ -1675,7 +1675,7 @@ char* ms_migration_progress_json(const char* home) {
     if (!p)
         return NULL;
     out = raw_or(p,
-                 "{\"status\":\"idle\",\"step\":0,\"total\":0,\"message\":\"\",\"error\":null,\"version\":\"1.0.0\"}");
+                 "{\"status\":\"idle\",\"step\":0,\"total\":0,\"message\":\"\",\"error\":null,\"version\":\"1.1.0\"}");
     free(p);
     return out;
 }
@@ -1683,7 +1683,7 @@ char* ms_migration_report_json(const char* home) {
     char *p = path_join(home, "logs/migration-report-latest.json"), *out;
     if (!p)
         return NULL;
-    out = raw_or(p, "{\"schema_version\":1,\"status\":\"idle\",\"version\":\"1.0.0\",\"entries\":[],\"summary\":\"No "
+    out = raw_or(p, "{\"schema_version\":1,\"status\":\"idle\",\"version\":\"1.1.0\",\"entries\":[],\"summary\":\"No "
                     "migration has run yet.\"}");
     free(p);
     return out;

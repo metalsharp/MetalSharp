@@ -6,7 +6,7 @@
 use super::*;
 use crate::live::{self, is_ok};
 
-pub(super) const FEX_WELCOME_TITLE: &str = "Welcome To MetalSharp 1.0.0: An Arm64 Wine with FEX";
+pub(super) const FEX_WELCOME_TITLE: &str = "Welcome To MetalSharp 1.1.0: An Arm64 Wine with FEX";
 const ISSUES_URL: &str = "https://github.com/metalsharp/MetalSharp/issues";
 
 /// The welcome's pages: heading and paragraphs. The graphics page follows the FEX build's routing
@@ -245,7 +245,7 @@ mod tests {
         assert_eq!(FEX_WELCOME_PAGES[2].0, "Get Into It");
         assert_eq!(
             FEX_WELCOME_TITLE,
-            "Welcome To MetalSharp 1.0.0: An Arm64 Wine with FEX"
+            "Welcome To MetalSharp 1.1.0: An Arm64 Wine with FEX"
         );
         let graphics = FEX_WELCOME_PAGES[1].1.join(" ");
         for lane in ["VKD3D-Proton", "Mullion", "DXVK", "OpenGL"] {
