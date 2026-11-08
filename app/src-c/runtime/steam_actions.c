@@ -3,6 +3,7 @@
 #define _DARWIN_C_SOURCE 1
 #endif
 #endif
+#include "metalsharp_backend/host_os.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/d3dmetal.h"
 #include "metalsharp_backend/config.h"
@@ -602,10 +603,96 @@ static void normalize_fna_bottle_profile(const char* path, unsigned id) {
     free(raw);
 }
 
-/* DXMT (the regular build's lane from the bundles) is held to Metal 3.1 shaders; Mullion picks its own (3.2 where
- * macOS and the GPU have it), so a forced version is taken out of mullion.conf. */
+static void write_shader_metal_version(FILE* file, bool mullion, bool mullion_metal_320) {
+    if (!mullion)
+        fputs("dxmt.shaderMetalVersion = 310\n", file);
+    else if (mullion_metal_320)
+        fputs("mullion.shaderMetalVersion = 320\n", file);
+}
+
+/* Whether a conf line (leading blanks skipped) sets key */
+static bool conf_line_sets(const char* line, const char* key) {
+    size_t length = strlen(key);
+    while (*line == ' ' || *line == '\t')
+        line++;
+    return !strncmp(line, key, length) && (line[length] == ' ' || line[length] == '\t' || line[length] == '=');
+}
+
+/* The VKD3D lane's shader model: on the x86_64 runtime below macOS 27 its D3D9 (DXVK's d3d9.shaderModel) is held to
+ * shader model 3, in vkd3d.conf and in DXVK_CONFIG, since the lane's DXVK reads dxvk.conf, which the DXVK lane
+ * shares. Elsewhere the line MetalSharp wrote is taken out again and DXVK picks its own. */
+#define VKD3D_LANE_SHADER_MODEL_LINE "d3d9.shaderModel = 3"
+static void ensure_vkd3d_lane_shader_model(const char* home, bool lane) {
+    bool hold = lane && !ms_wine_is_fex() && ms_host_before_macos27();
+    char path[PATH_MAX], temp[PATH_MAX] = {0};
+    char *existing, *cursor;
+    bool wrote = false, changed = false;
+    FILE* file = NULL;
+    int fd;
+    if (hold)
+        setenv("DXVK_CONFIG", VKD3D_LANE_SHADER_MODEL_LINE, 1);
+    else
+        unsetenv("DXVK_CONFIG");
+    if (!lane || !ms_wine_vkd3d_lane_conf_path(home, 0, path, sizeof(path)))
+        return;
+    existing = read_bounded_file(path);
+    /* nothing to take out of a file without the line */
+    if (!hold && (!existing || !strstr(existing, VKD3D_LANE_SHADER_MODEL_LINE))) {
+        free(existing);
+        return;
+    }
+    if (snprintf(temp, sizeof(temp), "%s.tmp.XXXXXX", path) >= (int)sizeof(temp) || (fd = mkstemp(temp)) < 0) {
+        free(existing);
+        return;
+    }
+    if (!(file = fdopen(fd, "wb"))) {
+        close(fd);
+        unlink(temp);
+        free(existing);
+        return;
+    }
+    cursor = existing;
+    while (cursor && *cursor) {
+        char* line = cursor;
+        char* newline = strchr(cursor, '\n');
+        if (newline) {
+            *newline = '\0';
+            cursor = newline + 1;
+        } else
+            cursor = NULL;
+        /* a [program.exe] section's lines are the user's: the held line goes before the first one */
+        if (hold && !wrote && line[strspn(line, " \t")] == '[') {
+            fputs(VKD3D_LANE_SHADER_MODEL_LINE "\n", file);
+            wrote = changed = true;
+        }
+        if (!strcmp(line, VKD3D_LANE_SHADER_MODEL_LINE) || (hold && !wrote && conf_line_sets(line, "d3d9.shaderModel"))) {
+            if (hold && !wrote) {
+                fputs(VKD3D_LANE_SHADER_MODEL_LINE "\n", file);
+                changed = changed || strcmp(line, VKD3D_LANE_SHADER_MODEL_LINE);
+                wrote = true;
+            } else
+                changed = true;
+            continue;
+        }
+        fprintf(file, "%s\n", line);
+    }
+    if (hold && !wrote) {
+        fputs(VKD3D_LANE_SHADER_MODEL_LINE "\n", file);
+        changed = true;
+    }
+    if (fclose(file) == 0 && changed && rename(temp, path) == 0)
+        temp[0] = '\0';
+    if (temp[0])
+        unlink(temp);
+    free(existing);
+}
+
+/* DXMT (the regular build's lane from the bundles) is held to Metal 3.1 shaders. Mullion picks its own (Metal 4 where
+ * macOS and the GPU have it), except on the x86_64 runtime below macOS 27, where it is held to Metal 3.2; elsewhere
+ * a forced version is taken out of mullion.conf. */
 static void ensure_dxmt_shader_metal_version(const char* home) {
     bool mullion = ms_wine_dxmt_lane_is_mullion(home);
+    bool mullion_metal_320 = mullion && !ms_wine_is_fex() && ms_host_before_macos27();
     char conf[PATH_MAX];
     char* etc = join(home, "runtime/wine/etc");
     char* path = ms_wine_graphics_conf_path(home, conf, sizeof(conf)) ? strdup(conf) : NULL;
@@ -652,16 +739,16 @@ static void ensure_dxmt_shader_metal_version(const char* home) {
                         (key[23] == ' ' || key[23] == '\t' || key[23] == '=')) ||
                        (!strncmp(key, "mullion.shaderMetalVersion", 26) &&
                         (key[26] == ' ' || key[26] == '\t' || key[26] == '='))) {
-                if (!wrote_shader_version && !mullion)
-                    fputs("dxmt.shaderMetalVersion = 310\n", file);
+                if (!wrote_shader_version)
+                    write_shader_metal_version(file, mullion, mullion_metal_320);
                 wrote_shader_version = true;
             } else
                 fprintf(file, "%s\n", line);
         }
         if (!wrote_feature_level)
             fputs("d3d11.maxFeatureLevel = 12_1\n", file);
-        if (!wrote_shader_version && !mullion)
-            fputs("dxmt.shaderMetalVersion = 310\n", file);
+        if (!wrote_shader_version)
+            write_shader_metal_version(file, mullion, mullion_metal_320);
         if (fclose(file) == 0) {
             if (rename(temp, path) != 0)
                 unlink(temp);
@@ -794,6 +881,7 @@ static void set_fex_route_paths(const char* home, const char* pipeline) {
             else
                 unsetenv(names[i]);
         }
+        ensure_vkd3d_lane_shader_model(home, !strcmp(pipeline, "vkd3d"));
     }
     setenv("GRAPHICS_BACKEND", backend, 1);
     setenv("MS_GRAPHICS_BACKEND", backend, 1);
@@ -892,6 +980,7 @@ static void set_route_paths(const char* home, const char* pipeline) {
             else
                 unsetenv(names[i]);
         }
+        ensure_vkd3d_lane_shader_model(home, !strcmp(pipeline, "vkd3d"));
     }
     if (pipeline_is_dxmt(pipeline)) {
         char winemetal[PATH_MAX];
@@ -1904,6 +1993,7 @@ static void remove_stale_route_dlls(const char* home, const char* pipeline, cons
                                      "runtime/wine/lib/wine/i386-windows",
                                      "runtime/d3dmetal-gptk4-beta2/wine/x86_64-windows",
                                      "runtime/d3dmetal-gptk4-beta3/wine/x86_64-windows",
+                                     "runtime/d3dmetal-gptk3/wine/x86_64-windows",
                                      "vkd3d/vkd3d-proton/x86_64-windows",
                                      "vkd3d/dxvk/x86_64-windows",
                                      "vkd3d/dxvk/i386-windows"};

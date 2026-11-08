@@ -7,7 +7,7 @@
 #   Contents/share/metalsharp/
 #     wine-bin/                        runtime/wine/bin's scripts (metalsharp-wine, ...), which a facade installs
 #     etc/                             runtime/wine/etc: dxmt.conf, mullion.conf, vkd3d.conf, dxvk.conf, vulkan/icd.d
-#     runtime/<name>                   ~/.metalsharp/runtime/<name>: host, d3dmetal-gptk4-beta3, wfdxcompat,
+#     runtime/<name>                   ~/.metalsharp/runtime/<name>: host, d3dmetal-gptk4-beta3, d3dmetal-gptk3, wfdxcompat,
 #                                      wfdxcompat-agility, mono-x86, mono-arm64, dxvk-1.10.3, goldberg, shims, fnalibs,
 #                                      fna-kickstart, faudio, steam-bridge, launchers, metalsharp-backend
 #     vkd3d/{vkd3d-proton,dxvk}        ~/.metalsharp/vkd3d/...: the VKD3D lane, D3D12 to D3D8 on MoltenVK, whose
@@ -28,7 +28,10 @@
 #   vkd3d/dxvk              its D3D11 to D3D8 half: DXVK-MacOS's release (x86_64 and i386), with the same NGX core
 #                           and NVAPI
 #   MoltenVK                VKD3D-Proton-MacOS's universal MoltenVK, Metal Shader Converter and dxbcconverter
-#   d3dmetal-gptk4-beta3    D3DMetal from Game Porting Toolkit 4.0 beta 3, Apple-signed and kept so
+#   d3dmetal-gptk4-beta3    D3DMetal from Game Porting Toolkit 4.0 beta 3, Apple-signed and kept so: the D3DMetal lane
+#                           (with DLSS on MetalFX) on macOS 27 and later
+#   d3dmetal-gptk3          D3DMetal from Game Porting Toolkit 3.0 (its evaluation environment's redist), Apple-signed and
+#                           kept so: the D3DMetal lane below macOS 27, which the backend picks by the host's version
 #
 # Every Mach-O is signed with SIGN_IDENTITY (hardened runtime), inside out, except Apple-signed code (D3DMetal,
 # libd3dshared, Metal Shader Converter), which keeps Apple's signature.
@@ -38,13 +41,13 @@
 #   WINE_BUILD=<the x86_64 Wine's build tree> WINE_MODULES="ntdll win32u ..." (modules rebuilt there with MetalSharp
 #   Wine's fixes, which replace the bundle's; server for the wineserver)
 #   WINEMETALGL=<install-x86_64/winemetalgl> VCRUN_X64=<Microsoft's x64 VC++ runtime DLLs> DEPS_SRC=<deps/src-x86_64:deps/src> LICENSES_EXTRA=<dir of license folders> (share/licenses)
-#   D3DMETAL=<dir with external/ and wine/> MEDIA=<x86_64 GStreamer/FFmpeg prefix> SIGN_IDENTITY="Developer ID Application: ..." \
+#   D3DMETAL=<GPTK 4.0 beta 3: dir with external/ and wine/> D3DMETAL_GPTK3=<GPTK 3.0: the same, from redist/lib> MEDIA=<x86_64 GStreamer/FFmpeg prefix> SIGN_IDENTITY="Developer ID Application: ..." \
 #     tools/package/build-wine-x86_64-app.sh <output dir>
 set -euo pipefail
 
 OUT_DIR=${1:?usage: build-wine-x86_64-app.sh <output dir>}
 HERE=$(cd "$(dirname "$0")" && pwd)
-: "${BUNDLES:?} ${MULLION:?} ${DXVK:?} ${DXVK_I386:?} ${VKD3D:?} ${MOLTENVK:?} ${NGX:?} ${D3DMETAL:?} ${MEDIA:?}"
+: "${BUNDLES:?} ${MULLION:?} ${DXVK:?} ${DXVK_I386:?} ${VKD3D:?} ${MOLTENVK:?} ${NGX:?} ${D3DMETAL:?} ${D3DMETAL_GPTK3:?} ${MEDIA:?}"
 IDENTITY=${SIGN_IDENTITY:--}
 VERSION=${VERSION:-5.2}
 BUNDLE_ID=${BUNDLE_ID:-com.metalsharp.wine.x86_64}
@@ -65,6 +68,8 @@ need "$VKD3D/x86_64-windows/d3d12core.dll"
 need "$MOLTENVK/libMoltenVK.dylib"
 need "$NGX/nvngx.dll"
 need "$D3DMETAL/external/D3DMetal.framework"
+need "$D3DMETAL_GPTK3/external/D3DMetal.framework"
+need "$D3DMETAL_GPTK3/wine/x86_64-windows/nvngx-on-metalfx.dll"
 need "$MEDIA/lib/libgstreamer-1.0.0.dylib"
 need "$MEDIA/lib/libavcodec.61.dylib"
 
@@ -205,6 +210,7 @@ mkdir -p "$R"
 cp -Rp "$RT/host" "$RT/launchers" "$R/"
 cp -p "$RT/metalsharp-backend" "$R/"
 ditto "$D3DMETAL" "$R/d3dmetal-gptk4-beta3"
+ditto "$D3DMETAL_GPTK3" "$R/d3dmetal-gptk3"
 cp -Rp "$GX/wfdxcompat" "$GX/wfdxcompat-agility" "$R/"
 for d in mono-x86 mono-arm64 dxvk-1.10.3 goldberg shims fnalibs fna-kickstart faudio; do cp -Rp "$AS/$d" "$R/$d"; done
 # fnalibs' SDL2-linked FNA3D, FAudio, theorafile and FMOD (the fnalibs bundle) over the asset bundle's
@@ -337,7 +343,8 @@ touch "$C/share/wine/wine.inf"
   [ -n "${WINE_BUILD:-}" ] && echo "wine: $(git -C "${WINE_SRC:-$WINE_BUILD/../../merged-wine-11.17}" describe --always --dirty 2>/dev/null || echo rebuilt) ($WINE_MODULES)"
   echo "media: $(ls "$MEDIA"/lib/libgstreamer-1.0.*.dylib | head -1 | xargs basename), $(ls "$MEDIA"/lib/libavcodec.*.*.dylib | head -1 | xargs basename)"
   echo "d3dmetal: $(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' \
-    "$D3DMETAL/external/D3DMetal.framework/Resources/Info.plist")"
+    "$D3DMETAL/external/D3DMetal.framework/Resources/Info.plist") (macOS 27 and later), $(/usr/libexec/PlistBuddy \
+    -c 'Print CFBundleShortVersionString' "$D3DMETAL_GPTK3/external/D3DMetal.framework/Resources/Info.plist") (below)"
 } > "$M/SOURCES.txt"
 
 # --- signing --------------------------------------------------------------------------------------------------------

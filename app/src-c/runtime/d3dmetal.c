@@ -1,4 +1,5 @@
 #include "metalsharp_backend/d3dmetal.h"
+#include "metalsharp_backend/host_os.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/steam.h"
@@ -26,7 +27,9 @@
 #define GPTK3_INNER_DMG_NAME "Evaluation environment for Windows games 3.0.dmg"
 #define GPTK3_MSC_PKG_NAME   "Metal Shader Converter 3.0.pkg"
 #define GPTK3_MIN_DMG_SIZE   (80ULL * 1024ULL * 1024ULL)
-/* GPTK 4.0 beta 3's D3DMetal (MetalSharp-Wine-x86_64.app); beta 2's from the bundles before it */
+/* GPTK 4.0 beta 3's D3DMetal (MetalSharp-Wine-x86_64.app) on macOS 27 and later, GPTK 3.0's (the same app) below
+ * macOS 27; beta 2's from the bundles before them */
+#define D3DMETAL_RUNTIME_GPTK3 "runtime/d3dmetal-gptk3"
 #define D3DMETAL_RUNTIME_BETA3 "runtime/d3dmetal-gptk4-beta3"
 #define D3DMETAL_RUNTIME_BETA2 "runtime/d3dmetal-gptk4-beta2"
 #define D3DMETAL_RUNTIME       ms_d3dmetal_runtime(home)
@@ -36,12 +39,19 @@ static const char* gptk_route_dlls[] = {"d3d10.dll", "d3d11.dll",   "d3d12.dll",
 /* Staged with them where the runtime has it: GPTK 4.0 beta 3's D3D12 core */
 static const char* gptk_optional_route_dlls[] = {"d3d12core.dll"};
 
-const char* ms_d3dmetal_runtime(const char* home) {
+static bool d3dmetal_runtime_installed(const char* home, const char* runtime) {
     char path[PATH_MAX];
     struct stat info;
-    if (home && snprintf(path, sizeof(path), "%s/" D3DMETAL_RUNTIME_BETA3 "/external/D3DMetal.framework", home) <
-                    (int)sizeof(path) &&
-        stat(path, &info) == 0 && S_ISDIR(info.st_mode))
+    return home &&
+           snprintf(path, sizeof(path), "%s/%s/external/D3DMetal.framework", home, runtime) < (int)sizeof(path) &&
+           stat(path, &info) == 0 && S_ISDIR(info.st_mode);
+}
+
+const char* ms_d3dmetal_runtime(const char* home) {
+    /* GPTK 4.0 beta 3's D3DMetal is macOS 27's; below it, GPTK 3.0's where the app carries it */
+    if (ms_host_before_macos27() && d3dmetal_runtime_installed(home, D3DMETAL_RUNTIME_GPTK3))
+        return D3DMETAL_RUNTIME_GPTK3;
+    if (d3dmetal_runtime_installed(home, D3DMETAL_RUNTIME_BETA3))
         return D3DMETAL_RUNTIME_BETA3;
     return D3DMETAL_RUNTIME_BETA2;
 }
