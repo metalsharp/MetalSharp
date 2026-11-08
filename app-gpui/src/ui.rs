@@ -1155,7 +1155,7 @@ impl MetalSharpApp {
                                 )
                             } else {
                                 format!(
-                                    "MetalSharp Wine for Apple Silicon, running x86 games through FEX. Needs macOS 26.4 or newer.{}",
+                                    "MetalSharp Wine for Apple Silicon, running x86 games through FEX. Needs macOS 15 or newer.{}",
                                     size("fex_download_size")
                                 )
                             },
@@ -1194,7 +1194,7 @@ impl MetalSharpApp {
                 let (status, color) = match &detected {
                     Some(v) if recommended => (format!("This Mac is on macOS {v}."), 0x74d28a),
                     Some(v) => (
-                        format!("This Mac is on macOS {v}, older than 26.4."),
+                        format!("This Mac is on macOS {v}, older than 15."),
                         0xffd47f,
                     ),
                     None => (
@@ -1210,7 +1210,7 @@ impl MetalSharpApp {
                         .gap(px(14.0))
                         .child(title("Before you install the Arm64 build".into()))
                         .child(body(format!(
-                            "{} needs macOS 26.4 or newer. Please make sure this Mac is on macOS 26.4 or newer before you continue: on an older version it may not work on your system.",
+                            "{} needs macOS 15 or newer, and macOS 26.4 or newer for 32-bit games. Please make sure this Mac is on macOS 15 or newer before you continue: on an older version it may not work on your system.",
                             self.update_build_name("fex")
                         )))
                         .child(body(format!(

@@ -5,9 +5,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-/* The first macOS the x86_64 runtime's newest graphics are for: GPTK 4.0 beta 3's D3DMetal, Mullion's Metal 4
- * shaders. Below it the x86_64 runtime runs GPTK 3.0's D3DMetal, Mullion at Metal 3.2 and the VKD3D lane at shader
- * model 3 (ms_host_before_macos27). */
+/* The first macOS the newest graphics are for: GPTK 4.0 beta 3's D3DMetal (the x86_64 runtime), Mullion's Metal 4
+ * shaders. Below it both builds run Mullion at Metal 3.2 and the VKD3D lane at shader model 3, and the x86_64 runtime
+ * GPTK 3.0's D3DMetal (ms_host_before_macos27). */
 #define MS_HOST_MACOS_GPTK4 27
 
 /* The host's macOS major version, or METALSHARP_HOST_MACOS's (tests); 0 if unknown. sw_vers rather than a sysctl,

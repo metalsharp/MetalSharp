@@ -223,9 +223,11 @@ static bool has_dmg_suffix(const char* name) {
            tolower((unsigned char)name[length - 2]) == 'm' && tolower((unsigned char)name[length - 1]) == 'g';
 }
 
-/* The Arm64 build with FEX is meant for macOS 26.4 and newer; older systems are warned, not refused. */
-#define MS_FEX_MIN_MACOS_MAJOR 26
-#define MS_FEX_MIN_MACOS_MINOR 4
+/* The Arm64 build with FEX is meant for macOS 15 and newer (32-bit games on it need 26.4, for the cross-architecture
+ * entitlement's low 4GB); older systems are warned, not refused. */
+#define MS_FEX_MIN_MACOS_MAJOR 15
+#define MS_FEX_MIN_MACOS_MINOR 0
+#define MS_FEX_MIN_MACOS       "15.0"
 
 /* The host's macOS version ("26.4.1"), or METALSHARP_UPDATE_HOST_MACOS's for tests; empty if unknown. */
 static void host_macos_version(char* version, size_t size) {
@@ -382,7 +384,7 @@ char* ms_update_check_json(void) {
     ms_json_writer_key(&writer, "fex_recommended");
     ms_json_writer_bool(&writer, fex_recommended(macos));
     ms_json_writer_key(&writer, "fex_min_macos");
-    ms_json_writer_string(&writer, "26.4");
+    ms_json_writer_string(&writer, MS_FEX_MIN_MACOS);
     ms_json_writer_key(&writer, "macos_version");
     ms_json_writer_string(&writer, macos);
     ms_json_writer_key(&writer, "macos_major");

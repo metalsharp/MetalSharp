@@ -618,12 +618,12 @@ static bool conf_line_sets(const char* line, const char* key) {
     return !strncmp(line, key, length) && (line[length] == ' ' || line[length] == '\t' || line[length] == '=');
 }
 
-/* The VKD3D lane's shader model: on the x86_64 runtime below macOS 27 its D3D9 (DXVK's d3d9.shaderModel) is held to
+/* The VKD3D lane's shader model: on both builds below macOS 27 its D3D9 (DXVK's d3d9.shaderModel) is held to
  * shader model 3, in vkd3d.conf and in DXVK_CONFIG, since the lane's DXVK reads dxvk.conf, which the DXVK lane
  * shares. Elsewhere the line MetalSharp wrote is taken out again and DXVK picks its own. */
 #define VKD3D_LANE_SHADER_MODEL_LINE "d3d9.shaderModel = 3"
 static void ensure_vkd3d_lane_shader_model(const char* home, bool lane) {
-    bool hold = lane && !ms_wine_is_fex() && ms_host_before_macos27();
+    bool hold = lane && ms_host_before_macos27();
     char path[PATH_MAX], temp[PATH_MAX] = {0};
     char *existing, *cursor;
     bool wrote = false, changed = false;
@@ -688,11 +688,11 @@ static void ensure_vkd3d_lane_shader_model(const char* home, bool lane) {
 }
 
 /* DXMT (the regular build's lane from the bundles) is held to Metal 3.1 shaders. Mullion picks its own (Metal 4 where
- * macOS and the GPU have it), except on the x86_64 runtime below macOS 27, where it is held to Metal 3.2; elsewhere
+ * macOS and the GPU have it), except below macOS 27, where it is held to Metal 3.2 on both builds; elsewhere
  * a forced version is taken out of mullion.conf. */
 static void ensure_dxmt_shader_metal_version(const char* home) {
     bool mullion = ms_wine_dxmt_lane_is_mullion(home);
-    bool mullion_metal_320 = mullion && !ms_wine_is_fex() && ms_host_before_macos27();
+    bool mullion_metal_320 = mullion && ms_host_before_macos27();
     char conf[PATH_MAX];
     char* etc = join(home, "runtime/wine/etc");
     char* path = ms_wine_graphics_conf_path(home, conf, sizeof(conf)) ? strdup(conf) : NULL;

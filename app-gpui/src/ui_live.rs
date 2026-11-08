@@ -3202,7 +3202,7 @@ impl MetalSharpApp {
         variant == self.update_current_build() && self.update_same_version()
     }
 
-    /// One of the builds chosen: the Arm64 one first asks for macOS 26.4 or newer, unless this
+    /// One of the builds chosen: the Arm64 one first asks for macOS 15 or newer, unless this
     /// Mac already runs it.
     pub(super) fn start_update_download(&mut self, variant: &'static str, cx: &mut Context<Self>) {
         if self.live.update_downloading || self.update_is_installed(variant) {
