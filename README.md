@@ -51,9 +51,9 @@ brew install --cask metalsharp/tap/metalsharp
 Homebrew installs MetalSharp.app in `/Applications`. Updates are handled in-app with the included updater. 
 
 
-For Direct Access to What is Installed During Setup, See Here: [Dependency Bundles (x86_64)](https://github.com/metalsharp/MetalSharp/releases/tag/bundles), [MetalSharp-Wine With FEX](https://github.com/metalsharp/MetalSharp-Wine)
-
-If an In-App update fails, please use [Fix Broken Updater](https://github.com/metalsharp/MetalSharp/blob/main/docs/Fix%20a%20Broken%20Update.md)
+For Direct Access to What is Installed During Setup, See Here:
+- [MetalSharp-Wine x86_64](https://github.com/metalsharp/MetalSharp-Wine)
+- [MetalSharp Wine With FEX](https://github.com/metalsharp/MetalSharp-Wine)
 
 ## Graphics Routes
 
@@ -72,7 +72,7 @@ ___
 | Version | Route | Engine |
 |---|---|---|
 | x86_64 | **_D3DMetal_** | D3D12/11/10 Through the Latest D3DMetal Framework |
-| x86_64 | **_VKD3D / DXVK_** | D3D12 Through VKD3D-Proton, D3D11 / D3D10 / D3D9 Through DXVK -> MoltenVK -> Metal |
+| x86_64 | **_VKD3D-Proton / DXVK_** | D3D12 Through VKD3D-Proton, D3D11 / D3D10 / D3D9 Through DXVK -> MoltenVK -> Metal |
 | x86_64 | **_Mullion(DXMT)_** | D3D12 / D3D11 / D3D10 to Metal, X86/X64 -> Metal |
 | x86_64 | **_OpenGL_** | OpenGL 1.0->4.6 Through WineMetalGL |
 
