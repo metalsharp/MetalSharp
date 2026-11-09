@@ -7682,6 +7682,111 @@ static bool ensure_rdr2_dx12_settings(const char* home) {
     return ok;
 }
 
+/* Subnautica 2 on Mullion: Niagara's sprite particles draw as flashing, misplaced triangles (the ocean's
+ * background is mostly sprites), which fx.EnableNiagaraSpriteRendering=0 in the game's Engine.ini turns off. The game
+ * deletes its Engine.ini as it exits, so the file is locked (uchg); on any other lane the setting is taken out again
+ * and the lock lifted. Other settings in the file stay. */
+#define SUBNAUTICA_2_APPID 1962700u
+#define SUBNAUTICA_2_CONFIG_PATH "AppData/Local/Subnautica2/Saved/Config/Windows"
+#define SUBNAUTICA_2_SPRITES_OFF "fx.EnableNiagaraSpriteRendering=0"
+
+static char* read_small_file(const char* path, size_t* length) {
+    struct stat info;
+    FILE* file;
+    char* text;
+    if (stat(path, &info) != 0 || !S_ISREG(info.st_mode) || info.st_size > 1024 * 1024)
+        return NULL;
+    text = malloc((size_t)info.st_size + 1);
+    file = text ? fopen(path, "rb") : NULL;
+    if (!file || fread(text, 1, (size_t)info.st_size, file) != (size_t)info.st_size) {
+        if (file)
+            fclose(file);
+        free(text);
+        return NULL;
+    }
+    fclose(file);
+    text[info.st_size] = '\0';
+    *length = (size_t)info.st_size;
+    return text;
+}
+
+static bool set_file_locked(const char* path, bool locked) {
+    struct stat info;
+    if (stat(path, &info) != 0)
+        return !locked;
+    if (!!(info.st_flags & UF_IMMUTABLE) == locked)
+        return true;
+    return chflags(path, locked ? (info.st_flags | UF_IMMUTABLE) : (info.st_flags & ~UF_IMMUTABLE)) == 0;
+}
+
+static bool subnautica_2_engine_ini_in(const char* config_dir, bool sprites_off) {
+    char path[PATH_MAX];
+    size_t length = 0;
+    char* text;
+    char* line;
+    bool ok = true;
+    if (snprintf(path, sizeof(path), "%s/Engine.ini", config_dir) >= (int)sizeof(path))
+        return false;
+    if (!set_file_locked(path, false))
+        return false;
+    text = read_small_file(path, &length);
+    line = text ? strstr(text, SUBNAUTICA_2_SPRITES_OFF) : NULL;
+    if (sprites_off) {
+        if (!line) {
+            static const char section[] = "\n[SystemSettings]\n" SUBNAUTICA_2_SPRITES_OFF "\n";
+            size_t added = sizeof(section) - 1;
+            char* updated = malloc(length + added);
+            ok = updated && ensure_directory(config_dir);
+            if (ok) {
+                if (length)
+                    memcpy(updated, text, length);
+                /* a file of its own starts with the section, not a blank line */
+                memcpy(updated + length, length ? section : section + 1, length ? added : added - 1);
+                ok = write_file_replacing(path, updated, length + (length ? added : added - 1));
+            }
+            free(updated);
+        }
+        ok = ok && set_file_locked(path, true);
+    } else if (line) {
+        /* the setting's line goes; a file that held nothing else goes with it */
+        size_t at = (size_t)(line - text), end = at + strlen(SUBNAUTICA_2_SPRITES_OFF);
+        static const char alone[] = "[SystemSettings]\n" SUBNAUTICA_2_SPRITES_OFF "\n";
+        if (!strcmp(text, alone))
+            ok = unlink(path) == 0;
+        else {
+            if (text[end] == '\n')
+                end++;
+            memmove(text + at, text + end, length - end + 1);
+            ok = write_file_replacing(path, text, length - (end - at));
+        }
+    }
+    free(text);
+    return ok;
+}
+
+static bool apply_subnautica_2_engine_ini(const char* home, const char* pipeline) {
+    bool sprites_off = pipeline && !strcmp(pipeline, "dxmt") && ms_wine_dxmt_lane_is_mullion(home);
+    char* users = join(home, "prefix-steam/drive_c/users");
+    DIR* directory = users ? opendir(users) : NULL;
+    struct dirent* entry;
+    bool ok = directory != NULL;
+    while (directory && (entry = readdir(directory)) != NULL) {
+        char local[PATH_MAX], config_dir[PATH_MAX];
+        struct stat info;
+        if (entry->d_name[0] == '.' || !strcmp(entry->d_name, "Public"))
+            continue;
+        snprintf(local, sizeof(local), "%s/%s/AppData/Local", users, entry->d_name);
+        if (stat(local, &info) != 0 || !S_ISDIR(info.st_mode))
+            continue;
+        snprintf(config_dir, sizeof(config_dir), "%s/%s/" SUBNAUTICA_2_CONFIG_PATH, users, entry->d_name);
+        ok = subnautica_2_engine_ini_in(config_dir, sprites_off) && ok;
+    }
+    if (directory)
+        closedir(directory);
+    free(users);
+    return ok;
+}
+
 /* Anti-cheat bootstrappers that Steam or a launcher starts in place of the
  * game: the stub is renamed to its backup name and replaced by a copy of the
  * real executable, so the game starts without the anti-cheat layer. Restores
@@ -8330,6 +8435,8 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
     ms_steam_deploy_controller_input_shims(home, game_dir);
     (void)ms_steam_ensure_game_audio_fix(home, id);
     prepare_real_steam_launch(home, game_dir, executable, id, pipeline);
+    if (id == SUBNAUTICA_2_APPID && !apply_subnautica_2_engine_ini(home, pipeline))
+        ms_log_event(home, "Subnautica 2: could not set Engine.ini for its graphics lane.");
     if (id == 8500) {
         char* eve_client = latest_eve_online_client_executable(game_dir);
         if (!eve_client) {
