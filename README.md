@@ -75,7 +75,7 @@ ___
 
 | Feature | Notes |
 |---|---|
-| **_Sharp Library_** | Import and Run Standalone Windows Programs, Installers, and Launchers |
+| **_Windows Programs_** | Import and Run Standalone Windows Programs, Installers, and Launchers |
 | **_GOG Library_** | Download and Play GOG Games |
 | **_Epic Library_** | Download and Play Epic Games |
 | **_Ubisoft Connect_** | Download and Play Ubisoft Connect Games |
