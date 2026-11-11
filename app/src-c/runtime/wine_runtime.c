@@ -494,13 +494,13 @@ static bool run_wait(const char* const* argv, const char* prefix, const char* lo
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
-/* <name> in MetalSharp.app's Resources, next to the backend's runtime folder, else in /Applications' MetalSharp.app;
- * $<override> names another. */
-static char* app_source(const char* override_name, const char* name) {
-    const char* override = getenv(override_name);
+char* ms_app_resources_path(const char* name) {
+    const char* override = getenv("METALSHARP_APP_RESOURCES");
     char path[PATH_MAX], resolved[PATH_MAX], candidate[PATH_MAX];
     if (override && override[0])
-        return access(override, R_OK) == 0 ? strdup(override) : NULL;
+        return format_path(candidate, sizeof(candidate), "%s/%s", override, name) && access(candidate, R_OK) == 0
+                   ? strdup(candidate)
+                   : NULL;
 #ifdef __APPLE__
     {
         uint32_t size = sizeof(path);
@@ -520,13 +520,22 @@ static char* app_source(const char* override_name, const char* name) {
     if (format_path(candidate, sizeof(candidate), "%s/%s", "/Applications/MetalSharp.app/Contents/Resources", name) &&
         access(candidate, R_OK) == 0)
         return strdup(candidate);
-    /* the other build's runtime, which MetalSharp.app does not carry, downloaded (ms_wine_runtime_download) */
-    {
-        char home[PATH_MAX];
-        if (metalsharp_home(home, sizeof(home)) &&
-            format_path(candidate, sizeof(candidate), "%s/downloads/%s", home, name) && access(candidate, R_OK) == 0)
-            return strdup(candidate);
-    }
+    return NULL;
+}
+
+/* <name> in MetalSharp.app's Resources, else the other build's runtime, which MetalSharp.app does not carry,
+ * downloaded (ms_wine_runtime_download); $<override> names another. */
+static char* app_source(const char* override_name, const char* name) {
+    const char* override = getenv(override_name);
+    char candidate[PATH_MAX], home[PATH_MAX];
+    char* found;
+    if (override && override[0])
+        return access(override, R_OK) == 0 ? strdup(override) : NULL;
+    if ((found = ms_app_resources_path(name)))
+        return found;
+    if (metalsharp_home(home, sizeof(home)) &&
+        format_path(candidate, sizeof(candidate), "%s/downloads/%s", home, name) && access(candidate, R_OK) == 0)
+        return strdup(candidate);
     return NULL;
 }
 

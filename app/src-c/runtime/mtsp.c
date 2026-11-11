@@ -143,15 +143,11 @@ FILE* ms_mtsp_open_rules_file(void) {
         }
     }
     {
-        /* Resources/MetalSharp-Wine.app on the fex build: its configs folder is beside it. */
-        char* wine_app = ms_wine_is_fex() ? ms_wine_fex_app_source() : NULL;
-        char* last = wine_app ? strrchr(wine_app, '/') : NULL;
-        if (last) {
-            *last = '\0';
-            if (snprintf(path, sizeof(path), "%s/configs/%s", wine_app, file_name) < (int)sizeof(path))
-                file = fopen(path, "r");
-        }
-        free(wine_app);
+        /* MetalSharp.app's Resources/configs on the fex build, also when MetalSharp Wine was downloaded. */
+        char* configs = ms_wine_is_fex() ? ms_app_resources_path("configs") : NULL;
+        if (configs && snprintf(path, sizeof(path), "%s/%s", configs, file_name) < (int)sizeof(path))
+            file = fopen(path, "r");
+        free(configs);
     }
     return file;
 }
