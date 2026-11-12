@@ -4273,9 +4273,9 @@ static char* spawn_wine_for_pipeline(const char* home, const char* pipeline, uns
     char* helper = !ms_wine_is_fex() && !x86_64_metalsharp_wine() && id == 0 && is_steam_client_executable(first)
                        ? steam_helper_app_path()
                        : NULL;
-    /* On MetalSharp Wine the Steam client starts as Steam starts it on Windows: Steam's own webhelper,
-     * none of the CEF flags and no DLL overrides from the environment. Its UI does not load otherwise. */
-    bool plain_client = (ms_wine_is_fex() || x86_64_metalsharp_wine()) && id == 0 && is_steam_client_executable(first);
+    /* FEX uses Steam's original webhelper without CEF compatibility flags.
+     * x86_64 retains the flags and compatibility wrapper. */
+    bool plain_client = ms_wine_is_fex() && id == 0 && is_steam_client_executable(first);
     if (plain_client) {
         static const char* const cef_flags[] = {"-no-cef-sandbox", "-cef-single-process", "-noverifyfiles",
                                                 "-no-dwrite"};
@@ -5471,7 +5471,7 @@ static bool refresh_stale_steamwebhelpers(const char* home, const char* steam_di
 }
 
 static void ensure_steam_launch_ready(const char* home, const char* steam_dir) {
-    if (ms_wine_is_fex() || x86_64_metalsharp_wine()) {
+    if (ms_wine_is_fex()) {
         restore_steam_webhelpers(steam_dir);
         return;
     }
@@ -5522,7 +5522,7 @@ static bool steamwebhelper_wrappers_ready(const char* steam_dir) {
         free(cef_root);
         return false;
     }
-    if (ms_wine_is_fex() || x86_64_metalsharp_wine()) {  /* no wrapper there (restore_steam_webhelpers) */
+    if (ms_wine_is_fex()) {  /* no wrapper there (restore_steam_webhelpers) */
         closedir(dir);
         free(cef_root);
         return true;
