@@ -19,6 +19,7 @@ SETUP_VARIANT_TEST ?= $(BUILD_DIR)/setup-variant-test
 STORE_LAUNCHERS_TEST ?= $(BUILD_DIR)/store-launchers-test
 LIBRARY_LOCATIONS_TEST ?= $(BUILD_DIR)/library-locations-test
 LAUNCHER_UNINSTALL_TEST ?= $(BUILD_DIR)/launcher-uninstall-test
+LINUX_STEAM_TEST ?= $(BUILD_DIR)/linux-steam-test
 # A MetalSharp-Wine.app for the fex facade test; without one it checks only the mapping.
 METALSHARP_WINE_APP ?=
 
@@ -64,6 +65,7 @@ SOURCES := \
 	runtime/store_launcher.c \
 	runtime/library_locations.c \
 	runtime/launcher_uninstall.c \
+	runtime/linux_steam.c \
 	runtime/rockstar.c \
 	runtime/battlenet.c \
 	runtime/game.c \
@@ -114,6 +116,10 @@ $(BUILD_DIR)/runtime-routes-test: tests/runtime_routes_test.c runtime/steam_acti
 $(STORE_LAUNCHERS_TEST): tests/store_launchers_test.c runtime/rockstar.c runtime/battlenet.c $(OBJECTS)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o "$@" tests/store_launchers_test.c $(filter-out $(BUILD_DIR)/c-backend/runtime/main.o $(BUILD_DIR)/c-backend/runtime/rockstar.o $(BUILD_DIR)/c-backend/runtime/battlenet.o,$(OBJECTS))
 
+# The backend whole (without main), on a fake home with a script standing in for Linux Steam's metalsharp-steam.
+$(LINUX_STEAM_TEST): tests/linux_steam_test.c $(OBJECTS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o "$@" tests/linux_steam_test.c $(filter-out $(BUILD_DIR)/c-backend/runtime/main.o,$(OBJECTS))
+
 # The backend whole (without main), on fake homes, prefixes and volumes: no Wine is started.
 $(LAUNCHER_UNINSTALL_TEST): tests/launcher_uninstall_test.c $(OBJECTS)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o "$@" tests/launcher_uninstall_test.c $(filter-out $(BUILD_DIR)/c-backend/runtime/main.o,$(OBJECTS))
@@ -123,11 +129,12 @@ test: test-$(VARIANT)
 # The FEX build's suite (make VARIANT=fex BUILD_DIR=... test): its backend and the tests that hold for
 # MetalSharp Wine. The route, smoke, VC++ seeding, runtime-ready and update-download tests describe
 # the regular build's x86_64 runtime and run in test-regular.
-test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(STORE_LAUNCHERS_TEST) $(LIBRARY_LOCATIONS_TEST) $(LAUNCHER_UNINSTALL_TEST)
+test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(STORE_LAUNCHERS_TEST) $(LIBRARY_LOCATIONS_TEST) $(LAUNCHER_UNINSTALL_TEST) $(LINUX_STEAM_TEST)
 	@"$(SETUP_VARIANT_TEST)"
 	@home="$$(mktemp -d)"; "$(STORE_LAUNCHERS_TEST)" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
 	@dir="$$(mktemp -d)"; "$(LIBRARY_LOCATIONS_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
 	@dir="$$(mktemp -d)"; "$(LAUNCHER_UNINSTALL_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
+	@dir="$$(mktemp -d)"; "$(LINUX_STEAM_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
 	@"$(JSON_TEST)"
 	@cd "$(PROJECT_ROOT)" && METALSHARP_HOME= "$(abspath $(MTSP_RULES_TEST))"
 	@"$(MIGRATION_TEST)"
@@ -138,13 +145,15 @@ test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EX
 	@bash "$(PROJECT_ROOT)/app/updater/tests/install_progress_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@bash "$(PROJECT_ROOT)/app/updater/tests/build_switch_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@bash "$(PROJECT_ROOT)/app/updater/tests/stopped_status_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
+	@bash "$(PROJECT_ROOT)/app/updater/tests/linux_steam_stop_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@python3 "$(CURDIR)/tests/steam_process_test.py" "$(TARGET)"
 
-test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(BUILD_DIR)/runtime-routes-test $(STORE_LAUNCHERS_TEST) $(LIBRARY_LOCATIONS_TEST) $(LAUNCHER_UNINSTALL_TEST)
+test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(BUILD_DIR)/runtime-routes-test $(STORE_LAUNCHERS_TEST) $(LIBRARY_LOCATIONS_TEST) $(LAUNCHER_UNINSTALL_TEST) $(LINUX_STEAM_TEST)
 	@"$(SETUP_VARIANT_TEST)"
 	@home="$$(mktemp -d)"; "$(STORE_LAUNCHERS_TEST)" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
 	@dir="$$(mktemp -d)"; "$(LIBRARY_LOCATIONS_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
 	@dir="$$(mktemp -d)"; "$(LAUNCHER_UNINSTALL_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
+	@dir="$$(mktemp -d)"; "$(LINUX_STEAM_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
 	@cd "$(PROJECT_ROOT)" && METALSHARP_HOME= "$(abspath $(MTSP_RULES_TEST))"
 	@home="$$(mktemp -d)"; "$(BUILD_DIR)/runtime-routes-test" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
 	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; HOME="$$test_home" METALSHARP_HOME="$$ms_home" "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc
@@ -160,6 +169,7 @@ test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCP
 	@bash "$(PROJECT_ROOT)/app/updater/tests/install_progress_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@bash "$(PROJECT_ROOT)/app/updater/tests/build_switch_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@bash "$(PROJECT_ROOT)/app/updater/tests/stopped_status_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
+	@bash "$(PROJECT_ROOT)/app/updater/tests/linux_steam_stop_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@python3 "$(CURDIR)/tests/steam_process_test.py" "$(TARGET)"
 
 asan-test:

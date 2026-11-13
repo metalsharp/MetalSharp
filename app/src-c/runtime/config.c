@@ -282,6 +282,24 @@ bool ms_config_exclude_native_mac_steam_games(const char* metalsharp_home) {
     return enabled;
 }
 
+/* The Steam client the fex build runs (steamClient): "windows", Windows Steam in MetalSharp Wine (the default), or
+ * "linux", Valve's Linux client in a small Linux virtual machine (experimental). Anything else is "windows". */
+static const char* steam_client(const ms_json* config) {
+    char* value = NULL;
+    bool linux_client = ms_json_as_string(ms_json_object_get(config, "steamClient"), &value) && !strcmp(value, "linux");
+    free(value);
+    return linux_client ? "linux" : "windows";
+}
+
+const char* ms_config_steam_client(const char* metalsharp_home) {
+    char* path = config_path(metalsharp_home);
+    ms_json* config = path == NULL ? NULL : read_json_file(path);
+    const char* client = steam_client(config);
+    free(path);
+    ms_json_free(config);
+    return client;
+}
+
 char* ms_config_get_json(const char* metalsharp_home) {
     char* path = config_path(metalsharp_home);
     ms_json* config = path == NULL ? NULL : read_json_file(path);
@@ -295,6 +313,7 @@ char* ms_config_get_json(const char* metalsharp_home) {
     bool metal_hud = config_bool(config, "metalHud", false);
     bool ray_tracing = config_bool(config, "rayTracing", false);
     bool exclude_native_mac_steam_games = config_bool(config, "excludeNativeMacSteamGames", false);
+    const char* client = steam_client(config);
     char* controller = controller_input(config);
     char* display = window_mode(config);
     char* resolution = game_resolution(config);
@@ -338,6 +357,8 @@ char* ms_config_get_json(const char* metalsharp_home) {
     ms_json_writer_bool(&writer, ray_tracing);
     ms_json_writer_key(&writer, "excludeNativeMacSteamGames");
     ms_json_writer_bool(&writer, exclude_native_mac_steam_games);
+    ms_json_writer_key(&writer, "steamClient");
+    ms_json_writer_string(&writer, client);
     ms_json_writer_object_end(&writer);
     result = ms_json_writer_take(&writer);
     free(controller);
@@ -391,7 +412,7 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
                          bool set_exclude_native_mac_steam_games,
                          bool exclude_native_mac_steam_games,
                          bool set_window_mode, const char* window_mode_value, bool set_game_resolution,
-                         const char* game_resolution_value) {
+                         const char* game_resolution_value, const char* steam_client_value) {
     char* parent;
     char* slash;
     ms_json_writer writer;
@@ -407,6 +428,7 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
     bool emitted_exclude_native_mac_steam_games = false;
     bool emitted_window_mode = false;
     bool emitted_game_resolution = false;
+    bool emitted_steam_client = false;
     parent = strdup(path);
     if (parent == NULL)
         return false;
@@ -468,6 +490,10 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
             ms_json_writer_key(&writer, key);
             ms_json_writer_string(&writer, game_resolution_value);
             emitted_game_resolution = true;
+        } else if (steam_client_value && strcmp(key, "steamClient") == 0) {
+            ms_json_writer_key(&writer, key);
+            ms_json_writer_string(&writer, steam_client_value);
+            emitted_steam_client = true;
         } else {
             write_member(&writer, key, value);
         }
@@ -516,6 +542,10 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
         ms_json_writer_key(&writer, "gameResolution");
         ms_json_writer_string(&writer, game_resolution_value);
     }
+    if (steam_client_value && !emitted_steam_client) {
+        ms_json_writer_key(&writer, "steamClient");
+        ms_json_writer_string(&writer, steam_client_value);
+    }
     ms_json_writer_object_end(&writer);
     {
         char* serialized = ms_json_writer_take(&writer);
@@ -549,6 +579,7 @@ char* ms_config_set_json(const char* metalsharp_home, const unsigned char* body,
     static const char* const window_modes[] = {"default", "windowed", "fullscreen"};
     static const char* const resolutions[] = {"default", "1280x720", "1920x1080", "2560x1440", "3840x2160"};
     char *controller = NULL, *window_mode_value = NULL, *game_resolution_value = NULL;
+    const char* steam_client_value = NULL;
     char* result;
     if (status != NULL)
         *status = 500;
@@ -591,10 +622,20 @@ char* ms_config_set_json(const char* metalsharp_home, const unsigned char* body,
         set_ray_tracing = value != NULL && ms_json_as_bool(value, &ray_tracing);
         value = ms_json_object_get(request, "excludeNativeMacSteamGames");
         set_exclude_native_mac_steam_games = value != NULL && ms_json_as_bool(value, &exclude_native_mac_steam_games);
+        {
+            char* client = NULL;
+            if (ms_json_as_string(ms_json_object_get(request, "steamClient"), &client)) {
+                if (!strcmp(client, "windows"))
+                    steam_client_value = "windows";
+                else if (!strcmp(client, "linux"))
+                    steam_client_value = "linux";
+                free(client);
+            }
+        }
     }
     if (!write_config(path, existing, set_logs, logs, set_controller, controller, set_msync, msync, set_retina, retina,
                       set_x87, x87, set_metal_hud, metal_hud, set_ray_tracing, ray_tracing, set_exclude_native_mac_steam_games, exclude_native_mac_steam_games, set_window_mode,
-                      window_mode_value, set_game_resolution, game_resolution_value))
+                      window_mode_value, set_game_resolution, game_resolution_value, steam_client_value))
         goto fail;
     result = ms_config_get_json(metalsharp_home);
     if (status != NULL)

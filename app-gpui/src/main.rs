@@ -14,6 +14,7 @@ mod intro_video;
 mod launch_overlay;
 mod library_model;
 mod lifecycle;
+mod linux_steam;
 mod live;
 mod logs_preview;
 mod markdown;

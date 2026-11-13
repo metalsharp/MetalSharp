@@ -10,6 +10,7 @@
 #include "metalsharp_backend/game_executable.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/linux_steam.h"
 #include "metalsharp_backend/local_socket.h"
 #include "metalsharp_backend/logs.h"
 #include "metalsharp_backend/frame_rate.h"
@@ -3364,7 +3365,8 @@ static bool process_executable_within(pid_t pid, const char* root) {
 #ifdef __APPLE__
     char executable[PROC_PIDPATHINFO_MAXSIZE];
     int bytes = proc_pidpath((int)pid, executable, sizeof(executable));
-    return bytes > 0 && ms_resolved_path_within(executable, root);
+    /* Linux Steam's virtual machine runs from MetalSharp-Wine.app too; it is not Wine */
+    return bytes > 0 && !ms_linux_steam_vm_executable(executable) && ms_resolved_path_within(executable, root);
 #else
     (void)pid;
     (void)root;
@@ -3414,6 +3416,9 @@ static bool managed_wine_process_running(const char* home, bool steam_only) {
 }
 
 bool ms_steam_process_running(const char* home) {
+    /* Linux Steam (fex, experimental): its client in the virtual machine */
+    if (ms_linux_steam_mode(home))
+        return ms_linux_steam_client_running(home);
     return managed_wine_process_running(home, true);
 }
 
@@ -4608,6 +4613,8 @@ static void request_wine_folder_access(const char* home) {
 }
 
 char* ms_steam_launch_json(const char* home, int* status) {
+    if (ms_linux_steam_mode(home))
+        return ms_linux_steam_launch_json(home, status);
     char* steam = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/Steam.exe");
     char* ui = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamui.dll");
     char* steam_dir = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam");
@@ -4696,6 +4703,9 @@ static char* ensure_wine_steam_pipeline(const char* home, const char* pipeline) 
     char* steam_dir;
     char* error_text;
     pid_t pid;
+    /* Linux Steam's games get their backend from the launch intent, not from the client's session */
+    if (ms_linux_steam_mode(home))
+        return NULL;
     if (ms_steam_process_running(home)) {
         if (wine_steam_route_marker_matches(home, pipeline))
             return NULL;
@@ -4737,12 +4747,16 @@ static char* ensure_wine_steam_pipeline(const char* home, const char* pipeline) 
 }
 
 char* ms_steam_stop_json(const char* home, int* status) {
+    bool linux_running = false;
     if (status)
         *status = 200;
+    /* Linux Steam: its virtual machine, then (as for Windows Steam) the Wine programs left in the Steam prefix */
+    if (ms_linux_steam_mode(home))
+        linux_running = !ms_linux_steam_stop(home, 60);
     terminate_wine_steam_session(home);
     {
         ms_json_writer w;
-        bool running = managed_wine_process_running(home, false);
+        bool running = linux_running || managed_wine_process_running(home, false);
         ms_json_writer_init(&w);
         ms_json_writer_object_begin(&w);
         ms_json_writer_key(&w, "ok");
@@ -4753,6 +4767,30 @@ char* ms_steam_stop_json(const char* home, int* status) {
         return ms_json_writer_take(&w);
     }
 }
+
+/* POST /config that changes steamClient: the client that runs now is stopped first (fex). */
+void ms_steam_client_switch_prepare(const char* home, const unsigned char* body, size_t length) {
+    char error[64];
+    char* requested = NULL;
+    ms_json* request;
+    if (!home || !body || !length || !ms_wine_is_fex())
+        return;
+    request = ms_json_parse((const char*)body, length, error, sizeof(error));
+    if (request && ms_json_as_string(ms_json_object_get(request, "steamClient"), &requested) &&
+        (!strcmp(requested, "linux") || !strcmp(requested, "windows")) &&
+        strcmp(requested, ms_config_steam_client(home)) != 0) {
+        if (ms_linux_steam_mode(home)) {
+            ms_log_event(home, "Stopping Linux Steam for the Steam client switch...");
+            (void)ms_linux_steam_stop_if_running(home, 60);
+        } else if (managed_wine_process_running(home, false)) {
+            ms_log_event(home, "Stopping Wine Steam for the Steam client switch...");
+            terminate_wine_steam_session(home);
+        }
+    }
+    free(requested);
+    ms_json_free(request);
+}
+
 static char* macos_steam_app(void) {
     const char* home = getenv("HOME");
     char* user_app = home ? join(home, "Applications/Steam.app") : NULL;
@@ -6013,6 +6051,13 @@ done:
 }
 
 char* ms_steam_install_json(const char* home, int* status) {
+    /* The Windows Steam installer can replace the Steam prefix, which Linux Steam's games share: never in Linux mode,
+     * where Start Steam sets Linux Steam up. */
+    if (ms_linux_steam_mode(home)) {
+        if (status)
+            *status = 409;
+        return err("Linux Steam is the Steam client: use Start Steam to set it up, or choose Windows Steam in Settings");
+    }
     char *steam = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/Steam.exe"),
          *ui = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamui.dll"),
          *lock = join(home, ".steam-installing"), *installer = join(home, "SteamSetup.exe");
@@ -6325,9 +6370,13 @@ static size_t steamapps_candidates(const char* home, char** candidates, size_t m
     char* internal = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamapps");
     const char* host_suffixes[] = {"Library/Application Support/Steam/steamapps", ".steam/steam/steamapps",
                                    ".local/share/Steam/steamapps"};
+    char* linux_library = join(home, MS_LINUX_STEAM_LIBRARY_STEAMAPPS);
     size_t count = 0;
     add_steamapps_candidate(candidates, &count, max, internal);
     free(internal);
+    /* Linux Steam's default library, which Windows Steam's libraryfolders.vdf does not list */
+    add_steamapps_candidate(candidates, &count, max, linux_library);
+    free(linux_library);
     if (host_home) {
         for (size_t i = 0; i < sizeof(host_suffixes) / sizeof(host_suffixes[0]); i++) {
             char* path = join(host_home, host_suffixes[i]);
@@ -7390,6 +7439,9 @@ static bool format_steam_run_url(char* url, size_t url_size, unsigned id, const 
 static char* ensure_wine_steam_running(const char* home, int* status) {
     char* steam_result;
     int steam_status = 500;
+    /* Linux Steam cannot serve a game started here: Windows Steam is not started for it */
+    if (ms_linux_steam_mode(home))
+        return NULL;
     if (ms_steam_process_running(home))
         return NULL;
     steam_result = ms_steam_launch_json(home, &steam_status);
@@ -7424,18 +7476,43 @@ static bool fex_direct_launch_without_steam(unsigned id) {
     return id == 333640;
 }
 
-static char* launch_game_via_steam_args_json(const char* home, unsigned id, const char* encoded_args, int* status,
-                                             pid_t* launched_pid) {
+/* Linux Steam's Play: its client started when it is not running, the game's graphics backend recorded for the
+ * bridge daemon (the launch intent, when MetalSharp chose the lane), and the steam:// link handed to the client. The
+ * game runs on the Mac in the Steam prefix, where /game/running finds it. */
+static char* launch_game_via_linux_steam(const char* home, unsigned id, const char* pipeline, const char* url,
+                                         int* status, pid_t* launched_pid) {
+    char* error_text;
+    pid_t pid = 0;
+    if ((error_text = ms_linux_steam_ensure_running(home, 90)) ||
+        (error_text = ms_linux_steam_open_url(home, id, pipeline, url, &pid))) {
+        char* result = err(error_text);
+        free(error_text);
+        if (status)
+            *status = 500;
+        return result;
+    }
+    if (launched_pid)
+        *launched_pid = pid;
+    if (status)
+        *status = 200;
+    return pid_result(pid, "pid", id, true);
+}
+
+/* pipeline: the lane MetalSharp chose for the game (Linux Steam's launch intent), or NULL. */
+static char* launch_game_via_steam_args_json(const char* home, unsigned id, const char* encoded_args,
+                                             const char* pipeline, int* status, pid_t* launched_pid) {
     char url[1024];
     char* error_text;
     pid_t pid;
-    if ((error_text = ensure_wine_steam_running(home, status)))
-        return error_text;
     if (!format_steam_run_url(url, sizeof(url), id, encoded_args)) {
         if (status)
             *status = 500;
         return err("Steam launch URI exceeds the supported length");
     }
+    if (ms_linux_steam_mode(home))
+        return launch_game_via_linux_steam(home, id, pipeline, url, status, launched_pid);
+    if ((error_text = ensure_wine_steam_running(home, status)))
+        return error_text;
     error_text = spawn_wine(home, "start", url, NULL, NULL, NULL, &pid);
     if (error_text) {
         char* result = err(error_text);
@@ -7452,7 +7529,7 @@ static char* launch_game_via_steam_args_json(const char* home, unsigned id, cons
 }
 
 static char* launch_game_via_steam_json(const char* home, unsigned id, int* status, pid_t* launched_pid) {
-    return launch_game_via_steam_args_json(home, id, NULL, status, launched_pid);
+    return launch_game_via_steam_args_json(home, id, NULL, NULL, status, launched_pid);
 }
 
 static int compare_eve_version(const char* left, const char* right) {
@@ -7566,7 +7643,8 @@ static char* launch_d3dmetal_launcher_via_steam_json(const char* home, const d3d
         free(error_text);
         return result;
     }
-    result = launch_game_via_steam_args_json(home, game->appid, D3DMETAL_LAUNCHER_STEAM_ARGS, &launch_status, &pid);
+    result = launch_game_via_steam_args_json(home, game->appid, D3DMETAL_LAUNCHER_STEAM_ARGS, NULL, &launch_status,
+                                             &pid);
     if (!result || launch_status >= 400) {
         if (status)
             *status = launch_status;
@@ -7904,7 +7982,7 @@ static char* launch_rockstar_first_run_via_steam_json(const char* home, const ro
         free(error_text);
         return result;
     }
-    result = launch_game_via_steam_args_json(home, game->appid, NULL, &launch_status, &pid);
+    result = launch_game_via_steam_args_json(home, game->appid, NULL, steam_pipeline, &launch_status, &pid);
     if (!result || launch_status >= 400) {
         if (status)
             *status = launch_status;
@@ -8477,7 +8555,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             write_fex_launch_exe(home, id, root ? root : game_dir);
             free(root);
         }
-        result = launch_game_via_steam_json(home, id, &steam_status, &steam_pid);
+        result = launch_game_via_steam_args_json(home, id, NULL, pipeline, &steam_status, &steam_pid);
         free(game_dir);
         free(executable);
         if (!result || steam_status >= 400) {
@@ -8486,7 +8564,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             return result ? result : err("Steam handoff failed");
         }
         free(result);
-        ms_process_register_pending_game(id, steam_pid, 15);
+        ms_process_register_pending_game(id, steam_pid, ms_linux_steam_mode(home) ? 60 : 15);
         record_launch_timing(home, id, started_at, pipeline);
         if (status)
             *status = 200;
@@ -8506,7 +8584,8 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             free(error_text);
             return result;
         }
-        result = launch_game_via_steam_args_json(home, id, MARVEL_RIVALS_STEAM_ARGS, &steam_status, &steam_pid);
+        result = launch_game_via_steam_args_json(home, id, MARVEL_RIVALS_STEAM_ARGS, pipeline, &steam_status,
+                                                 &steam_pid);
         if (!result || steam_status >= 400) {
             free(game_dir);
             free(executable);
@@ -8515,7 +8594,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             return result ? result : err("Marvel Rivals Steam handoff failed");
         }
         free(result);
-        ms_process_register_pending_game(id, steam_pid, 15);
+        ms_process_register_pending_game(id, steam_pid, ms_linux_steam_mode(home) ? 60 : 15);
         record_launch_timing(home, id, started_at, pipeline);
         if (status)
             *status = 200;
@@ -8546,7 +8625,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             return result ? result : err("Baldur's Gate 3 Steam handoff failed");
         }
         free(result);
-        ms_process_register_pending_game(id, steam_pid, 15);
+        ms_process_register_pending_game(id, steam_pid, ms_linux_steam_mode(home) ? 60 : 15);
         record_launch_timing(home, id, started_at, pipeline);
         if (status)
             *status = 200;
@@ -8623,7 +8702,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             return err("could not write the game's launch environment");
         }
         free(game_dir);
-        result = launch_game_via_steam_args_json(home, id, NULL, &steam_status, &steam_pid);
+        result = launch_game_via_steam_args_json(home, id, NULL, pipeline, &steam_status, &steam_pid);
         free(executable);
         if (!result || steam_status >= 400) {
             if (status)
@@ -8631,7 +8710,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             return result ? result : err("Steam handoff failed");
         }
         free(result);
-        ms_process_register_pending_game(id, steam_pid, 15);
+        ms_process_register_pending_game(id, steam_pid, ms_linux_steam_mode(home) ? 60 : 15);
         record_launch_timing(home, id, started_at, pipeline);
         if (status)
             *status = 200;

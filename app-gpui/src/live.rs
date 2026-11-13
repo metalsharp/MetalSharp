@@ -16,6 +16,8 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 /// `/steam/launch` waits up to 30 s for a cold Wine Steam to start, after its
 /// own launch preparation, so it gets more than the default.
 pub const STEAM_LAUNCH_TIMEOUT: Duration = Duration::from_secs(60);
+/// `/steam/stop` stops Linux Steam's virtual machine (up to 60 s) before the Wine programs in the Steam prefix.
+pub const STEAM_STOP_TIMEOUT: Duration = Duration::from_secs(90);
 
 struct Inner {
     base_url: String,
@@ -79,8 +81,15 @@ impl Live {
         self.stop_backend_detached();
     }
 
-    /// End MetalSharp's Wine processes: the Wine Steam client, games, wineserver (wine_shutdown).
+    /// End MetalSharp's Wine processes: the Wine Steam client, games, wineserver (wine_shutdown). On the FEX build,
+    /// Linux Steam's virtual machine is stopped first with its own command (bounded; nothing when it never ran).
     pub fn stop_wine(&self) {
+        if crate::variant::is_fex() {
+            crate::linux_steam::stop_if_running(
+                &self.0.config.home,
+                crate::linux_steam::STOP_TIMEOUT,
+            );
+        }
         let roots =
             crate::wine_shutdown::WineRoots::new(&self.0.config.home, &self.0.config.resources);
         crate::wine_shutdown::kill_all(&roots);

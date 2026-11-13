@@ -28,6 +28,8 @@ char* ms_steam_wine_launch_wrapper_path(const char* home);
 char* ms_witcher3_game_executable(const char* game_dir);
 char* ms_steam_launch_json(const char*, int*);
 char* ms_steam_stop_json(const char*, int*);
+/* Before POST /config: a steamClient change stops the Steam client that runs now (fex). */
+void ms_steam_client_switch_prepare(const char* home, const unsigned char* body, size_t length);
 /* Migration-time guarantee: verify/restore steamwebhelper wrapper, bridge shim and Goldberg payloads. */
 bool ms_steam_wrappers_ensure(const char* home);
 bool ms_steam_usability_ensure(const char* home);

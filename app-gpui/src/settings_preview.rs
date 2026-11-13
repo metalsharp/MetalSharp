@@ -71,6 +71,9 @@ pub struct AppState {
     pub device_name: String,
     pub wine_steam_installed: bool,
     pub wine_steam_running: bool,
+    /// FEX: Linux Steam is the Steam client, and whether this MetalSharp Wine carries it.
+    pub steam_client_linux: bool,
+    pub linux_steam_available: bool,
     pub mac_steam_installed: bool,
     pub mac_steam_running: bool,
     pub backend_connected: bool,
@@ -187,6 +190,9 @@ pub struct SettingsPreview {
     ray_tracing_busy: bool,
     exclude_native: bool,
     native_busy: bool,
+    /// FEX: the Steam client (`steamClient`, "windows" or "linux"), and a switch in flight.
+    steam_client: String,
+    steam_client_busy: bool,
     backend_restarting: bool,
     shader_cache: Option<Value>,
     pipeline_cache: Option<Value>,
@@ -358,6 +364,8 @@ impl SettingsPreview {
             ray_tracing_busy: false,
             exclude_native: false,
             native_busy: false,
+            steam_client: "windows".to_owned(),
+            steam_client_busy: false,
             backend_restarting: false,
             shader_cache: None,
             pipeline_cache: None,
@@ -575,6 +583,49 @@ impl SettingsPreview {
             .get("excludeNativeMacSteamGames")
             .and_then(Value::as_bool)
             == Some(true);
+        self.steam_client = config
+            .get("steamClient")
+            .and_then(Value::as_str)
+            .filter(|client| *client == "linux")
+            .unwrap_or("windows")
+            .to_owned();
+    }
+
+    /// FEX: Settings' Steam client. The backend stops the client that runs now before it saves the choice.
+    fn set_steam_client(&mut self, client: &'static str, cx: &mut Context<Self>) {
+        if self.steam_client_busy || self.steam_client == client {
+            return;
+        }
+        let previous = std::mem::replace(&mut self.steam_client, client.to_owned());
+        self.steam_client_busy = true;
+        cx.notify();
+        live::call(
+            cx,
+            "POST",
+            "/config",
+            Some(json!({"steamClient": client})),
+            live::STEAM_STOP_TIMEOUT,
+            move |this, r, cx| {
+                if let Some(r) = r.filter(is_ok) {
+                    this.apply_config(&r);
+                    toast::success(
+                        cx,
+                        if client == "linux" {
+                            "Steam client: Linux Steam (experimental). Start Steam sets it up the first time."
+                        } else {
+                            "Steam client: Windows Steam"
+                        },
+                    );
+                    cx.emit(SettingsPreviewEvent::RefreshLaunchers);
+                    cx.emit(SettingsPreviewEvent::ReloadLibrary);
+                } else {
+                    this.steam_client = previous;
+                    toast::error(cx, "Failed to change the Steam client");
+                }
+                this.steam_client_busy = false;
+                cx.notify();
+            },
+        );
     }
 
     fn refresh_cache_sizes(&mut self, cx: &mut Context<Self>) {
@@ -785,26 +836,27 @@ impl SettingsPreview {
     }
 
     fn toggle_wine_steam(&mut self, cx: &mut Context<Self>) {
+        let client = self.steam_client_name();
         if self.app.wine_steam_running {
             live::call(
                 cx,
                 "POST",
                 "/steam/stop",
                 None,
-                live::DEFAULT_TIMEOUT,
-                |_, r, cx| {
+                live::STEAM_STOP_TIMEOUT,
+                move |_, r, cx| {
                     let stopped = r.as_ref().is_some_and(is_ok)
                         && r.as_ref()
                             .and_then(|r| r.get("running"))
                             .and_then(Value::as_bool)
                             == Some(false);
                     if stopped {
-                        toast::success(cx, "Wine Steam stopped");
+                        toast::success(cx, format!("{client} stopped"));
                     } else {
                         toast::error(
                             cx,
                             error_text(r.as_ref())
-                                .unwrap_or_else(|| "Wine Steam is still running".into()),
+                                .unwrap_or_else(|| format!("{client} is still running")),
                         );
                     }
                     cx.emit(SettingsPreviewEvent::RefreshLaunchers);
@@ -819,7 +871,20 @@ impl SettingsPreview {
                 None,
                 live::STEAM_LAUNCH_TIMEOUT,
                 |_, r, cx| {
-                    if r.as_ref().is_some_and(is_ok) {
+                    let installing = r
+                        .as_ref()
+                        .and_then(|r| r.get("installing"))
+                        .and_then(Value::as_bool)
+                        == Some(true);
+                    if r.as_ref().is_some_and(is_ok) && installing {
+                        let stage = r
+                            .as_ref()
+                            .and_then(|r| r.get("install_stage"))
+                            .and_then(Value::as_str)
+                            .filter(|stage| !stage.is_empty())
+                            .unwrap_or("Starting");
+                        toast::info(cx, crate::linux_steam::setup_toast(stage));
+                    } else if r.as_ref().is_some_and(is_ok) {
                         toast::success(cx, "Steam started");
                     } else {
                         toast::error(
@@ -831,6 +896,15 @@ impl SettingsPreview {
                     cx.emit(SettingsPreviewEvent::RefreshLaunchers);
                 },
             );
+        }
+    }
+
+    /// What the Steam client is called: Linux Steam in Linux mode (FEX), else Wine Steam.
+    fn steam_client_name(&self) -> &'static str {
+        if crate::variant::is_fex() && self.app.steam_client_linux {
+            "Linux Steam"
+        } else {
+            "Wine Steam"
         }
     }
 
@@ -916,13 +990,14 @@ impl SettingsPreview {
     }
 
     fn switch_to_mac_steam(&mut self, cx: &mut Context<Self>) {
+        let client = self.steam_client_name();
         live::call(
             cx,
             "POST",
             "/steam/stop",
             None,
-            live::DEFAULT_TIMEOUT,
-            |this, r, cx| {
+            live::STEAM_STOP_TIMEOUT,
+            move |this, r, cx| {
                 let stopped = r.as_ref().is_some_and(is_ok)
                     && r.as_ref()
                         .and_then(|r| r.get("running"))
@@ -932,7 +1007,7 @@ impl SettingsPreview {
                     toast::error(
                         cx,
                         error_text(r.as_ref())
-                            .unwrap_or_else(|| "Wine Steam is still running".into()),
+                            .unwrap_or_else(|| format!("{client} is still running")),
                     );
                     cx.emit(SettingsPreviewEvent::RefreshLaunchers);
                     return;
@@ -1622,7 +1697,7 @@ impl SettingsPreview {
             }
             ConfirmAction::SwitchToMac => (
                 "Switch Steam Client".into(),
-                "Stop Wine Steam and start Mac Steam?".into(),
+                format!("Stop {} and start Mac Steam?", self.steam_client_name()).into(),
                 "OK".into(),
             ),
             ConfirmAction::ClearMullionShared => (
@@ -2069,9 +2144,18 @@ impl Render for SettingsPreview {
                 cx,
             )
             .border_b_0();
+        let linux_client = crate::variant::is_fex() && app.steam_client_linux;
         let wine_row = self.row(
-            self.tr("ui.settings.wineSteam"),
-            self.tr("ui.settingsDesc.wineSteam"),
+            if linux_client {
+                "Linux Steam (experimental)".into()
+            } else {
+                self.tr("ui.settings.wineSteam")
+            },
+            if linux_client {
+                "Valve's Linux Steam client in a small Linux virtual machine; its games run in MetalSharp Wine".into()
+            } else {
+                self.tr("ui.settingsDesc.wineSteam")
+            },
             div()
                 .flex()
                 .items_center()
@@ -2096,6 +2180,27 @@ impl Render for SettingsPreview {
                     )
                 }),
         );
+        // FEX, with a MetalSharp Wine that carries Linux Steam: which Steam client MetalSharp runs.
+        let client_row = (crate::variant::is_fex() && app.linux_steam_available).then(|| {
+            let linux = self.steam_client == "linux";
+            self.row(
+                "Steam client",
+                "Windows Steam in MetalSharp Wine, or Valve's Linux Steam in a small Linux virtual machine \
+                 (experimental). Switching stops the Steam client that runs now.",
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(
+                        self.action_button("steam-client-windows", "Windows", !linux)
+                            .on_click(cx.listener(|this, _, _, cx| this.set_steam_client("windows", cx))),
+                    )
+                    .child(
+                        self.action_button("steam-client-linux", "Linux (experimental)", linux)
+                            .on_click(cx.listener(|this, _, _, cx| this.set_steam_client("linux", cx))),
+                    ),
+            )
+        });
         let setup_row = self.row(
             "Missing Windows Steam?",
             "Re-run the setup wizard to install or repair the Steam runtime",
@@ -2631,8 +2736,11 @@ impl Render for SettingsPreview {
                 self.card(
                     self.tr("settings.steam"),
                     div()
+                        .children(client_row)
                         .child(wine_row)
-                        .when(!app.wine_steam_installed, |d| d.child(setup_row))
+                        .when(!app.wine_steam_installed && !linux_client, |d| {
+                            d.child(setup_row)
+                        })
                         .child(mac_row)
                         .children(ray_tracing),
                     false,

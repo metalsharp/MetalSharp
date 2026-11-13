@@ -69,6 +69,8 @@ void ms_wine_fex_unlock(int fd);
 bool ms_wine_fex_refresh_blocked(const char* home);
 /* MetalSharp-Wine.app swapped in place for the one MetalSharp.app carries, when they differ (a MetalSharp update) */
 bool ms_wine_fex_refresh_app(const char* home, char* error, size_t error_size);
+/* MetalSharp Wine versions ("7.0", "7.0-pre1"): 1 when left is newer, -1 older, 0 the same, 2 when either is not one. */
+int ms_wine_compare_versions(const char* left, const char* right);
 /* At backend start, on a detached thread: once setup has installed MetalSharp Wine, reinstall it
  * when this MetalSharp carries a different build, and rewrite the facade's wrappers. */
 void ms_wine_fex_refresh_async(const char* home);

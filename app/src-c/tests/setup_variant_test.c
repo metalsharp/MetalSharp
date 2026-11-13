@@ -6,6 +6,10 @@
 #include <assert.h>
 
 /* migration.c's Steam and Ubisoft helpers, which these tests don't reach. */
+bool ms_linux_steam_stop_if_running(const char* home, unsigned seconds) {
+    (void)home, (void)seconds;
+    return true;
+}
 char* ms_steam_stop_json(const char* home, int* status) {
     (void)home, (void)status;
     return NULL;

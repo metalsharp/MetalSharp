@@ -3945,6 +3945,8 @@ impl MetalSharpApp {
             device_name: self.live.device_name.clone(),
             wine_steam_installed: self.live.wine_steam_installed,
             wine_steam_running: self.live.wine_steam_running,
+            steam_client_linux: self.live.steam_client_linux,
+            linux_steam_available: self.live.linux_steam_available,
             mac_steam_installed: self.live.mac_steam_installed,
             mac_steam_running: self.live.mac_steam_running,
             backend_connected: self.live.backend_connected,

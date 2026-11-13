@@ -87,7 +87,7 @@ jobs:
         run: make -C app/src-c test
 
       - name: Backend source contracts
-        run: node --test app/tests/x87sidecar-gate.cjs app/tests/rosetta-avx-env.cjs
+        run: node --test app/tests/x87sidecar-gate.cjs app/tests/rosetta-avx-env.cjs app/tests/linux-steam-client.cjs
 
       - name: D3D12 Metal SDK contracts
         run: |

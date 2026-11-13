@@ -146,7 +146,34 @@ force_stop_old_runtime() {
     unmount_stale_metalsharp_images
 }
 
+# Linux Steam (the FEX build's experimental Steam client) runs its virtual machine from MetalSharp-Wine.app in the
+# data folder: stopped cleanly with its own command before anything is killed or replaced, within 60 seconds. Nothing
+# happens when it never ran. krunkit, gvproxy, metalsharp-vmd and LinuxSteam are never killed by name here.
+stop_linux_steam() {
+    local command="$MS_DIR/runtime/MetalSharp-Wine.app/Contents/share/steamvm/metalsharp-steam"
+    local pid waited=0
+    if [ ! -x "$command" ] || [ ! -d "$MS_DIR/run/linux-steam" ]; then
+        return 0
+    fi
+    mkdir -p "$MS_DIR/logs" 2>/dev/null || true
+    METALSHARP_VM_DIR="$MS_DIR/linux-steam" METALSHARP_VM_RUN="$MS_DIR/run/linux-steam" \
+        METALSHARP_STEAM_PREFIX="$MS_DIR/prefix-steam" METALSHARP_GAME_PREFIX="$MS_DIR/prefix-steam" \
+        METALSHARP_WINE="$MS_DIR/runtime/MetalSharp-Wine.app/Contents/MacOS/wine" \
+        "$command" stop </dev/null >>"$MS_DIR/logs/linux-steam.log" 2>&1 &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if [ "$waited" -ge 300 ]; then
+            kill "$pid" 2>/dev/null || true
+            break
+        fi
+        sleep 0.2
+        waited=$((waited + 1))
+    done
+    wait "$pid" 2>/dev/null || true
+}
+
 stop_steam_and_wine() {
+    stop_linux_steam
     for pat in steam steam.exe steamwebhelper steamwebhelper.exe wine wine64 wineserver wineloader; do
         pkill -x "$pat" 2>/dev/null || true
     done

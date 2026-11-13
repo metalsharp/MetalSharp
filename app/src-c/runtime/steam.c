@@ -3,6 +3,7 @@
 #include "metalsharp_backend/config.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/linux_steam.h"
 #include "metalsharp_backend/local_socket.h"
 #include "metalsharp_backend/mtsp.h"
 #include "metalsharp_backend/steam_actions.h"
@@ -1431,32 +1432,42 @@ static void write_library_shortcut(ms_json_writer* w, const char* home, const ms
     free(icon);
 }
 
-static char* steam_library_json(const char* metalsharp_home, bool refresh) {
+/* Every Steam library MetalSharp knows, each with the libraries its libraryfolders.vdf lists: the Mac's Steam roots,
+ * Windows Steam's in the Steam prefix, and Linux Steam's default library in that prefix (drive_c/SteamLibrary), which
+ * Windows Steam does not list and whose own libraryfolders.vdf names the virtual machine's paths. */
+static void collect_known_steam_roots(const char* metalsharp_home, steam_game** games, size_t* count,
+                                      size_t* capacity) {
     const char* home = getenv("HOME");
+    const char* own[] = {"prefix-steam/drive_c/Program Files (x86)/Steam/steamapps", MS_LINUX_STEAM_LIBRARY_STEAMAPPS};
+    if (home != NULL) {
+        const char* suffixes[] = {"Library/Application Support/Steam/steamapps", ".steam/steam/steamapps",
+                                  ".local/share/Steam/steamapps"};
+        for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); ++i) {
+            char* path = join_path(home, suffixes[i]);
+            if (path != NULL) {
+                collect_steam_library_tree(path, games, count, capacity);
+                free(path);
+            }
+        }
+    }
+    for (size_t i = 0; metalsharp_home != NULL && i < sizeof(own) / sizeof(own[0]); ++i) {
+        char* path = join_path(metalsharp_home, own[i]);
+        if (path != NULL) {
+            collect_steam_library_tree(path, games, count, capacity);
+            free(path);
+        }
+    }
+}
+
+static char* steam_library_json(const char* metalsharp_home, bool refresh) {
     steam_game* games = NULL;
     size_t count = 0, capacity = 0, i;
-    char* path;
     char* api_key = saved_key(metalsharp_home);
     ms_json_writer w;
     char* steam_id = detected_steam_id(metalsharp_home);
     char* result;
     bool exclude_native_mac_games = ms_config_exclude_native_mac_steam_games(metalsharp_home);
-    if (home != NULL) {
-        const char* suffixes[] = {"Library/Application Support/Steam/steamapps", ".steam/steam/steamapps",
-                                  ".local/share/Steam/steamapps"};
-        for (i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); ++i) {
-            path = join_path(home, suffixes[i]);
-            if (path != NULL) {
-                collect_steam_library_tree(path, &games, &count, &capacity);
-                free(path);
-            }
-        }
-    }
-    path = join_path(metalsharp_home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamapps");
-    if (path != NULL) {
-        collect_steam_library_tree(path, &games, &count, &capacity);
-        free(path);
-    }
+    collect_known_steam_roots(metalsharp_home, &games, &count, &capacity);
     if (api_key && steam_id)
         (void)load_owned_games(metalsharp_home, api_key, steam_id, refresh, &games, &count, &capacity);
     /* Materialize the TOML-selected route for installed games on first
@@ -1546,28 +1557,10 @@ char* ms_steam_library_refresh_json(const char* metalsharp_home) {
 }
 
 char* ms_steam_game_dir(const char* metalsharp_home, unsigned appid) {
-    const char* home = getenv("HOME");
     steam_game* games = NULL;
     size_t count = 0, capacity = 0;
     char* result = NULL;
-    if (home != NULL) {
-        const char* suffixes[] = {"Library/Application Support/Steam/steamapps", ".steam/steam/steamapps",
-                                  ".local/share/Steam/steamapps"};
-        for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); i++) {
-            char* path = join_path(home, suffixes[i]);
-            if (path) {
-                collect_steam_library_tree(path, &games, &count, &capacity);
-                free(path);
-            }
-        }
-    }
-    {
-        char* path = join_path(metalsharp_home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamapps");
-        if (path) {
-            collect_steam_library_tree(path, &games, &count, &capacity);
-            free(path);
-        }
-    }
+    collect_known_steam_roots(metalsharp_home, &games, &count, &capacity);
     for (size_t i = 0; i < count; i++) {
         if (games[i].appid == appid && games[i].game_dir && access(games[i].game_dir, R_OK) == 0) {
             result = strdup(games[i].game_dir);
@@ -1586,28 +1579,10 @@ char* ms_steam_game_dir(const char* metalsharp_home, unsigned appid) {
 }
 
 char* ms_steam_native_app_path(const char* metalsharp_home, unsigned appid) {
-    const char* home = getenv("HOME");
     steam_game* games = NULL;
     size_t count = 0, capacity = 0;
     char* result = NULL;
-    if (home != NULL) {
-        const char* suffixes[] = {"Library/Application Support/Steam/steamapps", ".steam/steam/steamapps",
-                                  ".local/share/Steam/steamapps"};
-        for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); i++) {
-            char* path = join_path(home, suffixes[i]);
-            if (path) {
-                collect_steam_library_tree(path, &games, &count, &capacity);
-                free(path);
-            }
-        }
-    }
-    {
-        char* path = join_path(metalsharp_home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamapps");
-        if (path) {
-            collect_steam_library_tree(path, &games, &count, &capacity);
-            free(path);
-        }
-    }
+    collect_known_steam_roots(metalsharp_home, &games, &count, &capacity);
     for (size_t i = 0; i < count; i++) {
         if (games[i].appid == appid && games[i].native_app_path) {
             result = strdup(games[i].native_app_path);
@@ -1831,7 +1806,6 @@ char* ms_steam_watch_json(const char* metalsharp_home) {
     size_t count = 0, capacity = 0;
     ms_json_writer w;
     char* result;
-    const char* home = getenv("HOME");
     if (old != NULL) {
         char* p = strstr(old, "\"appids\"");
         p = p == NULL ? old : strchr(p, '[');
@@ -1845,24 +1819,7 @@ char* ms_steam_watch_json(const char* metalsharp_home) {
             old_ids[old_count++] = (unsigned)strtoul(p, &p, 10);
         }
     }
-    if (home != NULL) {
-        const char* suffixes[] = {"Library/Application Support/Steam/steamapps", ".steam/steam/steamapps",
-                                  ".local/share/Steam/steamapps"};
-        for (i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); ++i) {
-            char* path = join_path(home, suffixes[i]);
-            if (path != NULL) {
-                collect_steam_library_tree(path, &games, &count, &capacity);
-                free(path);
-            }
-        }
-    }
-    {
-        char* path = join_path(metalsharp_home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamapps");
-        if (path != NULL) {
-            collect_steam_library_tree(path, &games, &count, &capacity);
-            free(path);
-        }
-    }
+    collect_known_steam_roots(metalsharp_home, &games, &count, &capacity);
     /* Non-Steam games added in Wine Steam count as library changes too. */
     {
         ms_steam_shortcut* shortcuts = NULL;
@@ -2029,7 +1986,7 @@ char* ms_steam_status_json(const char* metalsharp_home) {
     char* wine_wrapper = join_path(metalsharp_home, "runtime/wine/bin/metalsharp-wine");
     char* install_lock = join_path(metalsharp_home, ".steam-installing");
     char* install_stage_path = join_path(metalsharp_home, ".steam-install-stage");
-    char install_stage[64] = "idle";
+    char install_stage[160] = "idle";
     char* mac_app = home == NULL ? NULL : join_path(home, "Applications/Steam.app");
     char* mac_bundle =
         home == NULL ? NULL : join_path(home, "Library/Application Support/Steam/Steam.AppBundle/Steam/Steam.app");
@@ -2051,8 +2008,23 @@ char* ms_steam_status_json(const char* metalsharp_home) {
     bool mac_installed = access("/Applications/Steam.app", F_OK) == 0 ||
                          (mac_app != NULL && access(mac_app, F_OK) == 0) ||
                          (mac_bundle != NULL && access(mac_bundle, F_OK) == 0);
-    bool running = ms_steam_process_running(metalsharp_home);
+    bool running;
     bool mac_running = false;
+    /* Linux Steam (fex, experimental): the client in the virtual machine is the one these report */
+    bool linux_mode = ms_linux_steam_mode(metalsharp_home);
+    char linux_error[256] = "";
+    if (linux_mode) {
+        ms_linux_steam_state linux_state;
+        bool known = ms_linux_steam_state_get(metalsharp_home, &linux_state, false);
+        installing = ms_linux_steam_installing(metalsharp_home, install_stage, sizeof(install_stage));
+        if (!installing)
+            snprintf(install_stage, sizeof(install_stage), "%s", "idle");
+        windows_installed = known && linux_state.installed && !installing;
+        running = known && (linux_state.vm_running || linux_state.steam_running);
+        ms_linux_steam_last_error(linux_error, sizeof(linux_error));
+    } else {
+        running = ms_steam_process_running(metalsharp_home);
+    }
     FILE* process_pipe = popen("/bin/ps axo command=", "r");
     char process_line[2048];
     if (process_pipe != NULL) {
@@ -2105,6 +2077,12 @@ char* ms_steam_status_json(const char* metalsharp_home) {
     ms_json_writer_bool(&writer, installing);
     ms_json_writer_key(&writer, "install_stage");
     ms_json_writer_string(&writer, install_stage);
+    ms_json_writer_key(&writer, "client");
+    ms_json_writer_string(&writer, linux_mode ? "linux" : "windows");
+    ms_json_writer_key(&writer, "linux_available");
+    ms_json_writer_bool(&writer, ms_linux_steam_available(metalsharp_home));
+    ms_json_writer_key(&writer, "linux_error");
+    ms_json_writer_string(&writer, linux_error);
     ms_json_writer_object_end(&writer);
     result = ms_json_writer_take(&writer);
     free(wine_prefix);

@@ -1,6 +1,7 @@
 #include "metalsharp_backend/migration.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/linux_steam.h"
 #include "metalsharp_backend/logs.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam_actions.h"
@@ -1453,7 +1454,12 @@ static bool rebuild_preserved_wine_prefixes(const char* home, bool* gog_ok, bool
 
 static bool stop_managed_wine_processes(const char* home) {
     int status = 500;
-    char* result = ms_steam_stop_json(home, &status);
+    char* result;
+    /* Linux Steam's virtual machine (fex) runs from MetalSharp-Wine.app, which this replaces: stopped cleanly first,
+     * whatever the Steam client setting; nothing when it never ran */
+    if (ms_wine_is_fex() && !ms_linux_steam_stop_if_running(home, 60))
+        return false;
+    result = ms_steam_stop_json(home, &status);
     bool stopped = result != NULL && status == 200 && strstr(result, "\"running\":false") != NULL;
     free(result);
     if (!stopped)
@@ -1820,10 +1826,11 @@ static bool restore_prefixes_from_fex(const char* home) {
     return failed == 0;
 }
 
-/* MS_MIGRATION_PATH_APP_UPDATE: Wine stopped, the active runtime's Wine app swapped in place for the one the new
- * MetalSharp.app carries, and the update recorded. User data, prefixes and the rest of the runtime stay as they are:
- * Wine updates a prefix itself the first time it starts there (wine.inf's time differs from the prefix's), and the
- * other runtime's app is swapped the same way when it is switched to. */
+/* MS_MIGRATION_PATH_APP_UPDATE: Wine stopped (and Linux Steam's virtual machine), the active runtime's Wine app swapped
+ * in place for the one the new MetalSharp.app carries, and the update recorded. User data and the rest of the runtime
+ * stay as they are. Wine updates a prefix itself the first time it starts there (wine.inf's time differs from the
+ * prefix's); on the fex build the Steam prefix gets that update right after the swap (ms_wine_fex_refresh_app), so the
+ * first Play does not wait for it. The other runtime's app is swapped the same way when it is switched to. */
 static void app_update(const char* home) {
     char error[512] = "";
     bool swapped;

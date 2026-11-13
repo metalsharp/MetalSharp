@@ -95,6 +95,15 @@ pub(super) struct LiveState {
     pub backend_version: Option<String>,
     pub wine_steam_installed: bool,
     pub wine_steam_running: bool,
+    /// FEX: Linux Steam is the Steam client (Settings' Steam client), so "Wine Steam" is Linux Steam.
+    pub steam_client_linux: bool,
+    /// FEX: the installed MetalSharp Wine carries Linux Steam.
+    pub linux_steam_available: bool,
+    /// Linux Steam's one-time setup runs; its last stage, shown once per change.
+    pub linux_steam_installing: bool,
+    pub linux_steam_stage: String,
+    /// The last error of a background Linux Steam start or setup, shown once.
+    pub linux_steam_error: String,
     /// A Start/Stop Steam request is in flight; buttons show it and ignore clicks.
     pub steam_pending: Option<SteamPending>,
     pub mac_steam_installed: bool,
@@ -212,6 +221,11 @@ impl Default for LiveState {
             backend_version: None,
             wine_steam_installed: false,
             wine_steam_running: false,
+            steam_client_linux: false,
+            linux_steam_available: false,
+            linux_steam_installing: false,
+            linux_steam_stage: String::new(),
+            linux_steam_error: String::new(),
             steam_pending: None,
             mac_steam_installed: false,
             mac_steam_running: false,
@@ -930,6 +944,7 @@ impl MetalSharpApp {
                     this.live.wine_steam_running = flag("running");
                     this.live.mac_steam_installed = flag("mac_installed");
                     this.live.mac_steam_running = flag("mac_running");
+                    this.apply_linux_steam_status(&status, cx);
                     cx.notify();
                 }
             },
@@ -2322,6 +2337,51 @@ impl MetalSharpApp {
 
     // ───────────────────────── Steam / Ubisoft ─────────────────────────
 
+    /// FEX, Linux Steam (`client` "linux" in `/steam/status`): its setup's stages and the end of the setup as toasts,
+    /// and a background start's error once.
+    fn apply_linux_steam_status(&mut self, status: &Value, cx: &mut Context<Self>) {
+        let linux = crate::variant::is_fex()
+            && status.get("client").and_then(Value::as_str) == Some("linux");
+        self.live.steam_client_linux = linux;
+        self.live.linux_steam_available = crate::variant::is_fex()
+            && status.get("linux_available").and_then(Value::as_bool) == Some(true);
+        if !linux {
+            self.live.linux_steam_installing = false;
+            return;
+        }
+        let installing = status.get("installing").and_then(Value::as_bool) == Some(true);
+        let stage = status
+            .get("install_stage")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        if installing
+            && !stage.is_empty()
+            && stage != "idle"
+            && stage != self.live.linux_steam_stage
+        {
+            toast::info(cx, crate::linux_steam::setup_toast(&stage));
+            self.live.linux_steam_stage = stage;
+        }
+        if self.live.linux_steam_installing && !installing {
+            self.live.linux_steam_stage.clear();
+            if status.get("installed").and_then(Value::as_bool) == Some(true) {
+                toast::success(cx, "Linux Steam is set up. Starting Linux Steam...");
+            }
+        }
+        self.live.linux_steam_installing = installing;
+        let error = status
+            .get("linux_error")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if error != self.live.linux_steam_error {
+            if !error.is_empty() {
+                toast::error(cx, error.to_owned());
+            }
+            self.live.linux_steam_error = error.to_owned();
+        }
+    }
+
     /// LibraryTopbar / empty-hero `toggleSteam`.
     /// LibraryTopbar `toggleSteam`: stop when running, otherwise start.
     pub(super) fn toggle_steam(&mut self, reload: bool, cx: &mut Context<Self>) {
@@ -2360,12 +2420,45 @@ impl MetalSharpApp {
             move |this, result, cx| {
                 this.live.steam_pending = None;
                 let ok = result.as_ref().is_some_and(is_ok);
-                if ok {
+                let linux = result
+                    .as_ref()
+                    .and_then(|r| r.get("client"))
+                    .and_then(Value::as_str)
+                    == Some("linux");
+                let installing = linux
+                    && result
+                        .as_ref()
+                        .and_then(|r| r.get("installing"))
+                        .and_then(Value::as_bool)
+                        == Some(true);
+                if ok && !installing {
                     this.live.wine_steam_running = true;
                 }
+                if ok && installing {
+                    this.live.linux_steam_installing = true;
+                    let stage = result
+                        .as_ref()
+                        .and_then(|r| r.get("install_stage"))
+                        .and_then(Value::as_str)
+                        .filter(|stage| !stage.is_empty())
+                        .unwrap_or("Starting")
+                        .to_owned();
+                    this.live.linux_steam_stage = stage.clone();
+                    toast::info(cx, crate::linux_steam::setup_toast(&stage));
+                    if reload {
+                        this.load_library(false, cx);
+                    }
+                    cx.notify();
+                    return;
+                }
+                let started = if linux || this.live.steam_client_linux {
+                    "Starting Linux Steam..."
+                } else {
+                    "Starting Wine Steam..."
+                };
                 toast::show(
                     cx,
-                    error_text(result.as_ref()).unwrap_or_else(|| "Starting Wine Steam...".into()),
+                    error_text(result.as_ref()).unwrap_or_else(|| started.into()),
                     if ok {
                         toast::ToastKind::Success
                     } else {
@@ -2391,16 +2484,21 @@ impl MetalSharpApp {
             "POST",
             "/steam/stop",
             None,
-            live::DEFAULT_TIMEOUT,
+            live::STEAM_STOP_TIMEOUT,
             move |this, result, cx| {
                 this.live.steam_pending = None;
                 let ok = result.as_ref().is_some_and(is_ok);
                 if ok {
                     this.live.wine_steam_running = false;
                 }
+                let stopped = if this.live.steam_client_linux {
+                    "Linux Steam stopped"
+                } else {
+                    "Wine Steam stopped"
+                };
                 toast::show(
                     cx,
-                    error_text(result.as_ref()).unwrap_or_else(|| "Wine Steam stopped".into()),
+                    error_text(result.as_ref()).unwrap_or_else(|| stopped.into()),
                     if ok {
                         toast::ToastKind::Success
                     } else {
