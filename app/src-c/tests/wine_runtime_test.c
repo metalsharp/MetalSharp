@@ -373,6 +373,34 @@ int main(int argc, char** argv) {
     EXPECT(!ms_wine_fex_write_facade(home, other, sizeof(other)));
     EXPECT(!ms_wine_fex_facade_ready(home));
 
+    /* MetalSharp Wine downloaded by a regular MetalSharp.app, which does not carry it: the app source is the
+     * download, while configs and scripts/tools still come from MetalSharp.app's Resources. */
+    {
+        char resources[PATH_MAX], downloaded[PATH_MAX], expected[PATH_MAX];
+        char* found;
+        snprintf(resources, sizeof(resources), "%s/Resources", home);
+        mkdir(resources, 0755);
+        snprintf(path, sizeof(path), "%s/configs", resources);
+        mkdir(path, 0755);
+        snprintf(downloaded, sizeof(downloaded), "%s/downloads", home);
+        mkdir(downloaded, 0755);
+        snprintf(downloaded, sizeof(downloaded), "%s/downloads/MetalSharp-Wine.app", home);
+        mkdir(downloaded, 0755);
+        setenv("METALSHARP_HOME", home, 1);
+        setenv("METALSHARP_APP_RESOURCES", resources, 1);
+        unsetenv("METALSHARP_WINE_APP_SOURCE");
+        found = ms_wine_fex_app_source();
+        EXPECT(found && !strcmp(found, downloaded));
+        free(found);
+        found = ms_app_resources_path("configs");
+        snprintf(expected, sizeof(expected), "%s/configs", resources);
+        EXPECT(found && !strcmp(found, expected));
+        free(found);
+        EXPECT(ms_app_resources_path("scripts/tools") == NULL);
+        unsetenv("METALSHARP_APP_RESOURCES");
+        unsetenv("METALSHARP_HOME");
+    }
+
     if (!app) {
         printf("wine runtime tests passed (no MetalSharp Wine app; facade not run)\n");
         return failures ? 1 : 0;

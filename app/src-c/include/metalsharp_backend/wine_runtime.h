@@ -79,8 +79,12 @@ bool ms_wine_refresh_inactive_app(const char* home, char* error, size_t error_si
 void ms_wine_refresh_begin(void);
 void ms_wine_refresh_end(void);
 bool ms_wine_refresh_wait(unsigned seconds);
-/* The MetalSharp-Wine.app this MetalSharp carries, or NULL. Malloc'd. */
+/* The MetalSharp-Wine.app this MetalSharp carries, else the one downloaded into downloads/, or NULL. Malloc'd. */
 char* ms_wine_fex_app_source(void);
+/* <name> in MetalSharp.app's Resources (beside the backend's runtime folder, else /Applications' MetalSharp.app;
+ * $METALSHARP_APP_RESOURCES names another folder), or NULL. Never downloads/, so configs and scripts/tools are
+ * found however MetalSharp Wine arrived. Malloc'd. */
+char* ms_app_resources_path(const char* name);
 
 /* Prepares a prefix for MetalSharp Wine before anything runs in it: wineboot -u (ARM64X
  * builtins and FEX's WoW64 keys), the bundled VC++ 2022 x64 and x86 runtimes, and the bundled

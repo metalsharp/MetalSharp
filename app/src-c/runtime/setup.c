@@ -2565,19 +2565,19 @@ static bool fex_stage_support_assets(const char* home) {
 
 static bool fex_stage_scripts_tools(const char* home) {
     char contents[PATH_MAX], share[PATH_MAX];
-    char* wine_app = ms_wine_fex_app_source();
-    char* slash = wine_app ? strrchr(wine_app, '/') : NULL;
+    /* MetalSharp.app/Contents/Resources, also when MetalSharp Wine was downloaded into downloads/. */
+    char* resources = ms_app_resources_path("configs");
+    char* slash = resources ? strrchr(resources, '/') : NULL;
     bool ok = slash && ms_wine_app_contents(home, contents, sizeof(contents)) &&
               snprintf(share, sizeof(share), "%s/share/metalsharp", contents) < (int)sizeof(share);
     if (ok) {
-        /* MetalSharp.app/Contents/Resources, where the backend found MetalSharp-Wine.app. */
         *slash = '\0';
-        ok = fex_stage_tree(wine_app, "configs", home, "scripts/tools/configs") &&
-             fex_stage_tree(wine_app, "scripts/tools/native", home, "scripts/tools/native") &&
-             fex_stage_tree(wine_app, "scripts/tools/updater", home, "scripts/tools/updater") &&
+        ok = fex_stage_tree(resources, "configs", home, "scripts/tools/configs") &&
+             fex_stage_tree(resources, "scripts/tools/native", home, "scripts/tools/native") &&
+             fex_stage_tree(resources, "scripts/tools/updater", home, "scripts/tools/updater") &&
              fex_stage_tree(share, "tools/cef", home, "scripts/tools/cef");
     }
-    free(wine_app);
+    free(resources);
     return ok;
 }
 
