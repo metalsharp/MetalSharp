@@ -1,6 +1,7 @@
 //! Quitting MetalSharp ends its Wine processes too: the Wine Steam client, games, wineserver and their helpers
 //! (x86_64 Wine and the FEX build's MetalSharp Wine alike), and the "MetalSharp Steam" helper app. Left running,
 //! they keep MetalSharp's processes alive after the app has gone, so a closed MetalSharp had to be force quit.
+//! Linux Steam's virtual machine is stopped before, with its own command (crate::linux_steam), and never killed.
 //!
 //! Processes are told apart by their executable, not their command line: Wine shows a game's Windows command line
 //! (`C:\...\steam.exe`) in place of its own.
@@ -25,8 +26,13 @@ impl WineRoots {
         }
     }
 
-    /// Whether a process running `executable` (a resolved path, as the kernel reports it) is one of them.
+    /// Whether a process running `executable` (a resolved path, as the kernel reports it) is one of them. Linux
+    /// Steam's virtual machine, which runs from MetalSharp-Wine.app too, is not: it is stopped with its own command
+    /// (crate::linux_steam), never killed.
     pub fn owns(&self, executable: &Path) -> bool {
+        if crate::linux_steam::is_vm_executable(executable) {
+            return false;
+        }
         if self.bundled.iter().any(|root| executable.starts_with(root)) {
             return true;
         }
@@ -185,6 +191,12 @@ mod tests {
             "/Applications/MetalSharp.app/Contents/Resources/runtime/metalsharp-backend",
             // tools the data folder holds that are not Wine
             "/Users/fixture/.metalsharp/tools/steamcmd/steamcmd",
+            // Linux Steam's virtual machine, inside MetalSharp Wine's app: stopped with metalsharp-steam instead
+            "/Users/fixture/.metalsharp/runtime/MetalSharp-Wine.app/Contents/MacOS/krunkit",
+            "/Users/fixture/.metalsharp/runtime/MetalSharp-Wine.app/Contents/bin/gvproxy",
+            "/Users/fixture/.metalsharp/runtime/MetalSharp-Wine.app/Contents/bin/metalsharp-vmd",
+            "/Users/fixture/.metalsharp/runtime/MetalSharp-Wine.app/Contents/share/steamvm/LinuxSteam.app/Contents/MacOS/LinuxSteam",
+            "/Applications/MetalSharp.app/Contents/Resources/MetalSharp-Wine.app/Contents/MacOS/krunkit",
             // Wine that is not MetalSharp's, and the Mac Steam client
             "/Applications/Wine Stable.app/Contents/Resources/wine/bin/wine64-preloader",
             "/Applications/Steam.app/Contents/MacOS/steam_osx",

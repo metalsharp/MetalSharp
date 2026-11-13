@@ -40,6 +40,12 @@ char* ms_setup_install_all_json(const char* home, int* status) {
     return NULL;
 }
 
+bool ms_linux_steam_stop_if_running(const char* home, unsigned seconds) {
+    (void)home;
+    (void)seconds;
+    return true;
+}
+
 char* ms_steam_stop_json(const char* home, int* status) {
     (void)home;
     (void)status;

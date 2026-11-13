@@ -1,6 +1,7 @@
 #include "metalsharp_backend/game.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/linux_steam.h"
 #include "metalsharp_backend/steam.h"
 #include <dirent.h>
 #include <stdbool.h>
@@ -336,14 +337,20 @@ char* ms_game_dual_json(const char* home, const char* query, int* status) {
             }
             free(dir);
         }
-    dir = join_game_path(home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamapps");
-    if (dir) {
-        common = steam_common_game(dir, id);
-        if (common) {
-            inspect_dual_dir(common, &mac_dir, &mac_app, &wine_dir);
-            free(common);
+    {
+        const char* own[] = {"prefix-steam/drive_c/Program Files (x86)/Steam/steamapps",
+                             MS_LINUX_STEAM_LIBRARY_STEAMAPPS};
+        for (size_t i = 0; i < sizeof(own) / sizeof(own[0]); i++) {
+            dir = join_game_path(home, own[i]);
+            if (!dir)
+                continue;
+            common = steam_common_game(dir, id);
+            if (common) {
+                inspect_dual_dir(common, &mac_dir, &mac_app, &wine_dir);
+                free(common);
+            }
+            free(dir);
         }
-        free(dir);
     }
     if (status)
         *status = 200;

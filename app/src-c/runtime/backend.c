@@ -500,6 +500,8 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/config") == 0) {
         int status = 500;
+        ms_steam_client_switch_prepare(context->metalsharp_home, (const unsigned char*)request->body,
+                                       request->body_length);
         body = ms_config_set_json(context->metalsharp_home, request->body, request->body_length, &status);
         if (body == NULL)
             return false;

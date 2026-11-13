@@ -23,6 +23,16 @@ bool ms_setup_x86_64_refresh(const char* home, char* error, size_t error_size) {
     return true;
 }
 
+static unsigned linux_steam_stop_calls = 0;
+
+/* Linux Steam's virtual machine, stopped before the Steam client and the Wine app swap. */
+bool ms_linux_steam_stop_if_running(const char* home, unsigned seconds) {
+    assert(home != NULL);
+    assert(seconds > 0);
+    linux_steam_stop_calls++;
+    return true;
+}
+
 char* ms_steam_stop_json(const char* home, int* status) {
     assert(home != NULL);
     steam_stop_calls++;
@@ -254,6 +264,8 @@ int main(void) {
     remove_tree_local(home);
     make_directory(home);
     assert(stop_managed_wine_processes(home));
+    /* the fex build stops Linux Steam's virtual machine too; the regular build never does */
+    assert(linux_steam_stop_calls == (ms_wine_is_fex() ? 1 : 0));
     assert(steam_stop_calls == 1);
     assert(ubisoft_stop_calls == 1);
     assert(battlenet_stop_calls == 1);

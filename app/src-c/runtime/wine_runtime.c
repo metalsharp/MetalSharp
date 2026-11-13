@@ -16,7 +16,9 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/file.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/un.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -1059,20 +1061,176 @@ bool ms_wine_fex_prepare_prefix(const char* home, const char* prefix, bool force
     return true;
 }
 
+/* An app's version: CFBundleShortVersionString, else CFBundleVersion, of its Info.plist (MetalSharp Wine's is XML). */
+static bool app_version(const char* app, char* out, size_t out_size) {
+    static const char* const keys[] = {"<key>CFBundleShortVersionString</key>", "<key>CFBundleVersion</key>"};
+    char path[PATH_MAX], text[65536];
+    FILE* file;
+    size_t length;
+    if (snprintf(path, sizeof(path), "%s/Contents/Info.plist", app) >= (int)sizeof(path) || !(file = fopen(path, "rb")))
+        return false;
+    length = fread(text, 1, sizeof(text) - 1, file);
+    fclose(file);
+    text[length] = '\0';
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        const char* at = strstr(text, keys[i]);
+        const char* end;
+        if (!at)
+            continue;
+        at += strlen(keys[i]);
+        while (*at == ' ' || *at == '\t' || *at == '\r' || *at == '\n')
+            at++;
+        if (strncmp(at, "<string>", 8) != 0 || !(end = strstr(at + 8, "</string>")))
+            continue;
+        at += 8;
+        if (end == at || (size_t)(end - at) >= out_size)
+            continue;
+        memcpy(out, at, (size_t)(end - at));
+        out[end - at] = '\0';
+        return true;
+    }
+    return false;
+}
+
+typedef struct {
+    unsigned long parts[4];
+    char label[16]; /* "" for a release; pre, rc, beta... for a pre-release ("7.0-pre1") */
+    unsigned long label_number;
+} wine_version;
+
+static bool parse_version(const char* text, wine_version* version) {
+    size_t count = 0, length = 0;
+    memset(version, 0, sizeof(*version));
+    while (count < 4) {
+        char* end;
+        if (!isdigit((unsigned char)*text))
+            return false;
+        version->parts[count++] = strtoul(text, &end, 10);
+        text = end;
+        if (*text != '.')
+            break;
+        text++;
+    }
+    if (*text == '\0')
+        return true;
+    if (*text != '-')
+        return false;
+    text++;
+    while (isalpha((unsigned char)*text) && length + 1 < sizeof(version->label))
+        version->label[length++] = (char)tolower((unsigned char)*text++);
+    version->label[length] = '\0';
+    if (!length)
+        return false;
+    if (isdigit((unsigned char)*text))
+        version->label_number = strtoul(text, (char**)&text, 10);
+    return *text == '\0';
+}
+
+/* 1 when left is newer than right, -1 when older, 0 the same, 2 when either is not a version. A pre-release comes
+ * before its release (7.0-pre1 < 7.0). */
+int ms_wine_compare_versions(const char* left, const char* right) {
+    wine_version a, b;
+    int labels;
+    if (!left || !right || !parse_version(left, &a) || !parse_version(right, &b))
+        return 2;
+    for (size_t i = 0; i < 4; i++)
+        if (a.parts[i] != b.parts[i])
+            return a.parts[i] > b.parts[i] ? 1 : -1;
+    if (!a.label[0] || !b.label[0])
+        return a.label[0] == b.label[0] ? 0 : a.label[0] ? -1 : 1;
+    if ((labels = strcmp(a.label, b.label)) != 0)
+        return labels > 0 ? 1 : -1;
+    return a.label_number == b.label_number ? 0 : a.label_number > b.label_number ? 1 : -1;
+}
+
+/* Whether a wineserver serves the prefix: Wine's server socket for it (/tmp/.wine-<uid>/server-<dev>-<inode>/socket)
+ * takes a connection. */
+static bool prefix_wineserver_running(const char* prefix) {
+    struct stat info;
+    struct sockaddr_un address;
+    int fd;
+    bool running;
+    if (stat(prefix, &info) != 0)
+        return false;
+    memset(&address, 0, sizeof(address));
+    address.sun_family = AF_UNIX;
+    if (snprintf(address.sun_path, sizeof(address.sun_path), "/tmp/.wine-%u/server-%llx-%llx/socket",
+                 (unsigned)getuid(), (unsigned long long)info.st_dev,
+                 (unsigned long long)info.st_ino) >= (int)sizeof(address.sun_path) ||
+        (fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0)
+        return false;
+    running = connect(fd, (const struct sockaddr*)&address, sizeof(address)) == 0;
+    close(fd);
+    return running;
+}
+
+/* After the Wine app was swapped: Wine updates a prefix from the new wine.inf (whose time differs from the prefix's
+ * .update-timestamp) the first time it starts there, before the program it was started for. The Steam prefix, where
+ * every Steam game runs (Linux Steam's too), gets that update here instead of at the first Play: wineboot -u -r (no
+ * Run keys, so no Steam client) and wineserver -w, as preparing it does. Only a prefix MetalSharp Wine prepared, with
+ * no Wine running in it. */
+static void update_steam_prefix(const char* home) {
+    char prefix[PATH_MAX], marker[PATH_MAX], wine[PATH_MAX], server[PATH_MAX], log[PATH_MAX], arch[16] = "";
+    FILE* file;
+    if (!home || snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home) >= (int)sizeof(prefix) ||
+        snprintf(marker, sizeof(marker), "%s/.metalsharp-wine-arch", prefix) >= (int)sizeof(marker) ||
+        snprintf(wine, sizeof(wine), "%s/runtime/wine/bin/wine", home) >= (int)sizeof(wine) ||
+        snprintf(log, sizeof(log), "%s/logs/prefix-setup.log", home) >= (int)sizeof(log) ||
+        !ms_wine_server_path(home, server, sizeof(server)) || !ms_wine_fex_prefix_ready(prefix) ||
+        !ms_wine_fex_facade_ready(home) || !(file = fopen(marker, "r")))
+        return;
+    if (!fgets(arch, sizeof(arch), file))
+        arch[0] = '\0';
+    fclose(file);
+    arch[strcspn(arch, "\r\n")] = '\0';
+    if (strcmp(arch, "arm64") != 0)
+        return;
+    /* a wineserver lingers a few seconds after its last program (the Steam client just stopped) */
+    for (int i = 0; i < 20 && prefix_wineserver_running(prefix); i++) {
+        struct timespec pause = {0, 500000000L};
+        nanosleep(&pause, NULL);
+    }
+    if (prefix_wineserver_running(prefix)) {
+        fprintf(stderr, "note: Wine runs in the Steam prefix; it is updated for the new MetalSharp Wine at its next "
+                        "start\n");
+        return;
+    }
+    {
+        const char* const boot[] = {wine, "wineboot", "-u", "-r", NULL};
+        const char* const wait_server[] = {server, "-w", NULL};
+        if (!run_wait(boot, prefix, log, 600) || !run_wait(wait_server, prefix, log, 300))
+            fprintf(stderr, "warning: could not update the Steam prefix for the new MetalSharp Wine; see "
+                            "logs/prefix-setup.log\n");
+    }
+}
+
 /* The installed MetalSharp-Wine.app swapped for the one MetalSharp.app carries when they differ, in place (only an
- * install that setup finished: a fresh one gets MetalSharp Wine from the setup wizard). The lock keeps two from
- * replacing the app at the same time; wait says whether to wait for it. */
-static bool refresh_app(const char* home, bool wait, char* error, size_t error_size) {
+ * install that setup finished: a fresh one gets MetalSharp Wine from the setup wizard), unless the installed one is a
+ * newer version (one installed by hand, or by a newer MetalSharp). The lock keeps two from replacing the app at the
+ * same time; wait says whether to wait for it. replaced says whether the app was swapped. */
+static bool refresh_app(const char* home, bool wait, bool* replaced, char* error, size_t error_size) {
     char app[PATH_MAX], installed[256] = "", carried[256] = "";
     char* source = ms_wine_fex_app_source();
     int lock = ms_wine_fex_lock(home, wait);
     bool ok = true;
+    *replaced = false;
     if (lock >= 0 && source && ms_wine_app_path(home, app, sizeof(app)) && access(app, F_OK) == 0) {
         bool same = app_identity(app, installed, sizeof(installed)) &&
                     app_identity(source, carried, sizeof(carried)) && !strcmp(installed, carried);
-        ok = same ? ms_wine_fex_facade_ready(home) || ms_wine_fex_write_facade(home, error, error_size)
-                  : install_app_locked(home, strdup(source), "MetalSharp-Wine.app", error, error_size) &&
-                        ms_wine_fex_write_facade(home, error, error_size);
+        char installed_version[64], carried_version[64];
+        bool newer = !same && app_version(app, installed_version, sizeof(installed_version)) &&
+                     app_version(source, carried_version, sizeof(carried_version)) &&
+                     ms_wine_compare_versions(installed_version, carried_version) == 1;
+        if (newer)
+            fprintf(stderr, "note: keeping the installed MetalSharp Wine %s, newer than the %s this MetalSharp carries\n",
+                    installed_version, carried_version);
+        if (same || newer) {
+            ok = ms_wine_fex_facade_ready(home) || ms_wine_fex_write_facade(home, error, error_size);
+        } else {
+            ok = install_app_locked(home, strdup(source), "MetalSharp-Wine.app", error, error_size) &&
+                 ms_wine_fex_write_facade(home, error, error_size);
+            *replaced = ok;
+        }
     } else if (lock < 0 && wait) {
         set_error(error, error_size, "could not lock MetalSharp Wine", home);
         ok = false;
@@ -1082,8 +1240,14 @@ static bool refresh_app(const char* home, bool wait, char* error, size_t error_s
     return ok;
 }
 
+/* The update's swap (migration): Wine is stopped already, so the Steam prefix is updated right after. */
 bool ms_wine_fex_refresh_app(const char* home, char* error, size_t error_size) {
-    return home && refresh_app(home, true, error, error_size);
+    bool replaced = false;
+    if (!home || !refresh_app(home, true, &replaced, error, error_size))
+        return false;
+    if (replaced)
+        update_steam_prefix(home);
+    return true;
 }
 
 /* The startup refreshes (MetalSharp Wine's app here, the x86_64 runtime's in setup.c) run on threads of their own.
@@ -1123,14 +1287,18 @@ bool ms_wine_refresh_wait(unsigned seconds) {
 static void* refresh_thread(void* argument) {
     char* home = argument;
     char error[512] = "";
+    bool replaced = false;
     /* A pending or running migration swaps the app itself (ms_wine_fex_refresh_app). */
-    if (!ms_wine_fex_refresh_blocked(home) && !refresh_app(home, false, error, sizeof(error)))
+    if (!ms_wine_fex_refresh_blocked(home) && !refresh_app(home, false, &replaced, error, sizeof(error)))
         fprintf(stderr, "warning: could not refresh MetalSharp Wine: %s\n", error);
     /* and the x86_64 runtime's app, when it is installed too */
     if (!ms_wine_fex_refresh_blocked(home) && !ms_wine_refresh_inactive_app(home, error, sizeof(error)))
         fprintf(stderr, "warning: could not refresh the other Wine runtime: %s\n", error);
-    free(home);
     ms_wine_refresh_end();
+    /* after the gate: the runtime is whole, and the prefix update can take a while */
+    if (replaced)
+        update_steam_prefix(home);
+    free(home);
     return NULL;
 }
 
@@ -1753,8 +1921,10 @@ char* ms_wine_uninstall_runtime_json(const char* home, const char* body, size_t 
  * $METALSHARP_RUNTIME_URL_REGULAR override it), unpacked into <home>/downloads, where setup takes it from
  * (app_source). Never MetalSharp's old runtime bundles. */
 
-#define MS_WINE_RELEASE_VERSION "6.0"
-#define RUNTIME_RELEASE_URL "https://github.com/metalsharp/MetalSharp-Wine/releases/download/v" MS_WINE_RELEASE_VERSION "/"
+/* MetalSharp Wine's arm64 release (the fex runtime); the x86_64 runtime's zip stays at the release that has one. */
+#define MS_WINE_RELEASE_VERSION "7.0-pre1"
+#define MS_WINE_X86_64_RELEASE_VERSION "6.0"
+#define RUNTIME_RELEASE_URL "https://github.com/metalsharp/MetalSharp-Wine/releases/download/v"
 
 typedef struct {
     pthread_mutex_t lock;
@@ -1775,7 +1945,8 @@ static bool runtime_download_url(const char* variant, char* out, size_t out_size
     const char* configured = getenv(!strcmp(variant, "fex") ? "METALSHARP_RUNTIME_URL_FEX" : "METALSHARP_RUNTIME_URL_REGULAR");
     if (configured && configured[0])
         return snprintf(out, out_size, "%s", configured) < (int)out_size;
-    return snprintf(out, out_size, "%sMetalSharp-Wine-%s-%s.zip", RUNTIME_RELEASE_URL, MS_WINE_RELEASE_VERSION,
+    const char* version = !strcmp(variant, "fex") ? MS_WINE_RELEASE_VERSION : MS_WINE_X86_64_RELEASE_VERSION;
+    return snprintf(out, out_size, "%s%s/MetalSharp-Wine-%s-%s.zip", RUNTIME_RELEASE_URL, version, version,
                     !strcmp(variant, "fex") ? "arm64" : "x86_64") < (int)out_size;
 }
 

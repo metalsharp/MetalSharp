@@ -5,6 +5,7 @@
 #endif
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/json.h"
+#include "metalsharp_backend/linux_steam.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/ubisoft.h"
@@ -168,7 +169,8 @@ static bool process_executable_within(pid_t pid, const char* root) {
     (void)pid;
     return false;
 #endif
-    return ms_resolved_path_within(executable, root);
+    /* Linux Steam's virtual machine runs from MetalSharp-Wine.app too; it is not Wine */
+    return !ms_linux_steam_vm_executable(executable) && ms_resolved_path_within(executable, root);
 }
 
 static bool process_is_steam(const char* command) {

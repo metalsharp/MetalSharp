@@ -14,5 +14,7 @@ bool ms_config_metal_hud_enabled(const char* metalsharp_home);
 bool ms_config_ray_tracing_enabled(const char* metalsharp_home);
 bool ms_config_graphics_runtime_logs_enabled(const char* metalsharp_home);
 bool ms_config_exclude_native_mac_steam_games(const char* metalsharp_home);
+/* "windows" (the default) or "linux": the Steam client the fex build runs (config key steamClient). */
+const char* ms_config_steam_client(const char* metalsharp_home);
 
 #endif

@@ -6,6 +6,7 @@
 #include "metalsharp_backend/ubisoft.h"
 #include "metalsharp_backend/game_executable.h"
 #include "metalsharp_backend/json.h"
+#include "metalsharp_backend/linux_steam.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/library_locations.h"
 #include "metalsharp_backend/process.h"
@@ -124,7 +125,8 @@ static bool ubisoft_process_executable_within(pid_t pid, const char* root) {
 #ifdef __APPLE__
     char executable[PROC_PIDPATHINFO_MAXSIZE];
     int bytes = proc_pidpath((int)pid, executable, sizeof(executable));
-    return bytes > 0 && ms_resolved_path_within(executable, root);
+    /* Linux Steam's virtual machine runs from MetalSharp-Wine.app too; it is not Wine */
+    return bytes > 0 && !ms_linux_steam_vm_executable(executable) && ms_resolved_path_within(executable, root);
 #else
     (void)pid;
     (void)root;
