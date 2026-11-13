@@ -1,6 +1,25 @@
 # Changelog
 
-## Unreleased
+## v1.2.0 — 2026-11-13
+
+MetalSharp 1.2.0 runs on [MetalSharp Wine 6.5](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v6.5) on both runtimes.
+
+### Changed
+
+- **MetalSharp Wine 6.0 → 6.5** — both builds carry and download MetalSharp Wine 6.5 (`MS_WINE_RELEASE_VERSION`, and Release CI's `METALSHARP_WINE_TAG`). On FEX: the Steam client starts again after Steam's November 2026 update, Proton's per-game rules for the games Steam starts, Valve's EasyAntiCheat and BattlEye support with the Linux module host, fourteen fixes from Wine's test suite, and a newer Mullion. On x86_64: the newer Mullion and VKD3D-Proton-MacOS 5.4.
+
+### Fixed
+
+- **Switching to x86_64 after an update no longer reopens the setup wizard (#769)** — the startup refresh rewrites the x86_64 runtime's stale DXMT manifest stamp when its files are in place. This is the fix 1.1.0's `fix-x86_64-setup-loop.sh` stood in for.
+- **Switching the x86_64 app to FEX finishes setup (#774, [@bondarev](https://github.com/bondarev))** — when MetalSharp Wine was downloaded rather than carried in the DMG, setup's step 10 looked for the scripts, tools and rules next to the download instead of in MetalSharp.app's Resources, and failed with "Scripts/tools bundle is missing or incomplete".
+- **Steam on x86_64 after Steam's November 2026 update (#777, [@ultima9](https://github.com/ultima9))** — MetalSharp keeps Steam's CEF wrapper, compatibility flags and DLL overrides on the x86_64 runtime instead of restoring Steam's own web helper, which crashed in a loop under Rosetta 2. FEX is unchanged.
+- **Subnautica 2 on Mullion (#773)** — launches with Niagara sprite rendering off (`fx.EnableNiagaraSpriteRendering=0` in its `Engine.ini`), which removes flashing, misplaced triangles over the ocean. Other routes are unchanged, and switching route takes the setting back out.
+
+### Security
+
+- **rustls 0.23.46 (#770)** — Dependabot alerts #95–#98.
+
+## v1.1.0 — 2026-11-08
 
 ### Added
 

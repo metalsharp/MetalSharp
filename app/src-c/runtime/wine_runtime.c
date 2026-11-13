@@ -1753,7 +1753,7 @@ char* ms_wine_uninstall_runtime_json(const char* home, const char* body, size_t 
  * $METALSHARP_RUNTIME_URL_REGULAR override it), unpacked into <home>/downloads, where setup takes it from
  * (app_source). Never MetalSharp's old runtime bundles. */
 
-#define MS_WINE_RELEASE_VERSION "6.0"
+#define MS_WINE_RELEASE_VERSION "6.5"
 #define RUNTIME_RELEASE_URL "https://github.com/metalsharp/MetalSharp-Wine/releases/download/v" MS_WINE_RELEASE_VERSION "/"
 
 typedef struct {
