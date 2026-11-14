@@ -493,6 +493,15 @@ impl SharpPreview {
                             None => format!("Launched {name}"),
                         },
                     );
+                    // MetalSharp Wine installs the WebView2 Runtime before the program starts, the first time
+                    if r.as_ref().is_some_and(|r| b(r, "installing_webview2")) {
+                        toast::info(
+                            cx,
+                            format!(
+                                "Installing Microsoft Edge WebView2 for {name}. This happens once and takes about a minute."
+                            ),
+                        );
+                    }
                 } else {
                     let error = error_text(r.as_ref())
                         .unwrap_or_else(|| format!("Failed to launch {name}"));

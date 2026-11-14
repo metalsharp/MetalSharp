@@ -1112,8 +1112,10 @@ static bool adoptable_exe(const char* path, off_t* size) {
     size_t length;
     struct stat info;
     base = base ? base + 1 : path;
+    /* Microsoft Edge and its WebView2 Runtime (and their updater), which MetalSharp Wine installs for a program
+     * using WebView2 (NoHesi Launcher): parts of the prefix, not programs to play */
     if (!base || stat(path, &info) != 0 || !S_ISREG(info.st_mode) || contains_ci(path, "/drive_c/windows/") ||
-        contains_ci(path, "/steamapps/"))
+        contains_ci(path, "/steamapps/") || contains_ci(path, "/Microsoft/Edge"))
         return false;
     length = strlen(base);
     if (length < 5 || length >= sizeof(lower) || strcasecmp(base + length - 4, ".exe"))
@@ -1486,6 +1488,62 @@ static bool set_field(const char* home, const char* id, const char* key, const c
     ms_json_free(apps);
     free(raw);
     return ok;
+}
+
+/* MetalSharp Wine installs the Edge WebView2 Runtime in a prefix when a program there first loads WebView2's loader
+ * (kernelbase), which takes about a minute: these say when a launch will, for the app to tell the player. A
+ * program uses WebView2 when WebView2Loader.dll is next to it or in .NET's runtimes/win-* folders, or is named at its
+ * end, where a .NET single-file program (NoHesi Launcher) lists the files bundled in it. */
+static bool program_uses_webview2(const char* exe) {
+    static const char* const dirs[] = {"", "runtimes/win-x64/native/", "runtimes/win-x86/native/",
+                                       "runtimes/win-arm64/native/"};
+    static const char marker[] = "WebView2Loader.dll";
+    char* dir = parent_dir(exe);
+    bool found = false;
+    for (size_t i = 0; dir && i < sizeof(dirs) / sizeof(dirs[0]) && !found; i++) {
+        char path[PATH_MAX];
+        snprintf(path, sizeof(path), "%s/%s%s", dir, dirs[i], marker);
+        found = access(path, F_OK) == 0;
+    }
+    free(dir);
+    if (!found) {
+        FILE* file = fopen(exe, "rb");
+        if (file) {
+            const long tail_size = 512 * 1024;
+            char* tail = malloc(tail_size);
+            if (tail && fseek(file, 0, SEEK_END) == 0) {
+                long size = ftell(file);
+                long start = size > tail_size ? size - tail_size : 0;
+                if (size > 0 && fseek(file, start, SEEK_SET) == 0) {
+                    size_t n = fread(tail, 1, (size_t)(size - start), file);
+                    for (size_t j = 0; j + sizeof(marker) - 1 <= n && !found; j++)
+                        found = tail[j] == 'W' && !memcmp(tail + j, marker, sizeof(marker) - 1);
+                }
+            }
+            free(tail);
+            fclose(file);
+        }
+    }
+    return found;
+}
+
+static bool prefix_has_webview2(const char* prefix) {
+    char path[PATH_MAX];
+    DIR* versions;
+    struct dirent* entry;
+    bool found = false;
+    snprintf(path, sizeof(path), "%s/drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application", prefix);
+    if (!(versions = opendir(path)))
+        return false;
+    while (!found && (entry = readdir(versions))) {
+        char exe[PATH_MAX];
+        if (entry->d_name[0] == '.')
+            continue;
+        snprintf(exe, sizeof(exe), "%s/%s/msedgewebview2.exe", path, entry->d_name);
+        found = access(exe, F_OK) == 0;
+    }
+    closedir(versions);
+    return found;
 }
 
 bool ms_sharp_is_msi(const char* path) {
@@ -2025,11 +2083,14 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 ms_json_free(j);
                 return failure("MetalSharp Wine runtime not found");
             }
+            bool installing_webview2 = false;
             {
                 /* Bottle-less apps run in the Steam prefix (metalsharp-wine's default). */
                 char* effective_prefix = prefix && prefix[0] ? strdup(prefix) : join(home, "prefix-steam");
                 map_external_volume_letters(effective_prefix);
                 ensure_prefix_fonts(home, effective_prefix);
+                if (effective_prefix && !strcmp(action, "launch"))
+                    installing_webview2 = program_uses_webview2(exe_path) && !prefix_has_webview2(effective_prefix);
                 free(effective_prefix);
             }
             if (!strcmp(action, "launch"))
@@ -2099,6 +2160,8 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             } else {
                 ms_json_writer_key(&w, "gameType");
                 ms_json_writer_string(&w, "native");
+                ms_json_writer_key(&w, "installing_webview2");
+                ms_json_writer_bool(&w, installing_webview2);
                 ms_json_writer_key(&w, "pipeline");
                 ms_json_writer_string(&w, reported_pipeline);
             }
