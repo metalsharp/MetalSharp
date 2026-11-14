@@ -1330,21 +1330,23 @@ impl Render for MetalSharpApp {
         if !library_visible {
             self.deactivate_polling_pages(cx);
         }
-        // The Play view takes the keyboard when nothing else has it, so arrows move between cards
-        // without a click first.
-        if library_visible && self.active_tab == LibraryTab::Play {
+        // The Play view has the keyboard unless the search field or a panel over it does, so arrows
+        // move between cards without a click first, also after Collection or a closed panel.
+        if library_visible
+            && self.active_tab == LibraryTab::Play
+            && !self.play_keys_blocked()
+            && self.live.update_dialog.is_none()
+            && self.live.fex_welcome_page.is_none()
+        {
             let focus = self
                 .play_focus
                 .get_or_insert_with(|| cx.focus_handle())
                 .clone();
-            // A settings field closed with its panel would otherwise keep the keyboard.
-            let closed_field = !self.game_settings_open
-                && self.sharp_setting_inputs.as_ref().is_some_and(|inputs| {
-                    [&inputs.name, &inputs.args]
-                        .iter()
-                        .any(|input| input.read(cx).focus_handle(cx).is_focused(window))
-                });
-            if window.focused(cx).is_none() || closed_field {
+            let searching = self
+                .search_input
+                .as_ref()
+                .is_some_and(|input| input.read(cx).focus_handle(cx).is_focused(window));
+            if !searching && !focus.is_focused(window) {
                 window.focus(&focus);
             }
         }
