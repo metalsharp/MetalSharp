@@ -4,7 +4,9 @@
 #include "metalsharp_backend/cache.h"
 #include "metalsharp_backend/metalfx.h"
 #include "metalsharp_backend/wine_runtime.h"
+#include <dirent.h>
 #include <limits.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -397,6 +399,55 @@ int main(int argc, char** argv) {
         EXPECT(found && !strcmp(found, expected));
         free(found);
         EXPECT(ms_app_resources_path("scripts/tools") == NULL);
+
+        /* An override left naming a path that is gone (launchctl setenv from a test) is ignored and logged: the
+         * runtime still comes from where MetalSharp keeps it, as if the override were unset. */
+        {
+            char stale[PATH_MAX], log_dir[PATH_MAX], line[1024];
+            DIR* logs;
+            struct dirent* entry;
+            bool logged = false;
+            snprintf(stale, sizeof(stale), "%s/runtime-source/MetalSharp-Wine.app", home);
+            setenv("METALSHARP_WINE_APP_SOURCE", stale, 1);
+            found = ms_wine_fex_app_source();
+            EXPECT(found && !strcmp(found, downloaded));
+            free(found);
+            /* asked again, it is still ignored (and logged only the first time) */
+            found = ms_wine_fex_app_source();
+            EXPECT(found && !strcmp(found, downloaded));
+            free(found);
+            snprintf(log_dir, sizeof(log_dir), "%s/logs", home);
+            if ((logs = opendir(log_dir))) {
+                while ((entry = readdir(logs)) && !logged) {
+                    FILE* file;
+                    if (entry->d_name[0] == '.')
+                        continue;
+                    snprintf(path, sizeof(path), "%s/%s", log_dir, entry->d_name);
+                    if (!(file = fopen(path, "r")))
+                        continue;
+                    while (fgets(line, sizeof(line), file))
+                        if (strstr(line, "METALSHARP_WINE_APP_SOURCE") && strstr(line, "does not exist"))
+                            logged = true;
+                    fclose(file);
+                }
+                closedir(logs);
+            }
+            EXPECT(logged);
+
+            /* An override that exists still wins. */
+            setenv("METALSHARP_WINE_APP_SOURCE", downloaded, 1);
+            found = ms_wine_fex_app_source();
+            EXPECT(found && !strcmp(found, downloaded));
+            free(found);
+            unsetenv("METALSHARP_WINE_APP_SOURCE");
+
+            /* A Resources override whose folder is gone falls back too, instead of finding nothing. */
+            snprintf(path, sizeof(path), "%s/no-such-resources", home);
+            setenv("METALSHARP_APP_RESOURCES", path, 1);
+            found = ms_app_resources_path("configs");
+            EXPECT(!found || strstr(found, "no-such-resources") == NULL);
+            free(found);
+        }
         unsetenv("METALSHARP_APP_RESOURCES");
         unsetenv("METALSHARP_HOME");
     }
