@@ -21,6 +21,9 @@
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam.h"
 #include "metalsharp_backend/wine_runtime.h"
+
+#include "metalsharp_backend/game_tuning.h"
+
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -7003,8 +7006,9 @@ static void write_fex_launch_args(unsigned id, const char* pipeline, const char*
     free(path);
 }
 
+/* tuning_provider/tuning_id: the game's Game Settings (game_tuning.h), applied in the child; NULL for none. */
 static char* spawn_direct_game(const char* home, const char* executable, unsigned id, const char* pipeline,
-                               pid_t* pid) {
+                               const char* tuning_provider, const char* tuning_id, pid_t* pid) {
     char* wine = join(home, "runtime/wine/bin/metalsharp-wine");
     char* prefix = join(home, "prefix-steam");
     char* cwd = malloc(PATH_MAX);
@@ -7099,6 +7103,9 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
             setenv("METALSHARP_DYLD_INSERT_LIBRARIES", cpu_shim, 1);
             setenv("DYLD_INSERT_LIBRARIES", cpu_shim, 1);
         }
+        /* The user's own settings last, over the route's. */
+        if (tuning_provider && tuning_id)
+            ms_game_tuning_apply_child(home, tuning_provider, tuning_id);
         if (runtime_log[0]) {
             int log_fd = open(runtime_log, O_WRONLY | O_CREAT | O_APPEND, 0644);
             if (log_fd >= 0) {
@@ -7357,7 +7364,16 @@ char* ms_steam_launch_d3dmetal_json(const char* home, unsigned id, const char* b
     game_dir = ms_steam_game_dir(home, id);
     ms_steam_deploy_controller_input_shims(home, game_dir);
     free(game_dir);
-    error_text = spawn_direct_game(home, executable, id, "d3dmetal", &pid);
+    {
+        char app_id[32], *prefix = join(home, "prefix-steam");
+        snprintf(app_id, sizeof(app_id), "%u", id);
+        game_dir = ms_steam_game_dir(home, id);
+        if (prefix)
+            ms_game_tuning_prepare_launch(home, "steam", app_id, prefix, game_dir, executable);
+        free(prefix);
+        free(game_dir);
+        error_text = spawn_direct_game(home, executable, id, "d3dmetal", "steam", app_id, &pid);
+    }
     if (error_text) {
         char* result = err(error_text);
         free(error_text);
@@ -7992,7 +8008,7 @@ static char* launch_rockstar_via_launcher_json(const char* home, const rockstar_
                                                const char* launcher, const char* pipeline, int* status) {
     char* game_dir = ms_steam_game_dir(home, game->appid);
     char* client = game_dir ? join(game_dir, game->client) : NULL;
-    char message[256];
+    char message[256], tuning_id[32];
     char* error_text;
     pid_t pid = 0;
 
@@ -8018,7 +8034,8 @@ static char* launch_rockstar_via_launcher_json(const char* home, const rockstar_
     }
     if ((error_text = ensure_wine_steam_running(home, status)))
         return error_text;
-    if ((error_text = spawn_direct_game(home, launcher, game->appid, pipeline, &pid))) {
+    snprintf(tuning_id, sizeof(tuning_id), "%u", game->appid);
+    if ((error_text = spawn_direct_game(home, launcher, game->appid, pipeline, "steam", tuning_id, &pid))) {
         char* result = err(error_text);
         free(error_text);
         return result;
@@ -8276,10 +8293,31 @@ static char* launch_ubisoft_connect_steam_mode(const char* home, unsigned appid,
  * process exits, the running list follows the Wine process of that
  * executable, which gives the app its Stop control and notices the game
  * closing. The grace covers Steam starting it. */
+/* Game Settings > Advanced for a game the Steam client starts: its variables ride in launch.local.env
+ * beside it, its AppDefaults go into the Steam prefix, and the priority watch looks for it. */
+static void prepare_steam_route_tuning(const char* home, unsigned id) {
+    char app_id[32];
+    char *game_dir, *executable, *prefix;
+    snprintf(app_id, sizeof(app_id), "%u", id);
+    if (!ms_game_tuning_has_state(home, "steam", app_id))
+        return;
+    game_dir = ms_steam_appid_is_shortcut(id) ? NULL : ms_steam_game_dir(home, id);
+    executable = ms_steam_appid_is_shortcut(id) ? ms_steam_shortcut_executable(home, id)
+                                                : find_steam_game_executable(home, id, "dxmt");
+    prefix = join(home, "prefix-steam");
+    if (prefix && executable)
+        ms_game_tuning_prepare_launch(home, "steam", app_id, prefix, game_dir, executable);
+    free(game_dir);
+    free(executable);
+    free(prefix);
+}
+
 static char* launch_steam_route_json(const char* home, unsigned id, int* status) {
     pid_t pid = 0;
     int launch_status = 500;
-    char* result = launch_game_via_steam_json(home, id, &launch_status, &pid);
+    char* result;
+    prepare_steam_route_tuning(home, id);
+    result = launch_game_via_steam_json(home, id, &launch_status, &pid);
     if (status)
         *status = launch_status;
     if (result && launch_status < 400 && pid > 0 && ms_steam_appid_is_shortcut(id)) {
@@ -8294,7 +8332,7 @@ static char* launch_steam_route_json(const char* home, unsigned id, int* status)
 static char* ms_steam_launch_game_json_internal(const char* home, const char* body, size_t len, int* status,
                                                 bool default_to_steam) {
     unsigned id;
-    char *e, pipeline[32] = "auto", saved_pipeline[32] = "";
+    char *e, pipeline[32] = "auto", saved_pipeline[32] = "", tuning_id[32];
     char* executable = NULL;
     char* game_dir;
     pid_t pid;
@@ -8307,6 +8345,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         *status = 400;
     if (!body_id(body, len, &id))
         return err("appid required");
+    snprintf(tuning_id, sizeof(tuning_id), "%u", id);
     if (status)
         *status = 500;
     request = ms_json_parse(body ? body : "", len, je, sizeof(je));
@@ -8446,6 +8485,13 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
     ms_steam_deploy_controller_input_shims(home, game_dir);
     (void)ms_steam_ensure_game_audio_fix(home, id);
     prepare_real_steam_launch(home, game_dir, executable, id, pipeline);
+    /* Game Settings > Advanced: launch.local.env beside the game, its AppDefaults, the priority watch. */
+    {
+        char* prefix = join(home, "prefix-steam");
+        if (prefix)
+            ms_game_tuning_prepare_launch(home, "steam", tuning_id, prefix, game_dir, executable);
+        free(prefix);
+    }
     if (id == SUBNAUTICA_2_APPID && !apply_subnautica_2_engine_ini(home, pipeline))
         ms_log_event(home, "Subnautica 2: could not set Engine.ini for its graphics lane.");
     if (id == 8500) {
@@ -8651,10 +8697,8 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
     free(game_dir);
     if (!strcmp(pipeline, "m13"))
         e = spawn_gptk_game(home, executable, id, pipeline, &pid);
-    else if (!strcmp(pipeline, "d3dmetal"))
-        e = spawn_direct_game(home, executable, id, pipeline, &pid);
     else
-        e = spawn_direct_game(home, executable, id, pipeline, &pid);
+        e = spawn_direct_game(home, executable, id, pipeline, "steam", tuning_id, &pid);
     if (e) {
         char* o = err(e);
         free(e);
@@ -8686,6 +8730,8 @@ char* ms_steam_launch_external_json(const char* home, const char* body, size_t l
     char parse_error[96];
     ms_json* request = NULL;
     char* requested = NULL;
+    /* The caller's Game Settings key (GameJolt's own), when it has one. */
+    char tuning_provider[64] = "", tuning_id[160] = "";
     pid_t pid;
     char* error_text;
     unsigned long long started_at = monotonic_millis();
@@ -8702,6 +8748,16 @@ char* ms_steam_launch_external_json(const char* home, const char* body, size_t l
     if (ms_json_as_string(ms_json_object_get(request, "pipeline"), &requested) && requested && requested[0])
         snprintf(pipeline, sizeof(pipeline), "%s", requested);
     free(requested);
+    requested = NULL;
+    if (ms_json_as_string(ms_json_object_get(request, "tuningProvider"), &requested) && requested)
+        snprintf(tuning_provider, sizeof(tuning_provider), "%s", requested);
+    free(requested);
+    requested = NULL;
+    if (ms_json_as_string(ms_json_object_get(request, "tuningId"), &requested) && requested)
+        snprintf(tuning_id, sizeof(tuning_id), "%s", requested);
+    free(requested);
+    if (!ms_game_tuning_valid_key(tuning_provider, tuning_id))
+        tuning_provider[0] = tuning_id[0] = '\0';
     ms_json_free(request);
     if (!canonical_pipeline(pipeline)) {
         free(executable);
@@ -8737,6 +8793,12 @@ char* ms_steam_launch_external_json(const char* home, const char* body, size_t l
     }
     ms_steam_deploy_controller_input_shims(home, game_dir);
     prepare_real_steam_launch(home, game_dir, executable, id, pipeline);
+    if (tuning_provider[0]) {
+        char* prefix = join(home, "prefix-steam");
+        if (prefix)
+            ms_game_tuning_prepare_launch(home, tuning_provider, tuning_id, prefix, game_dir, executable);
+        free(prefix);
+    }
     remove_stale_route_dlls(home, pipeline, game_dir, executable);
     if (!stage_route_dlls(home, id, pipeline, executable)) {
         free(game_dir);
@@ -8748,7 +8810,8 @@ char* ms_steam_launch_external_json(const char* home, const char* body, size_t l
     if (!strcmp(pipeline, "m13"))
         error_text = spawn_gptk_game(home, executable, id, pipeline, &pid);
     else
-        error_text = spawn_direct_game(home, executable, id, pipeline, &pid);
+        error_text = spawn_direct_game(home, executable, id, pipeline, tuning_provider[0] ? tuning_provider : NULL,
+                                       tuning_id[0] ? tuning_id : NULL, &pid);
     free(game_dir);
     if (error_text) {
         char* result = err(error_text);

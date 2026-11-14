@@ -5,6 +5,7 @@
 #endif
 #include "metalsharp_backend/ubisoft.h"
 #include "metalsharp_backend/game_executable.h"
+#include "metalsharp_backend/game_tuning.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/library_locations.h"
@@ -627,7 +628,7 @@ static bool launch_connect(const char* home) {
 }
 
 static bool spawn_game_process(const char* home, const char* executable, const char* game_dir, const char* pipeline,
-                               unsigned appid) {
+                               unsigned appid, const char* game_id) {
     char* wine = ubisoft_wine(home);
     char* prefix = ubisoft_prefix(home);
     pid_t pid;
@@ -646,6 +647,7 @@ static bool spawn_game_process(const char* home, const char* executable, const c
         setenv("MS_FWD_COMPAT_GL_CTX", "1", 1);
         ms_steam_apply_launch_preferences(home);
         ms_steam_apply_graphics_route(home, pipeline);
+        ms_game_tuning_apply_child(home, "ubisoft", game_id);
         execv(wine, args);
         _exit(127);
     }
@@ -1782,6 +1784,12 @@ char* ms_ubisoft_launch_game_json(const char* home, const char* body, size_t bod
         goto done;
     }
     ms_steam_deploy_controller_input_shims(home, game->path);
+    {
+        char* prefix = ubisoft_prefix(home);
+        if (prefix)
+            ms_game_tuning_prepare_launch(home, "ubisoft", game->id, prefix, game->path, executable);
+        free(prefix);
+    }
     if (read_client_pid(home) <= 0 && !launch_connect(home)) {
         snprintf(failure, sizeof(failure), "Could not start Ubisoft Connect for %s", game->name);
         goto done;
@@ -1790,7 +1798,7 @@ char* ms_ubisoft_launch_game_json(const char* home, const char* body, size_t bod
         struct timespec delay = {2, 0};
         (void)nanosleep(&delay, NULL);
     }
-    ok = spawn_game_process(home, executable, game->path, pipeline, appid);
+    ok = spawn_game_process(home, executable, game->path, pipeline, appid, game->id);
     if (!ok)
         snprintf(failure, sizeof(failure), "Could not start the MetalSharp Wine process for %s", game->name);
 done:

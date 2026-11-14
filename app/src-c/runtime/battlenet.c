@@ -1,6 +1,7 @@
 /* Battle.net in its own prefix (prefix-battlenet) on MetalSharp Wine, as Ubisoft Connect runs in
  * prefix-ubisoft, and the Blizzard and Activision games it installs. */
 #include "metalsharp_backend/battlenet.h"
+#include "metalsharp_backend/game_tuning.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/steam_actions.h"
@@ -401,6 +402,18 @@ static void battlenet_apply_env(const char* home, const void* context) {
     ms_steam_apply_graphics_route(home, (const char*)context);
 }
 
+/* A game MetalSharp starts itself: its route and its Game Settings. */
+typedef struct {
+    const char* pipeline;
+    const char* game_id;
+} battlenet_game_env;
+
+static void battlenet_apply_game_env(const char* home, const void* context) {
+    const battlenet_game_env* env = context;
+    ms_steam_apply_graphics_route(home, env->pipeline);
+    ms_game_tuning_apply_child(home, "battlenet", env->game_id);
+}
+
 static bool battlenet_initialize_prefix(const char* home, char* error, size_t error_size) {
     char* prefix = battlenet_prefix(home);
     bool ok = prefix && ms_store_initialize_prefix(home, prefix, "battlenet", "Battle.net", error, error_size);
@@ -667,6 +680,12 @@ char* ms_battlenet_launch_game_json(const char* home, const char* body, size_t b
         goto done;
     }
     ms_steam_deploy_controller_input_shims(home, game->path);
+    {
+        char* tuning_prefix = battlenet_prefix(home);
+        if (tuning_prefix)
+            ms_game_tuning_prepare_launch(home, "battlenet", game->id, tuning_prefix, game->path, executable);
+        free(tuning_prefix);
+    }
     /* A game Battle.net starts inherits its environment. On the bundles' x86_64 runtime a client running on
      * another route is restarted on the game's (Battle.net's own UI renders with SwiftShader, so the route does not
      * change it); on MetalSharp Wine (fex, and the x86_64 app) the client keeps its lane and games take theirs from
@@ -700,13 +719,15 @@ char* ms_battlenet_launch_game_json(const char* home, const char* body, size_t b
     *strrchr(cwd, '/') = '\0';
     if (game->uid[0]) {
         char* argv[] = {wine, executable, "-uid", (char*)game->uid, NULL};
-        if (!ms_store_run_wine(home, prefix, cwd, argv, battlenet_apply_env, pipeline, false, NULL, &pid)) {
+        battlenet_game_env env = {pipeline, game->id};
+        if (!ms_store_run_wine(home, prefix, cwd, argv, battlenet_apply_game_env, &env, false, NULL, &pid)) {
             snprintf(failure, sizeof(failure), "Could not start the MetalSharp Wine process for %s", game->name);
             goto done;
         }
     } else {
         char* argv[] = {wine, executable, NULL};
-        if (!ms_store_run_wine(home, prefix, cwd, argv, battlenet_apply_env, pipeline, false, NULL, &pid)) {
+        battlenet_game_env env = {pipeline, game->id};
+        if (!ms_store_run_wine(home, prefix, cwd, argv, battlenet_apply_game_env, &env, false, NULL, &pid)) {
             snprintf(failure, sizeof(failure), "Could not start the MetalSharp Wine process for %s", game->name);
             goto done;
         }
