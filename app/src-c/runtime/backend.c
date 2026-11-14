@@ -2514,6 +2514,7 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         return true;
     }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/game/running") == 0) {
+        ms_sharp_note_exits();
         body = ms_process_running_json(context->metalsharp_home);
         if (body == NULL)
             return false;

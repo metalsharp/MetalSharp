@@ -5,6 +5,9 @@
 char* ms_sharp_library_json(const char*);
 char* ms_sharp_action_json(const char*, const unsigned char*, size_t, const char*);
 char* ms_sharp_running_json(void);
+/* Notice tracked programs that exited since the last check: their play time is saved and what they installed is
+ * added. The library's running-games poll calls it, so a run's end is seen while no Sharp Library page is open. */
+void ms_sharp_note_exits(void);
 /* True for a Windows Installer package (.msi), which runs through msiexec. */
 bool ms_sharp_is_msi(const char* path);
 char* ms_sharp_track_running_json(const char*, const unsigned char*, size_t);

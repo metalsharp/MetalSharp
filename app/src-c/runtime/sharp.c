@@ -1732,6 +1732,10 @@ static void sharp_adopt_finished(void) {
     }
 }
 
+void ms_sharp_note_exits(void) {
+    sharp_adopt_finished();
+}
+
 /* One-time pass for installers run before this existed (or while the backend
  * was down): look back to when the installer was added. */
 static void sharp_adopt_catch_up(const char* home) {

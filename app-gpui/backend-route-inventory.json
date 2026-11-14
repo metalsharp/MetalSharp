@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generator": "app-gpui/inventory-backend-routes.py",
   "router": "app/src-c/runtime/backend.c",
-  "router_sha256": "c22dddfa3f0a18632f1f95e86034419982835ee606ae8323b740bc9fd4023572",
+  "router_sha256": "5b29e87bbbf26bb74cf1e918322d75ac6e24a10a83d53a92d77e8ccb9913fb1c",
   "limitations": [
     "This is a migration discovery inventory, not a full C/Rust parser or a parity report.",
     "Dynamic/prefix routes and unmatched comparisons require manual expansion.",
@@ -892,7 +892,7 @@
       "method": "POST",
       "path": "/games/force-quit",
       "router_lines": [
-        2532
+        2533
       ],
       "literal_references": [
         {
@@ -1476,7 +1476,7 @@
       "method": "POST",
       "path": "/kill",
       "router_lines": [
-        2523
+        2524
       ],
       "literal_references": [
         {
@@ -1775,7 +1775,7 @@
       "method": "POST",
       "path": "/processes/force-kill",
       "router_lines": [
-        2540
+        2541
       ],
       "literal_references": [
         {
@@ -3334,7 +3334,7 @@
       "method": "POST",
       "path": "/steam/install-recipe-deps",
       "router_lines": [
-        2548
+        2549
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -4404,55 +4404,55 @@
     {
       "path_or_prefix": "/bottles/",
       "comparison": "strncmp",
-      "router_line": 2556,
+      "router_line": 2557,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/d3dmetal/bottles/",
       "comparison": "strncmp",
-      "router_line": 2566,
+      "router_line": 2567,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/integration/",
       "comparison": "strncmp",
-      "router_line": 2576,
+      "router_line": 2577,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/thread/",
       "comparison": "strncmp",
-      "router_line": 2586,
+      "router_line": 2587,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/es-live/",
       "comparison": "strncmp",
-      "router_line": 2596,
+      "router_line": 2597,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/es/",
       "comparison": "strncmp",
-      "router_line": 2610,
+      "router_line": 2611,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/ob/",
       "comparison": "strncmp",
-      "router_line": 2620,
+      "router_line": 2621,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/",
       "comparison": "strncmp",
-      "router_line": 2630,
+      "router_line": 2631,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/ipc/",
       "comparison": "strncmp",
-      "router_line": 2631,
+      "router_line": 2632,
       "status": "manual-review"
     }
   ]

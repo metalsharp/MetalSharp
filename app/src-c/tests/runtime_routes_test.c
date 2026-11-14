@@ -1336,25 +1336,28 @@ int main(int argc, char** argv) {
         response = ms_sharp_stop_json((const unsigned char*)stop_body, strlen(stop_body), &status);
         assert(response && status == 200 && strstr(response, "\"ok\":true"));
         free(response);
-        response = ms_sharp_running_json();
-        assert(response && !strstr(response, "sharp-smoke"));
-        free(response);
-        /* The run's time is the app's play time, and it was just played. */
+        /* The running-games poll notices the run ended: its time is the app's play time, and it was just
+         * played. */
+        ms_sharp_note_exits();
         long long first_playtime = 0;
         {
             char parse_error[96];
             long long last_played = 0;
-            response = ms_sharp_library_json(sharp_home);
-            ms_json* parsed =
-                response ? ms_json_parse(response, strlen(response), parse_error, sizeof(parse_error)) : NULL;
-            const ms_json* app = parsed ? ms_json_array_get(ms_json_object_get(parsed, "apps"), 0) : NULL;
+            char* library_path = join(sharp_home, "sharp-library/library.json");
+            char* saved = read_bounded_file(library_path);
+            ms_json* parsed = saved ? ms_json_parse(saved, strlen(saved), parse_error, sizeof(parse_error)) : NULL;
+            const ms_json* app = parsed ? ms_json_array_get(parsed, 0) : NULL;
             assert(app && ms_json_as_i64(ms_json_object_get(app, "playtime_seconds"), &first_playtime));
             assert(first_playtime >= 1 && first_playtime < 30);
             assert(ms_json_as_i64(ms_json_object_get(app, "last_played_at"), &last_played));
             assert(last_played >= (long long)time(NULL) - 30);
             ms_json_free(parsed);
-            free(response);
+            free(saved);
+            free(library_path);
         }
+        response = ms_sharp_running_json();
+        assert(response && !strstr(response, "sharp-smoke"));
+        free(response);
         response = ms_sharp_action_json(sharp_home, (const unsigned char*)launch_body, strlen(launch_body), "launch");
         assert(response && strstr(response, "\"ok\":true"));
         free(response);
