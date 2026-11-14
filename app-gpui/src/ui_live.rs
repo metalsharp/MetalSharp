@@ -153,6 +153,7 @@ pub(super) struct LiveState {
     pub x87_busy: bool,
     pub steam_emu_active: bool,
     pub steam_emu_busy: bool,
+    pub tuning: GameTuning,
     pub collection_saving: HashSet<u64>,
     /// steamcmd install jobs by appid (latest `/steamcmd/installs` entry).
     pub steamcmd_installs: HashMap<u64, Value>,
@@ -172,6 +173,51 @@ pub(super) struct LiveState {
     featured_key: Option<(LibraryPage, u64)>,
     pub streaming: StreamingState,
     pub setup: SetupFlow,
+}
+
+/// Game Settings > Advanced for the selected game, from the backend's `/game-tuning` (its variables and
+/// DLL overrides are edited in the overlay's text fields).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct GameTuning {
+    /// The game these settings are for: the backend's provider and id.
+    pub key: Option<(String, String)>,
+    pub loaded: bool,
+    pub env: String,
+    pub dll_overrides: String,
+    /// "default", "winxp", "win7", "win81", "win10" or "win11".
+    pub windows_version: String,
+    /// 0 for every core.
+    pub cpu_cores: u32,
+    pub low_priority: bool,
+    pub busy: bool,
+}
+
+impl GameTuning {
+    /// The saved settings from a `/game-tuning` response.
+    pub(super) fn from_response(key: (String, String), value: &Value) -> Self {
+        let text = |name: &str| {
+            value
+                .get(name)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned()
+        };
+        let windows_version = text("windowsVersion");
+        Self {
+            key: Some(key),
+            loaded: true,
+            env: text("env"),
+            dll_overrides: text("dllOverrides"),
+            windows_version: if windows_version.is_empty() {
+                "default".into()
+            } else {
+                windows_version
+            },
+            cpu_cores: value.get("cpuCores").and_then(Value::as_u64).unwrap_or(0) as u32,
+            low_priority: value.get("lowPriority").and_then(Value::as_bool) == Some(true),
+            busy: false,
+        }
+    }
 }
 
 /// Install and run state of a launcher MetalSharp starts itself.
@@ -262,6 +308,7 @@ impl Default for LiveState {
             x87_busy: false,
             steam_emu_active: false,
             steam_emu_busy: false,
+            tuning: GameTuning::default(),
             collection_saving: HashSet::new(),
             steamcmd_installs: HashMap::new(),
             steamcmd_polling: false,
@@ -281,6 +328,20 @@ impl Default for LiveState {
             setup: SetupFlow::default(),
         }
     }
+}
+
+/// A query string value, percent-encoded.
+fn query_escape(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || b"-_.~".contains(&byte) {
+                (byte as char).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect()
 }
 
 fn ui_state_path(home: &std::path::Path) -> std::path::PathBuf {
@@ -1823,6 +1884,7 @@ impl MetalSharpApp {
     }
 
     pub(super) fn load_game_settings(&mut self, cx: &mut Context<Self>) {
+        self.load_game_tuning(cx);
         live::call(
             cx,
             "GET",
@@ -1884,6 +1946,149 @@ impl MetalSharpApp {
                 }
             },
         );
+    }
+
+    /// The selected game's Game Settings > Advanced, into the overlay's fields.
+    pub(super) fn load_game_tuning(&mut self, cx: &mut Context<Self>) {
+        let key = self
+            .games
+            .get(self.selected_game)
+            .and_then(LibGame::tuning_key)
+            .map(|(provider, id)| (provider.to_owned(), id));
+        if self.live.tuning.key != key {
+            self.live.tuning = GameTuning {
+                key: key.clone(),
+                ..GameTuning::default()
+            };
+            self.fill_tuning_inputs(cx);
+        }
+        let Some((provider, id)) = key else {
+            return;
+        };
+        if !self.live.enabled {
+            return;
+        }
+        let path = format!(
+            "/game-tuning?provider={}&id={}",
+            query_escape(&provider),
+            query_escape(&id)
+        );
+        live::call(
+            cx,
+            "GET",
+            path,
+            None,
+            live::DEFAULT_TIMEOUT,
+            move |this, result, cx| {
+                let key = (provider, id);
+                if this.live.tuning.key.as_ref() != Some(&key) || this.live.tuning.busy {
+                    return;
+                }
+                if let Some(result) = result.filter(is_ok) {
+                    this.live.tuning = GameTuning::from_response(key, &result);
+                    this.fill_tuning_inputs(cx);
+                    cx.notify();
+                }
+            },
+        );
+    }
+
+    /// The variables and DLL override fields show the saved values.
+    pub(super) fn fill_tuning_inputs(&mut self, cx: &mut Context<Self>) {
+        let Some(inputs) = self.tuning_inputs.clone() else {
+            return;
+        };
+        let values = [
+            self.live.tuning.env.clone(),
+            self.live.tuning.dll_overrides.clone(),
+        ];
+        for (input, value) in inputs.iter().zip(values) {
+            input.update(cx, |input, cx| {
+                if input.content.as_ref() != value {
+                    input.clear(cx);
+                    input.content = value.into();
+                }
+            });
+        }
+    }
+
+    /// Saves part of the selected game's Game Settings > Advanced (the fields left out keep theirs).
+    pub(super) fn save_game_tuning(
+        &mut self,
+        changes: Value,
+        success: Option<&'static str>,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.live.enabled || self.live.tuning.busy {
+            return;
+        }
+        let Some((provider, id)) = self.live.tuning.key.clone() else {
+            return;
+        };
+        let name = self
+            .games
+            .get(self.selected_game)
+            .map(|game| game.name.clone())
+            .unwrap_or_default();
+        let mut body = json!({"provider": provider, "id": id});
+        if let (Some(body), Value::Object(changes)) = (body.as_object_mut(), changes) {
+            body.extend(changes);
+        }
+        self.live.tuning.busy = true;
+        cx.notify();
+        live::call(
+            cx,
+            "POST",
+            "/game-tuning",
+            Some(body),
+            live::DEFAULT_TIMEOUT,
+            move |this, result, cx| {
+                let key = (provider, id);
+                if this.live.tuning.key.as_ref() != Some(&key) {
+                    return;
+                }
+                this.live.tuning.busy = false;
+                match result {
+                    Some(result) if is_ok(&result) => {
+                        this.live.tuning = GameTuning::from_response(key, &result);
+                        this.fill_tuning_inputs(cx);
+                        if let Some(success) = success {
+                            toast::success(cx, format!("{name}: {success}"));
+                        }
+                    }
+                    other => {
+                        let detail = other
+                            .as_ref()
+                            .and_then(|value| value.get("error"))
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| "the backend did not answer".to_owned());
+                        toast::error(cx, format!("Could not save {name}'s settings: {detail}"));
+                    }
+                }
+                cx.notify();
+            },
+        );
+    }
+
+    /// Saves what the variables or DLL override field holds.
+    pub(super) fn save_tuning_text(&mut self, field: usize, cx: &mut Context<Self>) {
+        let Some(inputs) = self.tuning_inputs.clone() else {
+            return;
+        };
+        let text = inputs[field].read(cx).content.trim().to_owned();
+        let (changes, message) = if field == 0 {
+            (
+                json!({"env": text}),
+                "environment variables saved (they apply at its next start)",
+            )
+        } else {
+            (
+                json!({"dllOverrides": text}),
+                "DLL overrides saved (they apply at its next start)",
+            )
+        };
+        self.save_game_tuning(changes, Some(message), cx);
     }
 
     pub(super) fn set_metal_fx(&mut self, mode: &'static str, cx: &mut Context<Self>) {

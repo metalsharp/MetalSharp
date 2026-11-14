@@ -1,5 +1,6 @@
 #include "metalsharp_backend/gog.h"
 #include "metalsharp_backend/game_executable.h"
+#include "metalsharp_backend/game_tuning.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/library_locations.h"
@@ -751,6 +752,7 @@ static bool spawn_gogdl_launch(const char* home, const char* product_id, const c
         if (support)
             setenv("GOGDL_SUPPORT_PATH", support, 1);
         ms_steam_apply_graphics_route(home, engine && *engine ? engine : "auto");
+        ms_game_tuning_apply_child(home, "gog", product_id);
         char* args[18];
         int count = 0;
         args[count++] = binary;
@@ -2057,8 +2059,9 @@ static unsigned gog_game_id(const char* product_id) {
     return hash | 0x80000000u;
 }
 
-static bool gog_stage_route(const char* home, const char* product_id, const char* engine,
-                            const char* known_executable) {
+/* launching: the game starts next, so its Game Settings are prepared too (game_tuning.h). */
+static bool gog_stage_route(const char* home, const char* product_id, const char* engine, const char* known_executable,
+                            bool launching) {
     char *title = NULL, *platform = NULL, *install_root = NULL, *folder = NULL, *executable = NULL;
     bool ok = false;
     if (!gog_launch_record(home, product_id, &title, &platform, &install_root, &folder) || !platform ||
@@ -2082,6 +2085,12 @@ static bool gog_stage_route(const char* home, const char* product_id, const char
      * launcher exe, a GOG "launcher" playTask) starts it. */
     if (ok)
         ok = ms_steam_write_game_launch_env(home, gog_game_id(product_id), engine, folder, executable);
+    if (launching) {
+        char* prefix = join(home, "bottles/gog-prefix/prefix");
+        if (prefix)
+            ms_game_tuning_prepare_launch(home, "gog", product_id, prefix, folder, executable);
+        free(prefix);
+    }
 done:
     free(executable);
     free(title);
@@ -2186,7 +2195,7 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
         }
         if (!strcmp(action, "set-engine")) {
             char* engine = field(j, "engine", "auto");
-            bool staged = gog_stage_route(home, s, engine, NULL);
+            bool staged = gog_stage_route(home, s, engine, NULL, false);
             free(engine);
             free(s);
             ms_json_free(j);
@@ -2378,7 +2387,7 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
                     override_exe = ms_witcher3_game_executable(folder);
             }
             if (!strcmp(platform, "windows"))
-                (void)gog_stage_route(home, s, engine, override_exe);
+                (void)gog_stage_route(home, s, engine, override_exe, true);
             bool started = prefix && mkdir_p(prefix) &&
                            spawn_gogdl_launch(home, s, platform, folder, engine, override_exe, &launch_pid, &log_path);
             free(override_exe);

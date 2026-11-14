@@ -118,14 +118,24 @@ sharp_install=$(curl --silent --fail --request POST --header 'Content-Type: appl
 printf '%s' "$sharp_install" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["app"]["name"] == "Smoke Game" and v["app"]["install_dir"].endswith("/smoke-input")'
 sharp_id=$(printf '%s' "$sharp_install" | python3 -c 'import json, sys; print(json.load(sys.stdin)["app"]["id"])')
 mkdir -p "$home/runtime/wine/bin"
-printf '#!/bin/sh\nprintf "%%s|%%s|%%s\\n" "$METALSHARP_PIPELINE" "$PWD" "$1" > "$METALSHARP_HOME/sharp-launch-check"\n' > "$home/runtime/wine/bin/metalsharp-wine"
+printf '#!/bin/sh\nprintf "%%s|%%s|%%s\\n" "$METALSHARP_PIPELINE" "$PWD" "$1" > "$METALSHARP_HOME/sharp-launch-check"\nprintf "%%s|%%s\\n" "${SMOKE_TUNING:-}" "$(ps -o nice= -p $$ | tr -d " ")" > "$METALSHARP_HOME/sharp-tuning-check"\n' > "$home/runtime/wine/bin/metalsharp-wine"
 chmod +x "$home/runtime/wine/bin/metalsharp-wine"
+# Game Settings > Advanced: the program's variables and priority reach it, and launch.local.env sits beside it.
+tuning=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"provider\":\"windows\",\"id\":\"$sharp_id\",\"env\":\"SMOKE_TUNING=\\\"on air\\\"\",\"lowPriority\":true}" --unix-socket "$sock" "http://localhost/game-tuning")
+printf '%s' "$tuning" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["envList"] == ["SMOKE_TUNING=on air"] and v["lowPriority"] is True'
+tuning_get=$(curl --silent --fail --unix-socket "$sock" "http://localhost/game-tuning?provider=windows&id=$sharp_id")
+printf '%s' "$tuning_get" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["env"] == "SMOKE_TUNING=\"on air\"" and v["cpuCores"] == 0'
+tuning_bad=$(curl --silent --request POST --header 'Content-Type: application/json' --data "{\"provider\":\"windows\",\"id\":\"$sharp_id\",\"env\":\"WINEPREFIX=/tmp\"}" --unix-socket "$sock" "http://localhost/game-tuning")
+printf '%s' "$tuning_bad" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is False and "WINEPREFIX" in v["error"]'
 sharp_launch=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"id\":\"$sharp_id\",\"engine\":\"d3dmetal\"}" --unix-socket "$sock" "http://localhost/sharp-library/launch")
 printf '%s' "$sharp_launch" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["pipeline"] == "d3dmetal"'
 for _ in $(seq 1 50); do test -f "$home/sharp-launch-check" && break; sleep 0.02; done
 test -f "$home/sharp-launch-check"
 expected_sharp_work_dir=$(cd "$home/smoke-input" && pwd -P)
 grep -F "d3dmetal|$expected_sharp_work_dir|explorer" "$home/sharp-launch-check"
+for _ in $(seq 1 50); do test -s "$home/sharp-tuning-check" && break; sleep 0.02; done
+grep -Fx "on air|10" "$home/sharp-tuning-check"
+grep -Fx "SMOKE_TUNING=on air" "$home/smoke-input/.metalsharp/launch.local.env"
 cover_set=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"id\":\"$sharp_id\",\"coverPath\":\"$home/smoke-input/cover.png\"}" --unix-socket "$sock" "http://localhost/sharp-library/set-cover")
 printf '%s' "$cover_set" | python3 -c 'import json, sys; assert json.load(sys.stdin)["ok"]'
 curl --silent --fail --unix-socket "$sock" "http://localhost/sharp-library/cover?id=$sharp_id" -o "$home/smoke-cover.png"

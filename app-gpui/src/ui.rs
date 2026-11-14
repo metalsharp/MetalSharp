@@ -686,9 +686,16 @@ pub struct MetalSharpApp {
     collection_view: CollectionView,
     steamcmd_modal: Option<SteamcmdModal>,
     steamcmd_inputs: Option<[gpui::Entity<crate::search_input::SearchInput>; 3]>,
+    /// Game Settings > Advanced: the environment variables and DLL overrides fields.
+    tuning_inputs: Option<[gpui::Entity<crate::search_input::SearchInput>; 2]>,
+    /// Whether Game Settings shows its Advanced Settings (collapsed whenever the popup opens or the
+    /// game changes)
+    advanced_settings_open: bool,
     game_settings_open: bool,
     /// The game settings' Name and Launch arguments fields for a Windows program or Game Jolt game.
     sharp_setting_inputs: Option<SharpSettingInputs>,
+    /// The game settings popup's scroll position, for its scrollbar
+    game_settings_scroll: gpui::ScrollHandle,
     /// The [...] art menu of a Sharp Library entry, opened from the hero or
     /// from the selected dock card.
     art_menu: Option<ArtMenuAnchor>,
@@ -760,8 +767,11 @@ impl MetalSharpApp {
             collection_view: CollectionView::Installed,
             steamcmd_modal: None,
             steamcmd_inputs: None,
+            tuning_inputs: None,
+            advanced_settings_open: false,
             game_settings_open: false,
             sharp_setting_inputs: None,
+            game_settings_scroll: gpui::ScrollHandle::new(),
             art_menu: None,
             drive_prompt: None,
             game_uninstall_prompt: None,
@@ -800,6 +810,20 @@ impl MetalSharpApp {
             let steam = make(&self.copy.api_placeholder.clone(), true, cx);
             let gamesdb = make(&self.copy.the_games_db_api_placeholder.clone(), true, cx);
             self.setup_inputs = Some([device, steam, gamesdb]);
+        }
+        if self.tuning_inputs.is_none() {
+            let make = |placeholder: &str, cx: &mut Context<Self>| {
+                cx.new(|cx| {
+                    let mut input = crate::search_input::SearchInput::new(cx);
+                    input.placeholder = placeholder.to_owned().into();
+                    input.font_size = 12.0;
+                    input
+                })
+            };
+            let env = make("DXVK_HUD=fps  NAME=\"a value\"", cx);
+            let dlls = make("d3dx9_43=n,b; xinput1_3=b", cx);
+            self.tuning_inputs = Some([env, dlls]);
+            self.fill_tuning_inputs(cx);
         }
         if self.streaming_pin.is_none() {
             self.streaming_pin = Some(cx.new(|cx| {
@@ -3345,8 +3369,10 @@ impl MetalSharpApp {
                                                 .on_click(cx.listener(|this, _, _, cx| {
                                                     let open = !this.game_settings_open;
                                                     this.close_library_menus();
+                                                    this.advanced_settings_open = false;
                                                     if open {
                                                         this.open_game_settings(cx);
+                                                        this.load_game_tuning(cx);
                                                     }
                                                     cx.notify();
                                                 }))
@@ -4028,6 +4054,9 @@ impl MetalSharpApp {
     }
 
     fn select_game(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index != self.selected_game {
+            self.advanced_settings_open = false;
+        }
         self.selected_game = index.min(self.games.len().saturating_sub(1));
         let matches = self.matching_games();
         if let Some(position) = matches.iter().position(|game| *game == self.selected_game) {
@@ -4554,7 +4583,30 @@ impl MetalSharpApp {
                             cx.notify();
                         })),
                 )
-                .child(self.render_game_settings(&game, width, two_columns, cx)),
+                .child({
+                    // a small window: the popup fits it, and scrolls
+                    let max_height = (f32::from(viewport.height) - 48.0).max(160.0);
+                    div()
+                        .relative()
+                        .w(px(width))
+                        .max_h(px(max_height))
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .id("game-settings-scroll")
+                                .max_h(px(max_height))
+                                .overflow_y_scroll()
+                                .track_scroll(&self.game_settings_scroll)
+                                .on_scroll_wheel(crate::scrollbar::refresh_on_scroll)
+                                .child(self.render_game_settings(&game, width, two_columns, cx)),
+                        )
+                        .children(crate::scrollbar::vertical(
+                            "game-settings-scrollbar",
+                            &self.game_settings_scroll,
+                            (self.theme.control_text() << 8) | 0x66,
+                        ))
+                }),
         )
     }
 
@@ -4821,24 +4873,239 @@ impl MetalSharpApp {
             ));
         }
         if !two_columns {
-            return cells.into_iter().fold(menu, |menu, cell| menu.child(cell));
-        }
-        // Two settings per line (label and choices), with a rule between the columns.
-        let divider = theme.border();
-        let mut cells = cells.into_iter();
-        while let Some(left) = cells.next() {
-            let mut line = div().flex().items_center().gap(px(12.0)).child(left);
-            match cells.next() {
-                Some(right) => {
-                    line = line
-                        .child(div().w(px(1.0)).h(px(26.0)).flex_none().bg(rgb(divider)))
-                        .child(right);
+            menu = cells.into_iter().fold(menu, |menu, cell| menu.child(cell));
+        } else {
+            // Two settings per line (label and choices), with a rule between the columns.
+            let divider = theme.border();
+            let mut cells = cells.into_iter();
+            while let Some(left) = cells.next() {
+                let mut line = div().flex().items_center().gap(px(12.0)).child(left);
+                match cells.next() {
+                    Some(right) => {
+                        line = line
+                            .child(div().w(px(1.0)).h(px(26.0)).flex_none().bg(rgb(divider)))
+                            .child(right);
+                    }
+                    None => line = line.child(div().flex_1()),
                 }
-                None => line = line.child(div().flex_1()),
+                menu = menu.child(line);
             }
-            menu = menu.child(line);
+        }
+        if let Some(advanced) = self.render_game_tuning(game, muted, cx) {
+            menu = menu.child(advanced);
         }
         menu
+    }
+
+    /// Game Settings > Advanced: the game's own environment variables, DLL overrides, Windows version,
+    /// CPU cores and priority (`/game-tuning`), for an installed Windows game.
+    fn render_game_tuning(
+        &self,
+        game: &LibGame,
+        muted: u32,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Div> {
+        if !game.installed || game.needs_install || game.has_native_build {
+            return None;
+        }
+        game.tuning_key()?;
+        let inputs = self.tuning_inputs.clone()?;
+        let theme = self.theme;
+        let tuning = &self.live.tuning;
+        let busy = tuning.busy || !tuning.loaded;
+        let option = move |id: (&'static str, usize), text: &'static str, active: bool| {
+            div()
+                .id(id)
+                .px(px(7.0))
+                .py(px(5.0))
+                .rounded(px(5.0))
+                .border_1()
+                .border_color(rgb(if active {
+                    theme.button_border()
+                } else {
+                    theme.border()
+                }))
+                .bg(rgb(if active {
+                    theme.menu_hover()
+                } else {
+                    theme.menu_bg()
+                }))
+                .opacity(if busy { 0.55 } else { 1.0 })
+                .cursor_pointer()
+                .child(text)
+        };
+        let row = |label: &'static str, options: gpui::Div| {
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(10.0))
+                .child(label)
+                .child(options)
+        };
+        let open = self.advanced_settings_open;
+        let mut section = div()
+            .flex()
+            .flex_col()
+            .gap(px(10.0))
+            .pt(px(10.0))
+            .border_t_1()
+            .border_color(rgb(theme.border()))
+            .child(
+                div()
+                    .id("advanced-settings-toggle")
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .cursor_pointer()
+                    .child("Advanced Settings")
+                    .child(
+                        div()
+                            .text_size(px(10.0))
+                            .text_color(rgb(muted))
+                            .child(if open { "▾" } else { "▸" }),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.advanced_settings_open = !this.advanced_settings_open;
+                        cx.notify();
+                    })),
+            );
+        if !open {
+            return Some(section);
+        }
+        for (field, (label, hint)) in [
+            (
+                "Environment variables",
+                "NAME=value, separated by spaces; quotes keep spaces in a value, -NAME removes one",
+            ),
+            (
+                "DLL overrides",
+                "for this game's executable: name=n (native), b (builtin), n,b, b,n or d (disabled)",
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let input = inputs[field].clone();
+            input.update(cx, |input, _| {
+                input.text_color = theme.control_text();
+                input.placeholder_color = if theme == PreviewTheme::Light {
+                    0x7a7a7a
+                } else {
+                    0x6f7778
+                };
+            });
+            let handle = gpui::Focusable::focus_handle(input.read(cx), cx);
+            section = section.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(5.0))
+                    .child(label)
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
+                            .child(
+                                div()
+                                    .id(("game-tuning-field", field))
+                                    .flex_1()
+                                    .min_w_0()
+                                    .h(px(28.0))
+                                    .px(px(8.0))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(px(5.0))
+                                    .border_1()
+                                    .border_color(rgb(theme.border()))
+                                    .bg(rgb(theme.control_bg()))
+                                    .cursor(gpui::CursorStyle::IBeam)
+                                    .on_click(cx.listener(move |_, _, window, _| {
+                                        window.focus(&handle);
+                                    }))
+                                    .child(div().flex_1().min_w_0().child(input)),
+                            )
+                            .child(
+                                option(("game-tuning-save", field), "Save", false).on_click(
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.save_tuning_text(field, cx)
+                                    }),
+                                ),
+                            ),
+                    )
+                    .child(div().text_size(px(10.0)).text_color(rgb(muted)).child(hint)),
+            );
+        }
+        let mut versions = div().flex().gap(px(4.0));
+        for (index, (version, text)) in [
+            ("default", "Default"),
+            ("winxp", "XP"),
+            ("win7", "7"),
+            ("win81", "8.1"),
+            ("win10", "10"),
+            ("win11", "11"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            versions = versions.child(
+                option(
+                    ("game-tuning-windows", index),
+                    text,
+                    tuning.windows_version == version,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.save_game_tuning(serde_json::json!({"windowsVersion": version}), None, cx)
+                })),
+            );
+        }
+        section = section.child(row("Windows version", versions));
+        let mut cores = div().flex().gap(px(4.0));
+        for (index, (count, text)) in [
+            (0, "Auto"),
+            (1, "1"),
+            (2, "2"),
+            (4, "4"),
+            (6, "6"),
+            (8, "8"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            cores = cores.child(
+                option(
+                    ("game-tuning-cores", index),
+                    text,
+                    tuning.cpu_cores == count,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.save_game_tuning(serde_json::json!({"cpuCores": count}), None, cx)
+                })),
+            );
+        }
+        section = section.child(row("CPU cores", cores));
+        let low = tuning.low_priority;
+        section = section.child(row(
+            "Low priority",
+            div().flex().child(
+                option(
+                    ("game-tuning-priority", 0),
+                    if low { "On" } else { "Off" },
+                    low,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.save_game_tuning(serde_json::json!({"lowPriority": !low}), None, cx)
+                })),
+            ),
+        ));
+        Some(
+            section.child(div().text_size(px(10.0)).text_color(rgb(muted)).child(
+                "These apply when the game next starts. The CPU core limit needs MetalSharp to \
+                     start the game itself, not the Steam client or another launcher; low priority \
+                     also finds a game a launcher starts.",
+            )),
+        )
     }
 
     /// Open the selected game's settings; a Windows program or Game Jolt game gets its Name (and a

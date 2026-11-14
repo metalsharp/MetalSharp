@@ -13,6 +13,7 @@ VCPP_TEST ?= $(BUILD_DIR)/setup-vcpp-test
 RUNTIME_READY_SIM ?= $(BUILD_DIR)/migration-runtime-ready-sim
 HTTP_SERVER_TEST ?= $(BUILD_DIR)/http-server-test
 GAME_EXE_TEST ?= $(BUILD_DIR)/game-executable-test
+GAME_TUNING_TEST ?= $(BUILD_DIR)/game-tuning-test
 WINE_RUNTIME_TEST ?= $(BUILD_DIR)/wine-runtime-test
 MTSP_RULES_TEST ?= $(BUILD_DIR)/mtsp-rules-test
 SETUP_VARIANT_TEST ?= $(BUILD_DIR)/setup-variant-test
@@ -45,6 +46,7 @@ SOURCES := \
 	runtime/scan.c \
 	runtime/steam.c \
 	runtime/game_executable.c \
+	runtime/game_tuning.c \
 	runtime/updater.c \
 	runtime/wine_runtime.c \
 	runtime/rosetta.c \
@@ -130,7 +132,7 @@ test: test-$(VARIANT)
 # The FEX build's suite (make VARIANT=fex BUILD_DIR=... test): its backend and the tests that hold for
 # MetalSharp Wine. The route, smoke, VC++ seeding, runtime-ready and update-download tests describe
 # the regular build's x86_64 runtime and run in test-regular.
-test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(STORE_LAUNCHERS_TEST) $(LIBRARY_LOCATIONS_TEST) $(LAUNCHER_UNINSTALL_TEST) $(NGX_CORE_TEST)
+test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EXE_TEST) $(GAME_TUNING_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(STORE_LAUNCHERS_TEST) $(LIBRARY_LOCATIONS_TEST) $(LAUNCHER_UNINSTALL_TEST) $(NGX_CORE_TEST)
 	@"$(SETUP_VARIANT_TEST)"
 	@home="$$(mktemp -d)"; "$(STORE_LAUNCHERS_TEST)" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
 	@dir="$$(mktemp -d)"; "$(LIBRARY_LOCATIONS_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
@@ -141,6 +143,7 @@ test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EX
 	@"$(MIGRATION_TEST)"
 	@"$(HTTP_SERVER_TEST)"
 	@"$(GAME_EXE_TEST)"
+	@"$(GAME_TUNING_TEST)"
 	@ms_home="$$(mktemp -d)"; "$(WINE_RUNTIME_TEST)" "$$ms_home" $(METALSHARP_WINE_APP); rc=$$?; rm -rf "$$ms_home"; exit $$rc
 	@bash "$(PROJECT_ROOT)/app/updater/tests/legacy_shutdown_timeout_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@bash "$(PROJECT_ROOT)/app/updater/tests/install_progress_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
@@ -148,7 +151,7 @@ test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EX
 	@bash "$(PROJECT_ROOT)/app/updater/tests/stopped_status_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@python3 "$(CURDIR)/tests/steam_process_test.py" "$(TARGET)"
 
-test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(BUILD_DIR)/runtime-routes-test $(STORE_LAUNCHERS_TEST) $(LIBRARY_LOCATIONS_TEST) $(LAUNCHER_UNINSTALL_TEST) $(NGX_CORE_TEST)
+test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(GAME_TUNING_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(BUILD_DIR)/runtime-routes-test $(STORE_LAUNCHERS_TEST) $(LIBRARY_LOCATIONS_TEST) $(LAUNCHER_UNINSTALL_TEST) $(NGX_CORE_TEST)
 	@"$(SETUP_VARIANT_TEST)"
 	@home="$$(mktemp -d)"; "$(STORE_LAUNCHERS_TEST)" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
 	@dir="$$(mktemp -d)"; "$(LIBRARY_LOCATIONS_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
@@ -163,6 +166,7 @@ test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCP
 	@ms_home="$$(mktemp -d)"; "$(VCPP_TEST)" $$ms_home; rc=$$?; rm -rf "$$ms_home"; exit $$rc
 	@"$(HTTP_SERVER_TEST)"
 	@"$(GAME_EXE_TEST)"
+	@"$(GAME_TUNING_TEST)"
 	@ms_home="$$(mktemp -d)"; "$(WINE_RUNTIME_TEST)" "$$ms_home" $(METALSHARP_WINE_APP); rc=$$?; rm -rf "$$ms_home"; exit $$rc
 	@python3 "$(CURDIR)/tests/updater_test.py" "$(TARGET)"
 	@bash "$(PROJECT_ROOT)/app/updater/tests/legacy_shutdown_timeout_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
@@ -211,6 +215,11 @@ $(HTTP_SERVER_TEST): runtime/http_server.c runtime/local_socket.c tests/http_ser
 $(GAME_EXE_TEST): runtime/game_executable.c tests/game_executable_test.c include/metalsharp_backend/game_executable.h
 	@mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/game_executable.c tests/game_executable_test.c
+
+# game_tuning.c alone: the test stands in for the Wine, shim and process helpers it calls.
+$(GAME_TUNING_TEST): runtime/game_tuning.c runtime/json.c runtime/json_writer.c tests/game_tuning_test.c include/metalsharp_backend/game_tuning.h
+	@mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/game_tuning.c runtime/json.c runtime/json_writer.c tests/game_tuning_test.c
 
 # setup.c and migration.c together, as this VARIANT builds them (both #included, like the vcpp test).
 $(SETUP_VARIANT_TEST): runtime/setup.c runtime/migration.c runtime/json.c runtime/json_writer.c runtime/logs.c runtime/rosetta.c runtime/wine_runtime.c tests/setup_variant_test.c include/metalsharp_backend/setup.h include/metalsharp_backend/migration.h include/metalsharp_backend/wine_runtime.h

@@ -1404,6 +1404,11 @@ char* ms_gamejolt_launch_json(const char* home, const unsigned char* body, size_
         ms_json_writer_key(&request_writer, "pipeline");
         ms_json_writer_string(&request_writer,
                               !strcmp(engine, "auto") ? (ms_wine_is_fex() ? "dxmt" : "vkd3d") : engine);
+        /* Its Game Settings (game_tuning.h) */
+        ms_json_writer_key(&request_writer, "tuningProvider");
+        ms_json_writer_string(&request_writer, "gamejolt");
+        ms_json_writer_key(&request_writer, "tuningId");
+        ms_json_writer_string(&request_writer, id);
         ms_json_writer_object_end(&request_writer);
         launch_body = ms_json_writer_take(&request_writer);
         result = launch_body ? ms_steam_launch_external_json(home, launch_body, strlen(launch_body), NULL)

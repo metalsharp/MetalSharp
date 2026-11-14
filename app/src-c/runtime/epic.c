@@ -1,5 +1,6 @@
 #include "metalsharp_backend/epic.h"
 #include "metalsharp_backend/game_executable.h"
+#include "metalsharp_backend/game_tuning.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/logs.h"
@@ -695,8 +696,11 @@ static unsigned epic_game_id(const char* app_name) {
     return hash | 0x80000000u;
 }
 
-static bool epic_stage_route(const char* home, const char* app_name, const char* pipeline,
-                             const char* known_executable) {
+static char* epic_prefix_path(const char* home, const char* app_name);
+
+/* launching: the game starts next, so its Game Settings are prepared too (game_tuning.h). */
+static bool epic_stage_route(const char* home, const char* app_name, const char* pipeline, const char* known_executable,
+                             bool launching) {
     char* path = epic_legendary_installed_path(home);
     char* raw = path ? epic_read_text(path, LEGENDARY_MAX_OUTPUT) : NULL;
     char error[160];
@@ -735,6 +739,12 @@ static bool epic_stage_route(const char* home, const char* app_name, const char*
     /* The fex build: legendary starts the game, which takes its route from launch.env. */
     if (ok)
         ok = ms_steam_write_game_launch_env(home, epic_game_id(app_name), pipeline, install_path, executable);
+    if (launching) {
+        char* prefix = epic_prefix_path(home, app_name);
+        if (prefix)
+            ms_game_tuning_prepare_launch(home, "epic", app_name, prefix, install_path, executable);
+        free(prefix);
+    }
 done:
     free(executable);
     free(relative);
@@ -1588,8 +1598,9 @@ char* ms_epic_running_json(const char* home) {
     return ms_json_writer_take(&writer);
 }
 
+/* tuning_app: the Epic game whose Game Settings the launch takes (legendary passes them to the game), or NULL. */
 static pid_t spawn_detached(const char* home, char* const argv[], const char* prefix, const char* graphics_backend,
-                            const char* working_directory, const char* log_path) {
+                            const char* working_directory, const char* log_path, const char* tuning_app) {
     int pid_pipe[2];
     pid_t child, launched = 0;
     if (pipe(pid_pipe) != 0)
@@ -1614,6 +1625,8 @@ static pid_t spawn_detached(const char* home, char* const argv[], const char* pr
             setenv("WINEPREFIX", prefix, 1);
         if (graphics_backend)
             ms_steam_apply_graphics_route(home, graphics_backend);
+        if (tuning_app)
+            ms_game_tuning_apply_child(home, "epic", tuning_app);
         if (working_directory)
             chdir(working_directory);
         int log_fd = open(log_path, O_CREAT | O_TRUNC | O_WRONLY, 0600);
@@ -1666,7 +1679,7 @@ char* ms_epic_install_json(const char* home, const unsigned char* body, size_t b
     }
     char* const argv[] = {tool,          "-y", "install",    app_name,      "--platform", "Windows",
                           "--base-path", root, "--skip-sdl", "--skip-dlcs", NULL};
-    pid_t pid = spawn_detached(home, argv, NULL, NULL, NULL, log_path);
+    pid_t pid = spawn_detached(home, argv, NULL, NULL, NULL, log_path, NULL);
     if (pid <= 1) {
         result = epic_failure("could not start Epic game download");
         goto done;
@@ -1884,7 +1897,7 @@ char* ms_epic_initialize_json(const char* home, const unsigned char* body, size_
         goto done;
     }
     /* Saving the bottle applies its route to the installed game right away. */
-    (void)epic_stage_route(home, app_name, pipeline, NULL);
+    (void)epic_stage_route(home, app_name, pipeline, NULL, false);
     ms_json_writer writer;
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
@@ -1989,7 +2002,7 @@ char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t bo
         }
         if (saved_executable_status == 0)
             override_exe = ms_witcher3_game_executable(install_path);
-        (void)epic_stage_route(home, app_name, pipeline, override_exe);
+        (void)epic_stage_route(home, app_name, pipeline, override_exe, true);
     }
     if (configure_epic_mouse(home, prefix, mouse_mode) != 0) {
         result = epic_failure("could not apply Epic game mouse settings");
@@ -2017,7 +2030,7 @@ char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t bo
                           wineserver,
                           launch_pid_path,
                           NULL};
-    pid_t pid = spawn_detached(home, argv, prefix, pipeline, NULL, log_path);
+    pid_t pid = spawn_detached(home, argv, prefix, pipeline, NULL, log_path, app_name);
     if (pid <= 1) {
         result = epic_failure("could not launch Epic game");
         goto done;

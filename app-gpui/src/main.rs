@@ -21,6 +21,7 @@ mod markdown;
 mod mini_browser;
 mod page_palette;
 mod process_manager;
+mod scrollbar;
 mod search_input;
 mod settings_preview;
 mod sharp_preview;

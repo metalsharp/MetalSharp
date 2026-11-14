@@ -4,6 +4,7 @@
 #endif
 #endif
 #include "metalsharp_backend/sharp.h"
+#include "metalsharp_backend/game_tuning.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/logs.h"
@@ -2269,6 +2270,9 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 ensure_prefix_fonts(home, effective_prefix);
                 if (effective_prefix && !strcmp(action, "launch"))
                     installing_webview2 = program_uses_webview2(exe_path) && !prefix_has_webview2(effective_prefix);
+                /* Game Settings > Advanced: launch.local.env beside the program, its AppDefaults. */
+                if (effective_prefix && !strcmp(action, "launch") && !ms_sharp_is_msi(exe_path))
+                    ms_game_tuning_prepare_launch(home, "windows", id, effective_prefix, NULL, exe_path);
                 free(effective_prefix);
             }
             if (!strcmp(action, "launch"))
@@ -2312,6 +2316,8 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 sharp_apply_display_preferences(window_mode, resolution);
                 if (engine && strcmp(engine, "wine_bare") && strcmp(engine, "auto"))
                     ms_steam_apply_graphics_route(home, engine);
+                if (!strcmp(action, "launch") && !ms_sharp_is_msi(exe_path))
+                    ms_game_tuning_apply_child(home, "windows", id);
                 const char* launch_wrapper = getenv("METALSHARP_WINE_LAUNCH_WRAPPER");
                 char* runner = (char*)(launch_wrapper && access(launch_wrapper, X_OK) == 0 ? launch_wrapper : wine);
                 /* Windows Installer packages run through msiexec. */
