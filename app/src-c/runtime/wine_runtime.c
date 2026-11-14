@@ -4,6 +4,7 @@
 #include "metalsharp_backend/wine_runtime.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/logs.h"
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -494,10 +495,45 @@ static bool run_wait(const char* const* argv, const char* prefix, const char* lo
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
+/* The path $variable names, when it is set and that path exists. One that names a path that is gone (left set by a
+ * test or an old install, as with launchctl setenv) is ignored, and logged once, so the caller takes MetalSharp's own
+ * copy instead of failing as if MetalSharp.app carried nothing. */
+static const char* existing_override(const char* variable) {
+    static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+    static char warned[4][64];
+    const char* value = getenv(variable);
+    char home[PATH_MAX], message[PATH_MAX + 128];
+    unsigned i;
+    bool first = true;
+    if (!value || !value[0])
+        return NULL;
+    if (access(value, R_OK) == 0)
+        return value;
+    pthread_mutex_lock(&lock);
+    for (i = 0; i < sizeof(warned) / sizeof(warned[0]); i++) {
+        if (!strcmp(warned[i], variable)) {
+            first = false;
+            break;
+        }
+        if (!warned[i][0]) {
+            snprintf(warned[i], sizeof(warned[i]), "%s", variable);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&lock);
+    if (first) {
+        snprintf(message, sizeof(message), "%s names %s, which does not exist; using MetalSharp's own", variable, value);
+        fprintf(stderr, "%s\n", message);
+        if (metalsharp_home(home, sizeof(home)))
+            ms_log_event(home, message);
+    }
+    return NULL;
+}
+
 char* ms_app_resources_path(const char* name) {
-    const char* override = getenv("METALSHARP_APP_RESOURCES");
+    const char* override = existing_override("METALSHARP_APP_RESOURCES");
     char path[PATH_MAX], resolved[PATH_MAX], candidate[PATH_MAX];
-    if (override && override[0])
+    if (override)
         return format_path(candidate, sizeof(candidate), "%s/%s", override, name) && access(candidate, R_OK) == 0
                    ? strdup(candidate)
                    : NULL;
@@ -526,11 +562,11 @@ char* ms_app_resources_path(const char* name) {
 /* <name> in MetalSharp.app's Resources, else the other build's runtime, which MetalSharp.app does not carry,
  * downloaded (ms_wine_runtime_download); $<override> names another. */
 static char* app_source(const char* override_name, const char* name) {
-    const char* override = getenv(override_name);
+    const char* override = existing_override(override_name);
     char candidate[PATH_MAX], home[PATH_MAX];
     char* found;
-    if (override && override[0])
-        return access(override, R_OK) == 0 ? strdup(override) : NULL;
+    if (override)
+        return strdup(override);
     if ((found = ms_app_resources_path(name)))
         return found;
     if (metalsharp_home(home, sizeof(home)) &&

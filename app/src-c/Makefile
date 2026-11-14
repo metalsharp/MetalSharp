@@ -209,14 +209,14 @@ $(SETUP_VARIANT_TEST): runtime/setup.c runtime/migration.c runtime/json.c runtim
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c runtime/logs.c runtime/rosetta.c runtime/wine_runtime.c tests/setup_variant_test.c -lpthread
 
 # This build's game rule set (configs/mtsp-rules.toml, or mtsp-rules-fex.toml with VARIANT=fex).
-$(MTSP_RULES_TEST): runtime/mtsp.c runtime/mtsp_catalog.c runtime/json.c runtime/json_writer.c runtime/wine_runtime.c tests/mtsp_rules_test.c include/metalsharp_backend/mtsp.h $(PROJECT_ROOT)/configs/mtsp-rules.toml $(PROJECT_ROOT)/configs/mtsp-rules-fex.toml
+$(MTSP_RULES_TEST): runtime/mtsp.c runtime/mtsp_catalog.c runtime/json.c runtime/json_writer.c runtime/wine_runtime.c runtime/logs.c tests/mtsp_rules_test.c include/metalsharp_backend/mtsp.h $(PROJECT_ROOT)/configs/mtsp-rules.toml $(PROJECT_ROOT)/configs/mtsp-rules-fex.toml
 	@mkdir -p "$(@D)"
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/mtsp.c runtime/mtsp_catalog.c runtime/json.c runtime/json_writer.c runtime/wine_runtime.c tests/mtsp_rules_test.c -lpthread
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/mtsp.c runtime/mtsp_catalog.c runtime/json.c runtime/json_writer.c runtime/wine_runtime.c runtime/logs.c tests/mtsp_rules_test.c -lpthread
 
 # The fex build's code, whatever VARIANT this build is.
-$(WINE_RUNTIME_TEST): runtime/wine_runtime.c runtime/cache.c runtime/metalfx.c tests/wine_runtime_test.c include/metalsharp_backend/wine_runtime.h include/metalsharp_backend/cache.h include/metalsharp_backend/metalfx.h
+$(WINE_RUNTIME_TEST): runtime/wine_runtime.c runtime/logs.c runtime/cache.c runtime/metalfx.c tests/wine_runtime_test.c include/metalsharp_backend/wine_runtime.h include/metalsharp_backend/cache.h include/metalsharp_backend/metalfx.h
 	@mkdir -p "$(@D)"
-	$(CC) $(filter-out -DMS_BACKEND_VARIANT=%,$(CPPFLAGS)) -DMS_BACKEND_VARIANT=\"fex\" $(CFLAGS) -o "$@" runtime/wine_runtime.c runtime/cache.c runtime/metalfx.c runtime/json.c runtime/json_writer.c tests/wine_runtime_test.c
+	$(CC) $(filter-out -DMS_BACKEND_VARIANT=%,$(CPPFLAGS)) -DMS_BACKEND_VARIANT=\"fex\" $(CFLAGS) -o "$@" runtime/wine_runtime.c runtime/logs.c runtime/cache.c runtime/metalfx.c runtime/json.c runtime/json_writer.c tests/wine_runtime_test.c
 
 # The vcpp test #includes runtime/setup.c for the static progress helpers, so
 # setup.c itself must not be linked into this binary.
