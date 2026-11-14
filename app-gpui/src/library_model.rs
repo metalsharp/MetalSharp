@@ -184,6 +184,24 @@ impl LibGame {
         };
         id.filter(|id| !id.is_empty()).map(|id| (provider, id))
     }
+    /// The backend's name for this game as a standalone app (`/pack-app/*`): its kind and id.
+    /// None for a game that is not installed, a native macOS build, or a Windows program.
+    pub fn packed_app_ref(&self) -> Option<(&'static str, String)> {
+        if !self.installed || self.needs_install || self.has_native_build {
+            return None;
+        }
+        let id = |id: &Option<String>| id.clone().filter(|id| !id.is_empty());
+        match self.page() {
+            LibraryPage::Steam => (self.appid > 0).then(|| ("steam", self.appid.to_string())),
+            LibraryPage::Ubisoft | LibraryPage::Rockstar | LibraryPage::BattleNet => {
+                let (route, _, store_id) = self.launcher_route()?;
+                Some((route, id(store_id)?))
+            }
+            LibraryPage::Gog => Some(("gog", id(&self.external_id)?)),
+            LibraryPage::Epic => Some(("epic", id(&self.external_id)?)),
+            LibraryPage::WindowsPrograms | LibraryPage::Logs => None,
+        }
+    }
     /// A non-Steam game the user added to Wine Steam (shortcuts.vdf).
     pub fn is_shortcut(&self) -> bool {
         self.source.as_deref() == Some("steam_shortcut")
@@ -614,6 +632,38 @@ mod tests {
 
     fn game(value: Value) -> LibGame {
         serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn packed_apps_name_games_by_kind_and_id() {
+        let steam = game(json!({"appid": 220, "name": "Half-Life 2", "installed": true}));
+        assert_eq!(steam.packed_app_ref(), Some(("steam", "220".to_owned())));
+        let ubisoft = game(
+            json!({"appid": 2147484283u64, "installed": true, "source": "ubisoft", "ubisoft_id": "635"}),
+        );
+        assert_eq!(
+            ubisoft.packed_app_ref(),
+            Some(("ubisoft", "635".to_owned()))
+        );
+        let battlenet = game(
+            json!({"appid": 5, "installed": true, "source": "battlenet", "battlenet_id": "wow"}),
+        );
+        assert_eq!(
+            battlenet.packed_app_ref(),
+            Some(("battlenet", "wow".to_owned()))
+        );
+        let mut gog = game(json!({"appid": 9, "installed": true, "source": "gog"}));
+        gog.external_id = Some("1207658924".into());
+        assert_eq!(gog.packed_app_ref(), Some(("gog", "1207658924".to_owned())));
+        let mut windows = game(json!({"appid": 10, "installed": true, "source": "windows"}));
+        windows.external_id = Some("app".into());
+        assert_eq!(windows.packed_app_ref(), None);
+        let native = game(json!({"appid": 11, "installed": true, "has_native_build": true}));
+        assert_eq!(native.packed_app_ref(), None);
+        let not_installed = game(json!({"appid": 12, "installed": false}));
+        assert_eq!(not_installed.packed_app_ref(), None);
+        let no_id = game(json!({"appid": 13, "installed": true, "source": "rockstar"}));
+        assert_eq!(no_id.packed_app_ref(), None);
     }
 
     #[test]

@@ -4577,6 +4577,79 @@ impl MetalSharpApp {
                 ),
             ));
         }
+        // The game as its own app in Applications, which starts it (and its launcher) and quits with it.
+        if let Some((_, packed)) = self
+            .live
+            .packed_app
+            .as_ref()
+            .filter(|(target, _)| game.packed_app_ref().as_ref() == Some(target))
+        {
+            let busy = self.live.pack_app_busy;
+            let detail = match packed {
+                Some(path) => path
+                    .rsplit('/')
+                    .next()
+                    .map(|name| format!("In Applications as {name}"))
+                    .unwrap_or_else(|| "In Applications".to_string()),
+                None => "Opens from Applications or the Dock".to_string(),
+            };
+            let button = |id: &'static str, text: &'static str| {
+                div()
+                    .id(id)
+                    .flex_none()
+                    .cursor_pointer()
+                    .px(px(9.0))
+                    .py(px(6.0))
+                    .rounded(px(5.0))
+                    .border_1()
+                    .border_color(rgb(theme.border()))
+                    .bg(rgb(theme.menu_bg()))
+                    .opacity(if busy { 0.45 } else { 1.0 })
+                    .child(text)
+            };
+            let mut buttons = div().flex_none().flex().gap(px(4.0)).child(
+                button(
+                    "pack-game-app",
+                    if packed.is_some() {
+                        "Update .app"
+                    } else {
+                        "Pack as .app"
+                    },
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.pack_featured_app(cx))),
+            );
+            if packed.is_some() {
+                buttons = buttons.child(
+                    button("remove-game-app", "Remove .app")
+                        .on_click(cx.listener(|this, _, _, cx| this.remove_featured_app(cx))),
+                );
+            }
+            cells.push(
+                div()
+                    .when(two_columns, |cell| cell.flex_1().min_w_0())
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(12.0))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .flex()
+                            .flex_col()
+                            .gap(px(4.0))
+                            .child("Standalone app")
+                            .child(
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(rgb(muted))
+                                    .child(detail),
+                            ),
+                    )
+                    .child(buttons),
+            );
+        }
         if !two_columns {
             menu = cells.into_iter().fold(menu, |menu, cell| menu.child(cell));
         } else {
