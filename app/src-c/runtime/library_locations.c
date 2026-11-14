@@ -30,18 +30,21 @@ typedef struct {
     const char* prefix; /* the prefix the launcher installs games from, or NULL (gog, epic) */
     char letter;        /* its drive letter there */
     unsigned flags;     /* MS_LIBRARY_DRIVE_* for that letter */
+    /* On an external drive the letter maps the drive's root, so the launcher can browse to any folder on it; its
+     * games still go into folder (Ubisoft Connect's default install folder, ubisoft.c). */
+    bool drive_at_volume_root;
 } library_launcher;
 
 static const library_launcher LAUNCHERS[] = {
     {"ubisoft", "Ubisoft Connect", "MetalSharp Ubisoft Games", "prefix-ubisoft", 'y',
-     MS_LIBRARY_DRIVE_LEGACY_VOLUME_ROOT | MS_LIBRARY_DRIVE_REPLACE_BROKEN},
+     MS_LIBRARY_DRIVE_LEGACY_VOLUME_ROOT | MS_LIBRARY_DRIVE_REPLACE_BROKEN, true},
     {"battlenet", "Battle.net", "MetalSharp Battle.net Games", "prefix-battlenet", 'y',
-     MS_LIBRARY_DRIVE_LEGACY_VOLUME_ROOT | MS_LIBRARY_DRIVE_REPLACE_BROKEN},
+     MS_LIBRARY_DRIVE_LEGACY_VOLUME_ROOT | MS_LIBRARY_DRIVE_REPLACE_BROKEN, false},
     /* prefix-steam: Steam libraries on external drives take letters from D: up, and a broken link
      * there can be a library on a drive that is not connected, so only MetalSharp's own links go. */
-    {"rockstar", "Rockstar", "MetalSharp Rockstar Games", "prefix-steam", 'r', 0},
-    {"gog", "GOG", "MetalSharp GOG Games", NULL, 0, 0},
-    {"epic", "Epic", "MetalSharp Epic Games", NULL, 0, 0},
+    {"rockstar", "Rockstar", "MetalSharp Rockstar Games", "prefix-steam", 'r', 0, false},
+    {"gog", "GOG", "MetalSharp GOG Games", NULL, 0, 0, false},
+    {"epic", "Epic", "MetalSharp Epic Games", NULL, 0, 0, false},
 };
 #define LAUNCHER_COUNT (sizeof(LAUNCHERS) / sizeof(LAUNCHERS[0]))
 
@@ -523,9 +526,20 @@ static void unmap_drive(const char* prefix, const char* drive) {
     free(dosdevices);
 }
 
-/* Maps location's folder in launcher's prefix, updating location->drive and drive_target. */
+/* What launcher's drive letter links to: location's folder, or with drive_at_volume_root, the root of the external
+ * drive the folder is on. */
+static const char* drive_target_of(const library_launcher* launcher, const ms_library_location* location) {
+    if (launcher->drive_at_volume_root && strcmp(location->volume, "internal") && location->volume[0] == '/' &&
+        !strncmp(location->path, location->volume, strlen(location->volume)) &&
+        location->path[strlen(location->volume)] == '/' && is_dir(location->volume))
+        return location->volume;
+    return location->path;
+}
+
+/* Maps location's folder (drive_target_of) in launcher's prefix, updating location->drive and drive_target. */
 static void apply_drive(const char* home, const library_launcher* launcher, ms_library_location* location) {
     char* prefix = launcher->prefix ? join(home, launcher->prefix) : NULL;
+    const char* target = drive_target_of(launcher, location);
     char chosen = 0;
     char old_drive[4];
     char old_target[sizeof(location->drive_target)];
@@ -536,7 +550,7 @@ static void apply_drive(const char* home, const library_launcher* launcher, ms_l
     snprintf(old_drive, sizeof(old_drive), "%s", location->drive);
     snprintf(old_target, sizeof(old_target), "%s", location->drive_target);
     ms_library_drive_result result =
-        ms_library_map_drive(prefix, launcher->letter, location->path, old_target, launcher->flags);
+        ms_library_map_drive(prefix, launcher->letter, target, old_target, launcher->flags);
     if (result != MS_LIBRARY_DRIVE_FAILED && result != MS_LIBRARY_DRIVE_USER)
         chosen = launcher->letter;
     /* The preferred letter is the user's: the first free letter, X: down to M:, or the one recorded. */
@@ -556,19 +570,19 @@ static void apply_drive(const char* home, const library_launcher* launcher, ms_l
         }
         free(path);
         if (usable) {
-            ms_library_drive_result fallback = ms_library_map_drive(prefix, letter, location->path, old_target, 0);
+            ms_library_drive_result fallback = ms_library_map_drive(prefix, letter, target, old_target, 0);
             if (fallback != MS_LIBRARY_DRIVE_FAILED && fallback != MS_LIBRARY_DRIVE_USER)
                 chosen = letter;
         }
     }
     if (chosen) {
         snprintf(location->drive, sizeof(location->drive), "%c:", chosen);
-        snprintf(location->drive_target, sizeof(location->drive_target), "%s", location->path);
+        snprintf(location->drive_target, sizeof(location->drive_target), "%s", target);
         /* A letter MetalSharp mapped before, now unused: take it back. */
         if (old_drive[0] && strcmp(old_drive, location->drive) && old_target[0] &&
             drive_is_link_to(prefix, old_drive, old_target))
             unmap_drive(prefix, old_drive);
-    } else if (old_drive[0] && !drive_is_link_to(prefix, old_drive, location->path)) {
+    } else if (old_drive[0] && !drive_is_link_to(prefix, old_drive, target)) {
         location->drive[0] = '\0';
         location->drive_target[0] = '\0';
     }

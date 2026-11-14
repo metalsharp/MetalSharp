@@ -61,6 +61,7 @@ SOURCES := \
 	runtime/gog.c \
 	runtime/steamcmd.c \
 	runtime/ubisoft.c \
+	runtime/ubisoft_settings.c \
 	runtime/store_launcher.c \
 	runtime/library_locations.c \
 	runtime/launcher_uninstall.c \
@@ -183,9 +184,9 @@ asan-test:
 	done
 
 # Volumes come from a folder standing in for /Volumes, and HOME from the test's own folder.
-$(LIBRARY_LOCATIONS_TEST): runtime/library_locations.c runtime/json.c runtime/json_writer.c tests/library_locations_test.c include/metalsharp_backend/library_locations.h
+$(LIBRARY_LOCATIONS_TEST): runtime/library_locations.c runtime/ubisoft_settings.c runtime/json.c runtime/json_writer.c tests/library_locations_test.c include/metalsharp_backend/library_locations.h include/metalsharp_backend/ubisoft.h
 	@mkdir -p "$(@D)"
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/library_locations.c runtime/json.c runtime/json_writer.c tests/library_locations_test.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/library_locations.c runtime/ubisoft_settings.c runtime/json.c runtime/json_writer.c tests/library_locations_test.c
 
 $(JSON_TEST): runtime/json.c runtime/json_writer.c tests/json_test.c include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
 	@mkdir -p "$(@D)"
