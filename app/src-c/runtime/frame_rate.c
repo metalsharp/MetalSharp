@@ -86,27 +86,58 @@ static bool is_conf_key_line(const char* line) {
     return false;
 }
 
-/* Mullion's limit: d3d11.preferredMaxFrameRate in mullion.conf (Mullion's own default is none). */
-static unsigned mullion_limit(const char* home) {
+/* The limits in mullion.conf: D3D11's and D3D12's (-1 where it has none). */
+static void conf_limits(const char* home, int limits[2]) {
     char path[PATH_MAX];
     char* text;
-    unsigned limit = 0;
+    limits[0] = limits[1] = -1;
     if (!ms_wine_graphics_conf_path(home, path, sizeof(path)) || !(text = read_file(path)))
-        return 0;
+        return;
     for (char *save = NULL, *line = strtok_r(text, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
-        const char* value = conf_value(line, conf_keys[0]);
-        if (value) {
-            double parsed = strtod(value, NULL);
-            limit = parsed > 0 && parsed < 1000 ? (unsigned)parsed : 0;
-            break;
+        for (size_t i = 0; i < sizeof(conf_keys) / sizeof(conf_keys[0]); i++) {
+            const char* value = conf_value(line, conf_keys[i]);
+            if (value && limits[i] < 0) {
+                double parsed = strtod(value, NULL);
+                limits[i] = parsed > 0 && parsed < 1000 ? (int)parsed : 0;
+            }
         }
     }
+    free(text);
+}
+
+static char* mullion_state_path(const char* home) {
+    size_t size = strlen(home) + sizeof("/etc/mullion-frame-rate");
+    char* path = (char*)malloc(size);
+    if (path)
+        (void)snprintf(path, size, "%s/etc/mullion-frame-rate", home);
+    return path;
+}
+
+/* Mullion's limit, for D3D11 and D3D12 alike: a number in etc/mullion-frame-rate, which every runtime's mullion.conf
+ * gets when a game starts (each runtime, FEX and x86_64, has its own runtime/wine and so its own mullion.conf).
+ * Before that file, the limit was only in mullion.conf: a mullion.conf MetalSharp wrote has both D3D11's and
+ * D3D12's line, which is the limit then. One with D3D11's alone is the default the runtime ships (60 at D3D11
+ * only), not one the user chose, so it means none, as Mullion's own default does. */
+static unsigned mullion_limit(const char* home) {
+    char* path = mullion_state_path(home);
+    char* text = path ? read_file(path) : NULL;
+    unsigned limit = 0;
+    if (text) {
+        double parsed = strtod(text, NULL);
+        limit = valid_limit(parsed) ? (unsigned)parsed : 0;
+    } else {
+        int limits[2];
+        conf_limits(home, limits);
+        if (limits[0] >= 0 && limits[1] >= 0 && valid_limit(limits[0]))
+            limit = (unsigned)limits[0];
+    }
+    free(path);
     free(text);
     return limit;
 }
 
 /* Rewrites mullion.conf with both D3D11 and D3D12 limits (0 is none), keeping every other line. */
-static bool write_mullion_limit(const char* home, unsigned limit) {
+static bool write_mullion_conf(const char* home, unsigned limit) {
     char path[PATH_MAX];
     char* text;
     char* output;
@@ -135,6 +166,38 @@ static bool write_mullion_limit(const char* home, unsigned limit) {
     free(output);
     free(text);
     return ok;
+}
+
+/* Keeps the limit in etc/mullion-frame-rate and the active runtime's mullion.conf. */
+static bool write_mullion_limit(const char* home, unsigned limit) {
+    char* path = mullion_state_path(home);
+    char etc[PATH_MAX], text[16];
+    bool ok;
+    if (path == NULL)
+        return false;
+    (void)snprintf(etc, sizeof(etc), "%s/etc", home);
+    if (mkdir(etc, 0755) != 0 && errno != EEXIST) {
+        free(path);
+        return false;
+    }
+    (void)snprintf(text, sizeof(text), "%u\n", limit);
+    ok = write_file(path, text);
+    free(path);
+    return write_mullion_conf(home, limit) && ok;
+}
+
+bool ms_frame_rate_sync_conf(const char* metalsharp_home) {
+    unsigned limit;
+    int limits[2];
+    char path[PATH_MAX];
+    if (metalsharp_home == NULL || !ms_wine_graphics_conf_path(metalsharp_home, path, sizeof(path)) ||
+        access(path, F_OK) != 0)
+        return false;
+    limit = mullion_limit(metalsharp_home);
+    conf_limits(metalsharp_home, limits);
+    if (limits[0] == (int)limit && limits[1] == (int)limit)
+        return true;
+    return write_mullion_conf(metalsharp_home, limit);
 }
 
 static char* vkd3d_state_path(const char* home) {
