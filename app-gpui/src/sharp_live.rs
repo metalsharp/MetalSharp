@@ -421,7 +421,13 @@ impl SharpPreview {
                     live::DEFAULT_TIMEOUT,
                     |this, r, cx| {
                         if let Some(app) = r.as_ref().filter(|r| is_ok(r)).and_then(|r| r.get("app")) {
-                            toast::success(cx, format!("Installed {}", s(app, "name")));
+                            if super::sharp_deck::installer_like(s(app, "exe_path")) {
+                                // A setup stays out of the library: run it now, and what it
+                                // installs is added when it exits.
+                                this.launch_app(app.clone(), cx);
+                            } else {
+                                toast::success(cx, format!("Installed {}", s(app, "name")));
+                            }
                             this.load(cx);
                         } else if r.as_ref().is_some_and(|r| is_ok(r) && b(r, "installing")) {
                             toast::success(

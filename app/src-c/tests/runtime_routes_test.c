@@ -1412,6 +1412,39 @@ int main(int argc, char** argv) {
         free(extractor);
         free(installer);
     }
+    /* A setup is named by its file and keeps one entry when it is picked again (the frontend runs it each time). */
+    {
+        char* sharp_home = join(home, "sharp-setup-again");
+        char* installer = join(home, "sharp-setup-downloads/NoHesiLauncher-Setup.exe");
+        char body[PATH_MAX];
+        char *first, *again, *text;
+        fixture(home, "sharp-setup-downloads/NoHesiLauncher-Setup.exe", "MZ inno");
+        snprintf(body, sizeof(body), "{\"srcPath\":\"%s\"}", installer);
+        first = ms_sharp_action_json(sharp_home, (const unsigned char*)body, strlen(body), "install");
+        assert(first && strstr(first, "\"ok\":true") && strstr(first, "\"name\":\"NoHesiLauncher-Setup\""));
+        again = ms_sharp_action_json(sharp_home, (const unsigned char*)body, strlen(body), "install");
+        assert(again && strstr(again, "\"ok\":true"));
+        {
+            /* the same "id":"sharp_..." in both answers */
+            const char* a = strstr(first, "\"id\":\"");
+            const char* b = strstr(again, "\"id\":\"");
+            size_t length = a ? strcspn(a + 6, "\"") + 6 : 0;
+            assert(a && b && length > 6 && !strncmp(a, b, length + 1));
+        }
+        text = read_hook_fixture(home, "sharp-setup-again/sharp-library/library.json");
+        assert(text);
+        {
+            int entries = 0;
+            for (const char* p = text; (p = strstr(p, "\"exe_path\"")); p++)
+                entries++;
+            assert(entries == 1);
+        }
+        free(text);
+        free(first);
+        free(again);
+        free(installer);
+        free(sharp_home);
+    }
 #ifdef __APPLE__
     {
         char *sharp_home = join(home, "sharp-detached"), *game_dir = join(home, "sharp-detached-game"),

@@ -1717,6 +1717,37 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 }
             } else {
                 exe = strdup(src);
+                /* A setup picked again is the entry it already has: running it again adopts what it installs, and
+                 * the library keeps one entry for it. */
+                if (exe && installer_like(exe)) {
+                    ms_json* apps = load_array(home);
+                    for (size_t i = 0; apps && i < ms_json_array_length(apps); i++) {
+                        const ms_json* app = ms_json_array_get(apps, i);
+                        char* path = field(app, "exe_path", "");
+                        char* adopted = field(app, "adopted_from", "");
+                        bool same = !strcmp(path, exe) && !adopted[0];
+                        free(path);
+                        free(adopted);
+                        if (same && (raw = ms_json_stringify(app)) != NULL)
+                            break;
+                    }
+                    ms_json_free(apps);
+                    if (raw) {
+                        ms_json_writer_init(&w);
+                        ms_json_writer_object_begin(&w);
+                        ms_json_writer_key(&w, "ok");
+                        ms_json_writer_bool(&w, true);
+                        ms_json_writer_key(&w, "app");
+                        ms_json_writer_raw(&w, raw);
+                        ms_json_writer_object_end(&w);
+                        o = ms_json_writer_take(&w);
+                        free(raw);
+                        free(exe);
+                        free(src);
+                        ms_json_free(j);
+                        return o;
+                    }
+                }
             }
         } else {
             char* bottle = field(j, "bottleId", "");
@@ -1731,7 +1762,17 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
         }
         id = new_id();
         if (!name)
-            name = field(j, "name", exe);
+            name = field(j, "name", "");
+        /* without one given, a program is named by its file ("NoHesiLauncher-Setup"), not its path */
+        if (name && !name[0]) {
+            const char* base = strrchr(exe, '/');
+            const char* dot;
+            free(name);
+            name = strdup(base ? base + 1 : exe);
+            if (name && (dot = strrchr(name, '.')) && dot != name &&
+                (!strcasecmp(dot, ".exe") || !strcasecmp(dot, ".msi")))
+                name[dot - name] = '\0';
+        }
         if (!dir) {
             dir = field(j, "installDir", "");
             if (!dir[0]) {
