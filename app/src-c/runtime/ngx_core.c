@@ -2,16 +2,14 @@
 #define _DARWIN_C_SOURCE
 #endif
 #include "metalsharp_backend/ngx_core.h"
+#include "metalsharp_backend/wine_reg.h"
 
 #include <errno.h>
 #include <limits.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
-#include <time.h>
 #include <unistd.h>
 
 /* NVIDIA's NGX code in a game (DLSS through Streamline, which Assassin's Creed Black Flag Resynced uses) finds
@@ -49,47 +47,6 @@ ms_ngx_core_action ms_ngx_core_action_for(const char* prefix, bool d3dmetal) {
     return MS_NGX_CORE_KEEP;
 }
 
-/* wine reg <args>, in prefix, within 60 seconds. */
-static bool run_reg(const char* wine, const char* prefix, char* const reg_args[]) {
-    char* argv[16];
-    size_t n = 0;
-    pid_t pid;
-    int status = 0;
-    time_t deadline;
-    argv[n++] = (char*)wine;
-    argv[n++] = "reg";
-    for (size_t i = 0; reg_args[i] && n < sizeof(argv) / sizeof(argv[0]) - 1; i++)
-        argv[n++] = reg_args[i];
-    argv[n] = NULL;
-    pid = fork();
-    if (pid < 0)
-        return false;
-    if (pid == 0) {
-        setenv("WINEPREFIX", prefix, 1);
-        setenv("WINEDEBUG", "-all", 1);
-        unsetenv("WINEDLLOVERRIDES");
-        (void)freopen("/dev/null", "w", stdout);
-        (void)freopen("/dev/null", "w", stderr);
-        execv(wine, argv);
-        _exit(127);
-    }
-    deadline = time(NULL) + 60;
-    for (;;) {
-        pid_t done = waitpid(pid, &status, WNOHANG);
-        if (done == pid)
-            break;
-        if (done < 0 && errno != EINTR)
-            return false;
-        if (time(NULL) >= deadline) {
-            kill(pid, SIGKILL);
-            (void)waitpid(pid, &status, 0);
-            return false;
-        }
-        usleep(50000);
-    }
-    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
-}
-
 bool ms_ngx_core_route(const char* home, const char* canonical_pipeline) {
     const char* env_prefix = getenv("WINEPREFIX");
     char prefix[PATH_MAX], wine[PATH_MAX], marker[PATH_MAX];
@@ -115,10 +72,10 @@ bool ms_ngx_core_route(const char* home, const char* canonical_pipeline) {
         if (action == MS_NGX_CORE_SET) {
             char* const args[] = {"add", (char*)NGX_KEYS[i][0], "/v", (char*)NGX_KEYS[i][1], "/t", "REG_SZ", "/d",
                                   MS_NGX_CORE_DIR, "/f", NULL};
-            ok = run_reg(wine, prefix, args) && ok;
+            ok = ms_wine_reg(wine, prefix, args) && ok;
         } else {
             char* const args[] = {"delete", (char*)NGX_KEYS[i][0], "/v", (char*)NGX_KEYS[i][1], "/f", NULL};
-            (void)run_reg(wine, prefix, args); /* a value already gone is fine */
+            (void)ms_wine_reg(wine, prefix, args); /* a value already gone is fine */
         }
     }
     if (action == MS_NGX_CORE_SET) {
