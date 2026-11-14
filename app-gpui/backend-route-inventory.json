@@ -187,7 +187,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 1240,
+          "line": 1243,
           "kind": "literal-candidate"
         },
         {
@@ -209,12 +209,12 @@
       "literal_references": [
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 193,
+          "line": 195,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 584,
+          "line": 587,
           "kind": "literal-candidate"
         }
       ],
@@ -241,27 +241,27 @@
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 554,
+          "line": 557,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 1035,
+          "line": 1038,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 1069,
+          "line": 1072,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 1103,
+          "line": 1106,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 1137,
+          "line": 1140,
           "kind": "literal-candidate"
         },
         {
@@ -323,27 +323,27 @@
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 554,
+          "line": 557,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 1035,
+          "line": 1038,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 1069,
+          "line": 1072,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 1103,
+          "line": 1106,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 1137,
+          "line": 1140,
           "kind": "literal-candidate"
         },
         {
@@ -1775,12 +1775,12 @@
       "literal_references": [
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 981,
+          "line": 984,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 1334,
+          "line": 1337,
           "kind": "literal-candidate"
         }
       ],
@@ -1931,7 +1931,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 602,
+          "line": 605,
           "kind": "literal-candidate"
         },
         {
@@ -1970,7 +1970,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 636,
+          "line": 639,
           "kind": "literal-candidate"
         }
       ],
@@ -2051,7 +2051,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 750,
+          "line": 753,
           "kind": "literal-candidate"
         },
         {
@@ -2176,7 +2176,7 @@
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 767,
+          "line": 770,
           "kind": "literal-candidate"
         },
         {
@@ -2561,12 +2561,12 @@
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 536,
+          "line": 539,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 724,
+          "line": 727,
           "kind": "literal-candidate"
         },
         {
@@ -2593,12 +2593,12 @@
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 536,
+          "line": 539,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 724,
+          "line": 727,
           "kind": "literal-candidate"
         },
         {
@@ -3076,7 +3076,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 1328,
+          "line": 1331,
           "kind": "literal-candidate"
         },
         {
@@ -3333,7 +3333,7 @@
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 818,
+          "line": 821,
           "kind": "literal-candidate"
         },
         {
@@ -3435,7 +3435,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 841,
+          "line": 844,
           "kind": "literal-candidate"
         }
       ],
@@ -3452,7 +3452,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 906,
+          "line": 909,
           "kind": "literal-candidate"
         }
       ],
@@ -3501,7 +3501,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 872,
+          "line": 875,
           "kind": "literal-candidate"
         }
       ],
@@ -3534,7 +3534,7 @@
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 675,
+          "line": 678,
           "kind": "literal-candidate"
         },
         {
@@ -3605,12 +3605,12 @@
       "literal_references": [
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 792,
+          "line": 795,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 922,
+          "line": 925,
           "kind": "literal-candidate"
         },
         {
@@ -4146,7 +4146,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/settings_preview.rs",
-          "line": 1275,
+          "line": 1278,
           "kind": "literal-candidate"
         },
         {
