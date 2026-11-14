@@ -1596,7 +1596,7 @@ impl MetalSharpApp {
         let show_search = self.page != LibraryPage::Logs
             && matches!(self.active_tab, LibraryTab::Play | LibraryTab::Collection);
         // Narrow enough to end left of the header's launcher button.
-        let sidebar_full = layout.scaled(184.0);
+        let sidebar_full = layout.scaled(186.0);
         let sidebar_width = sidebar_full * self.sidebar_slide_fraction();
         // In a narrow window the sidebar slides over the page instead of
         // squeezing the hero and the dock's cards.
