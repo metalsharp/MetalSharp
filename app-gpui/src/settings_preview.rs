@@ -171,6 +171,8 @@ impl SettingsSection {
 
 pub struct SettingsPreview {
     pub palette: PagePalette,
+    /// The selected page's scroll position, for its scrollbar
+    category_scroll: gpui::ScrollHandle,
     pub language: &'static str,
     focus: Option<FocusHandle>,
     locales: HashMap<String, HashMap<String, String>>,
@@ -341,6 +343,7 @@ impl SettingsPreview {
     pub fn new() -> Self {
         Self {
             palette: PagePalette::default(),
+            category_scroll: gpui::ScrollHandle::new(),
             language: "en",
             focus: None,
             locales: serde_json::from_str(include_str!("../assets/settings-locales.json"))
@@ -1429,6 +1432,8 @@ impl SettingsPreview {
                     .child(self.tr(category.label_key()))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.category = category;
+                        this.category_scroll
+                            .set_offset(gpui::point(px(0.0), px(0.0)));
                         this.language_menu = false;
                         cx.notify();
                     })),
@@ -2723,13 +2728,28 @@ impl Render for SettingsPreview {
                     .map(|(_, card)| card),
             );
         let scroller = div()
-            .id(("settings-category-scroll", active as usize))
+            .relative()
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .overflow_y_scroll()
-            .p(px(24.0))
-            .child(content);
+            .flex()
+            .child(
+                div()
+                    .id(("settings-category-scroll", active as usize))
+                    .flex_1()
+                    .min_w_0()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .track_scroll(&self.category_scroll)
+                    .on_scroll_wheel(crate::scrollbar::refresh_on_scroll)
+                    .p(px(24.0))
+                    .child(content),
+            )
+            .children(crate::scrollbar::vertical(
+                "settings-category-scrollbar",
+                &self.category_scroll,
+                (p.control_text << 8) | 0x66,
+            ));
         let body = div()
             .flex_1()
             .min_h_0()

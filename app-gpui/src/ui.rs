@@ -685,6 +685,8 @@ pub struct MetalSharpApp {
     /// game changes)
     advanced_settings_open: bool,
     game_settings_open: bool,
+    /// The game settings popup's scroll position, for its scrollbar
+    game_settings_scroll: gpui::ScrollHandle,
     /// The [...] art menu of a Sharp Library entry, opened from the hero or
     /// from the selected dock card.
     art_menu: Option<ArtMenuAnchor>,
@@ -757,6 +759,7 @@ impl MetalSharpApp {
             tuning_inputs: None,
             advanced_settings_open: false,
             game_settings_open: false,
+            game_settings_scroll: gpui::ScrollHandle::new(),
             art_menu: None,
             drive_prompt: None,
             game_uninstall_prompt: None,
@@ -4319,7 +4322,30 @@ impl MetalSharpApp {
                             cx.notify();
                         })),
                 )
-                .child(self.render_game_settings(&game, width, two_columns, cx)),
+                .child({
+                    // a small window: the popup fits it, and scrolls
+                    let max_height = (f32::from(viewport.height) - 48.0).max(160.0);
+                    div()
+                        .relative()
+                        .w(px(width))
+                        .max_h(px(max_height))
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .id("game-settings-scroll")
+                                .max_h(px(max_height))
+                                .overflow_y_scroll()
+                                .track_scroll(&self.game_settings_scroll)
+                                .on_scroll_wheel(crate::scrollbar::refresh_on_scroll)
+                                .child(self.render_game_settings(&game, width, two_columns, cx)),
+                        )
+                        .children(crate::scrollbar::vertical(
+                            "game-settings-scrollbar",
+                            &self.game_settings_scroll,
+                            (self.theme.control_text() << 8) | 0x66,
+                        ))
+                }),
         )
     }
 
