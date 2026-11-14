@@ -1,6 +1,7 @@
 #include "metalsharp_backend/backend.h"
 
 #include "metalsharp_backend/antidebug.h"
+#include "metalsharp_backend/battlenet.h"
 #include "metalsharp_backend/bottle_actions.h"
 #include "metalsharp_backend/bottles.h"
 #include "metalsharp_backend/cache.h"
@@ -9,6 +10,7 @@
 #include "metalsharp_backend/diagnostics.h"
 #include "metalsharp_backend/epic.h"
 #include "metalsharp_backend/es_bridge.h"
+#include "metalsharp_backend/frame_rate.h"
 #include "metalsharp_backend/game.h"
 #include "metalsharp_backend/gamejolt.h"
 #include "metalsharp_backend/gog.h"
@@ -20,15 +22,19 @@
 #include "metalsharp_backend/kernel_extra.h"
 #include "metalsharp_backend/kernel_handles.h"
 #include "metalsharp_backend/kernel_integrity.h"
+#include "metalsharp_backend/launcher_uninstall.h"
+#include "metalsharp_backend/library_locations.h"
 #include "metalsharp_backend/local_socket.h"
 #include "metalsharp_backend/logs.h"
-#include "metalsharp_backend/frame_rate.h"
 #include "metalsharp_backend/metalfx.h"
 #include "metalsharp_backend/migration.h"
 #include "metalsharp_backend/mono.h"
 #include "metalsharp_backend/mtsp.h"
 #include "metalsharp_backend/ob_callbacks.h"
+#include "metalsharp_backend/packed_app.h"
 #include "metalsharp_backend/process.h"
+#include "metalsharp_backend/rockstar.h"
+#include "metalsharp_backend/rosetta.h"
 #include "metalsharp_backend/scan.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/sharp.h"
@@ -38,12 +44,7 @@
 #include "metalsharp_backend/streaming.h"
 #include "metalsharp_backend/thread.h"
 #include "metalsharp_backend/ubisoft.h"
-#include "metalsharp_backend/rockstar.h"
-#include "metalsharp_backend/battlenet.h"
-#include "metalsharp_backend/library_locations.h"
-#include "metalsharp_backend/launcher_uninstall.h"
 #include "metalsharp_backend/updater.h"
-#include "metalsharp_backend/rosetta.h"
 #include "metalsharp_backend/wine_runtime.h"
 
 #include "metalsharp_backend/game_tuning.h"
@@ -2528,6 +2529,62 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         int status = 500;
         body = ms_process_launch_auto_json(context->metalsharp_home, (const char*)request->body, request->body_length,
                                            &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/pack-app/create") == 0) {
+        int status = 500;
+        body = ms_packed_app_create_json(context->metalsharp_home, (const char*)request->body, request->body_length,
+                                         &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if ((strcmp(request->method, "GET") == 0 || strcmp(request->method, "POST") == 0) &&
+        strcmp(request->path, "/pack-app/status") == 0) {
+        int status = 500;
+        body = ms_packed_app_status_json(context->metalsharp_home, request->query, (const char*)request->body,
+                                         request->body_length, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/pack-app/remove") == 0) {
+        int status = 500;
+        body = ms_packed_app_remove_json(context->metalsharp_home, (const char*)request->body, request->body_length,
+                                         &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/pack-app/launch") == 0) {
+        int status = 500;
+        body = ms_packed_app_launch_json(context->metalsharp_home, (const char*)request->body, request->body_length,
+                                         &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if ((strcmp(request->method, "GET") == 0 || strcmp(request->method, "POST") == 0) &&
+        strcmp(request->path, "/pack-app/running") == 0) {
+        int status = 500;
+        body = ms_packed_app_running_json(context->metalsharp_home, request->query, (const char*)request->body,
+                                          request->body_length, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/pack-app/stop") == 0) {
+        int status = 500;
+        body = ms_packed_app_stop_json(context->metalsharp_home, (const char*)request->body, request->body_length,
+                                       &status);
         if (body == NULL)
             return false;
         set_json_response(response, status, body);

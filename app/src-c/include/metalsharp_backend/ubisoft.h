@@ -13,6 +13,8 @@ char* ms_ubisoft_launch_game_json(const char* home, const char* body, size_t bod
 char* ms_ubisoft_save_pipeline_json(const char* home, const char* body, size_t body_length, int* status);
 char* ms_ubisoft_save_executable_json(const char* home, const char* body, size_t body_length, int* status);
 void ms_ubisoft_register_running_games(const char* home);
+/* The library's appid of a Ubisoft game id (bottles/ubisoft_<appid>, GET /game/running). */
+unsigned ms_ubisoft_appid(const char* id);
 
 /* Ubisoft Connect's settings.yaml with misc.game_installation_path and installer_cache_path at dir (a Windows
  * folder, "Y:/MetalSharp Ubisoft Games/"), unless they are already on dir's drive; every other line is kept.

@@ -12,5 +12,7 @@ char* ms_battlenet_launch_game_json(const char* home, const char* body, size_t b
 char* ms_battlenet_save_pipeline_json(const char* home, const char* body, size_t body_length, int* status);
 char* ms_battlenet_save_executable_json(const char* home, const char* body, size_t body_length, int* status);
 void ms_battlenet_register_running_games(const char* home);
+/* The library's appid of a Battle.net game id (bottles/battlenet_<appid>, GET /game/running). */
+unsigned ms_battlenet_appid(const char* id);
 
 #endif

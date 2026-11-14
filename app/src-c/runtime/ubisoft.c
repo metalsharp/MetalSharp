@@ -1187,6 +1187,10 @@ static unsigned ubisoft_appid(const char* id) {
     return 0x80000000u | (hash & 0x7fffffffu);
 }
 
+unsigned ms_ubisoft_appid(const char* id) {
+    return ubisoft_appid(id);
+}
+
 static bool ignored_game_executable(const char* name) {
     static const char* const ignored[] = {
         "setup",           "install",  "uninstall",      "unins",    "crash",         "reporter",

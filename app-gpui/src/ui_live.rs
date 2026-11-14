@@ -154,6 +154,10 @@ pub(super) struct LiveState {
     pub steam_emu_active: bool,
     pub steam_emu_busy: bool,
     pub tuning: GameTuning,
+    /// The featured game's standalone app (`/pack-app/status`): its kind and id, and the app's path
+    /// in Applications when it has one.
+    pub packed_app: Option<((&'static str, String), Option<String>)>,
+    pub pack_app_busy: bool,
     pub collection_saving: HashSet<u64>,
     /// steamcmd install jobs by appid (latest `/steamcmd/installs` entry).
     pub steamcmd_installs: HashMap<u64, Value>,
@@ -309,6 +313,8 @@ impl Default for LiveState {
             steam_emu_active: false,
             steam_emu_busy: false,
             tuning: GameTuning::default(),
+            packed_app: None,
+            pack_app_busy: false,
             collection_saving: HashSet::new(),
             steamcmd_installs: HashMap::new(),
             steamcmd_polling: false,
@@ -1885,6 +1891,7 @@ impl MetalSharpApp {
 
     pub(super) fn load_game_settings(&mut self, cx: &mut Context<Self>) {
         self.load_game_tuning(cx);
+        self.load_packed_app_status(cx);
         live::call(
             cx,
             "GET",
@@ -2339,6 +2346,153 @@ impl MetalSharpApp {
                     );
                 }
                 this.live.steam_emu_busy = false;
+                cx.notify();
+            },
+        );
+    }
+
+    /// The featured game's standalone app, from `/pack-app/status`.
+    fn load_packed_app_status(&mut self, cx: &mut Context<Self>) {
+        let target = self
+            .games
+            .get(self.selected_game)
+            .and_then(LibGame::packed_app_ref);
+        self.live.packed_app = target.clone().map(|target| (target, None));
+        let Some((kind, id)) = target else {
+            return;
+        };
+        live::call(
+            cx,
+            "POST",
+            "/pack-app/status",
+            Some(json!({"kind": kind, "id": id})),
+            live::DEFAULT_TIMEOUT,
+            move |this, result, cx| {
+                let Some(result) = result.filter(is_ok) else {
+                    return;
+                };
+                if let Some((current, path)) = this.live.packed_app.as_mut() {
+                    if current.0 == kind && current.1 == id {
+                        *path = result
+                            .get("packed")
+                            .and_then(Value::as_bool)
+                            .filter(|packed| *packed)
+                            .and_then(|_| result.get("path").and_then(Value::as_str))
+                            .map(str::to_owned);
+                        cx.notify();
+                    }
+                }
+            },
+        );
+    }
+
+    /// Packs the featured game as `/Applications/<Game>.app` (or makes its app again).
+    pub(super) fn pack_featured_app(&mut self, cx: &mut Context<Self>) {
+        let Some(game) = self.games.get(self.selected_game).cloned() else {
+            return;
+        };
+        let Some((kind, id)) = game.packed_app_ref() else {
+            return;
+        };
+        if self.live.pack_app_busy {
+            return;
+        }
+        // The app's icon: the game executable's own, else its extracted icon or card art.
+        let executable = game.executable_path.clone().filter(|path| {
+            path.to_lowercase().ends_with(".exe") && std::path::Path::new(path).is_file()
+        });
+        let icon = game
+            .embedded_icon_path
+            .clone()
+            .filter(|path| std::path::Path::new(path).is_file())
+            .or_else(|| {
+                game.card_art_path
+                    .clone()
+                    .filter(|path| std::path::Path::new(path).is_file())
+            })
+            .or_else(|| {
+                self.art_path(&game, false, cx)
+                    .filter(|path| path.is_file())
+                    .map(|path| path.to_string_lossy().into_owned())
+            });
+        self.live.pack_app_busy = true;
+        cx.notify();
+        live::call(
+            cx,
+            "POST",
+            "/pack-app/create",
+            Some(json!({
+                "kind": kind,
+                "id": id,
+                "name": game.name,
+                "executablePath": executable,
+                "iconPath": icon,
+            })),
+            MS(120_000),
+            move |this, result, cx| {
+                this.live.pack_app_busy = false;
+                match result.as_ref().filter(|r| is_ok(r)) {
+                    Some(result) => {
+                        let path = result
+                            .get("path")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned);
+                        if let Some((current, packed)) = this.live.packed_app.as_mut() {
+                            if current.0 == kind && current.1 == id {
+                                *packed = path.clone();
+                            }
+                        }
+                        toast::success(
+                            cx,
+                            format!("{} is in Applications as its own app", game.name),
+                        );
+                    }
+                    None => toast::error(
+                        cx,
+                        error_text(result.as_ref())
+                            .unwrap_or_else(|| format!("Could not pack {} as an app", game.name)),
+                    ),
+                }
+                cx.notify();
+            },
+        );
+    }
+
+    /// Removes the featured game's standalone app from Applications.
+    pub(super) fn remove_featured_app(&mut self, cx: &mut Context<Self>) {
+        let Some(game) = self.games.get(self.selected_game).cloned() else {
+            return;
+        };
+        let Some((kind, id)) = game.packed_app_ref() else {
+            return;
+        };
+        if self.live.pack_app_busy {
+            return;
+        }
+        self.live.pack_app_busy = true;
+        cx.notify();
+        live::call(
+            cx,
+            "POST",
+            "/pack-app/remove",
+            Some(json!({"kind": kind, "id": id})),
+            live::DEFAULT_TIMEOUT,
+            move |this, result, cx| {
+                this.live.pack_app_busy = false;
+                if result.as_ref().is_some_and(is_ok) {
+                    if let Some((current, packed)) = this.live.packed_app.as_mut() {
+                        if current.0 == kind && current.1 == id {
+                            *packed = None;
+                        }
+                    }
+                    toast::success(cx, format!("Removed {}'s app", game.name));
+                } else {
+                    toast::error(
+                        cx,
+                        error_text(result.as_ref())
+                            .unwrap_or_else(|| format!("Could not remove {}'s app", game.name)),
+                    );
+                }
                 cx.notify();
             },
         );
