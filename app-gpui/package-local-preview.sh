@@ -95,6 +95,16 @@ CARGO_FEATURES="${METALSHARP_GPUI_CARGO_FEATURES:-}"
 if [ "$VARIANT" = "fex" ] && grep -Eq '^fex[[:space:]]*=' "$APP_DIR/Cargo.toml"; then
   CARGO_FEATURES="${CARGO_FEATURES:+$CARGO_FEATURES,}fex"
 fi
+# Updates through Sparkle (METALSHARP_SPARKLE=1; package-app.sh, the release identity, turns it on): the app links
+# Sparkle.framework, carries it in Contents/Frameworks, and reads its build's appcast. Off by default here, so a
+# side-by-side preview never follows the release feed; without it MetalSharp updates with a DMG as before.
+SPARKLE="${METALSHARP_SPARKLE:-0}"
+SPARKLE_DIR=""
+if [ "$SPARKLE" = "1" ]; then
+  SPARKLE_DIR="$("$ROOT/tools/sparkle/fetch-sparkle.sh")"
+  export SPARKLE_FRAMEWORK_DIR="$SPARKLE_DIR"
+  CARGO_FEATURES="${CARGO_FEATURES:+$CARGO_FEATURES,}sparkle"
+fi
 if [ -n "$CARGO_FEATURES" ]; then
   CARGO_ARGS+=(--features "$CARGO_FEATURES")
 fi
@@ -183,6 +193,10 @@ cat > "$STEAM_HELPER/Info.plist" <<STEAMPLIST
 STEAMPLIST
 /usr/bin/plutil -lint "$STEAM_HELPER/Info.plist" >/dev/null
 install -m 0755 "$CARGO_TARGET_DIR/$CARGO_PROFILE/metalsharp-gpui" "$CONTENTS/MacOS/$APP_EXECUTABLE"
+if [ "$SPARKLE" = "1" ]; then
+  mkdir -p "$CONTENTS/Frameworks"
+  ditto "$SPARKLE_DIR/Sparkle.framework" "$CONTENTS/Frameworks/Sparkle.framework"
+fi
 cp -R "$APP_DIR"/assets/. "$CONTENTS/Resources/assets/"
 
 # Explicitly package the authoritative C backend/resources for connected testing.
@@ -268,6 +282,23 @@ if [ -n "$OTHER_WINE_APP_NAME" ]; then
   ditto "$OTHER_WINE_APP_SOURCE" "$CONTENTS/Resources/$OTHER_WINE_APP_NAME"
 fi
 
+# Sparkle's keys: this build's appcast (each release publishes appcast.xml for x86_64 and appcast-fex.xml for FEX),
+# the EdDSA public key its updates are signed with, and no checks of Sparkle's own: MetalSharp asks for updates.
+SPARKLE_PLIST=""
+if [ "$SPARKLE" = "1" ]; then
+  SPARKLE_FEED_NAME="appcast.xml"
+  [ "$VARIANT" = "fex" ] && SPARKLE_FEED_NAME="appcast-fex.xml"
+  SPARKLE_FEED_URL="${METALSHARP_SPARKLE_FEED_URL:-https://github.com/metalsharp/MetalSharp/releases/latest/download/$SPARKLE_FEED_NAME}"
+  SPARKLE_PUBLIC_KEY="$(tr -d '[:space:]' < "$ROOT/tools/sparkle/public-key.txt")"
+  [ -n "$SPARKLE_PUBLIC_KEY" ] || { echo "tools/sparkle/public-key.txt is empty" >&2; exit 1; }
+  SPARKLE_PLIST="  <key>SUFeedURL</key><string>$SPARKLE_FEED_URL</string>
+  <key>SUPublicEDKey</key><string>$SPARKLE_PUBLIC_KEY</string>
+  <key>SUEnableAutomaticChecks</key><false/>
+  <key>SUAutomaticallyUpdate</key><false/>
+  <key>SUVerifyUpdateBeforeExtraction</key><true/>
+"
+fi
+
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -283,7 +314,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
   <key>CFBundleVersion</key><string>$APP_BUILD_VERSION</string>
   <key>MetalSharpVariant</key><string>$VARIANT</string>
-  <key>LSMinimumSystemVersion</key><string>13.0</string>
+$SPARKLE_PLIST  <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSDocumentsFolderUsageDescription</key><string>Windows games and launchers running in Wine keep their saves and settings in your Documents folder.</string>
   <key>NSRemovableVolumesUsageDescription</key><string>Wine reaches Steam libraries and games installed on external drives.</string>
   <key>NSNetworkVolumesUsageDescription</key><string>Wine reaches Steam libraries and games installed on network drives.</string>
@@ -340,6 +371,23 @@ else
     case "$nested" in "$WINE_APP_DEST"|"$WINE_APP_DEST"/*|"$OTHER_WINE_APP_DEST"|"$OTHER_WINE_APP_DEST"/*) continue ;; esac
     sign_code "$nested"
   done < <(find "$CONTENTS/Resources" \( -path "$WINE_APP_DEST" -o -path "$OTHER_WINE_APP_DEST" \) -prune -o -type d -name '*.app' -print | awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2-)
+  # Sparkle.framework, inside-out as Sparkle documents, with its own entitlements (Downloader.xpc's) and never the
+  # app's.
+  if [ -d "$CONTENTS/Frameworks/Sparkle.framework" ]; then
+    SPARKLE_B="$CONTENTS/Frameworks/Sparkle.framework/Versions/B"
+    sign_sparkle() {
+      if [ "$SIGN_IDENTITY" = "-" ]; then
+        codesign --force --sign - "$@"
+      else
+        codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" "$@"
+      fi
+    }
+    sign_sparkle "$SPARKLE_B/XPCServices/Installer.xpc"
+    sign_sparkle --preserve-metadata=entitlements "$SPARKLE_B/XPCServices/Downloader.xpc"
+    sign_sparkle "$SPARKLE_B/Autoupdate"
+    sign_sparkle "$SPARKLE_B/Updater.app"
+    sign_sparkle "$CONTENTS/Frameworks/Sparkle.framework"
+  fi
   sign_code "$BUNDLE"
 fi
 codesign --verify --deep --strict --verbose=2 "$BUNDLE"

@@ -25,6 +25,7 @@ mod search_input;
 mod settings_preview;
 mod sharp_preview;
 #[allow(dead_code)]
+mod sparkle;
 mod streaming;
 mod toast;
 mod ui;

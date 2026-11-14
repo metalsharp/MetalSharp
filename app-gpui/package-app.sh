@@ -20,5 +20,7 @@ export METALSHARP_GPUI_CARGO_PROFILE=release
 export METALSHARP_GPUI_PACKAGE_BACKEND=1
 export METALSHARP_GPUI_BUNDLE_SOURCE="${METALSHARP_GPUI_BUNDLE_SOURCE:-$ROOT/app/bundles}"
 export METALSHARP_GPUI_REQUIRE_BUNDLES="${METALSHARP_GPUI_REQUIRE_BUNDLES:-1}"
+# Updates through Sparkle, with the release feed (docs/updates.md); METALSHARP_SPARKLE=0 packages without it.
+export METALSHARP_SPARKLE="${METALSHARP_SPARKLE:-1}"
 
 exec "$ROOT/app-gpui/package-local-preview.sh"

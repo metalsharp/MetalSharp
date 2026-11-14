@@ -218,6 +218,29 @@ jobs:
           METALSHARP_GPUI_REQUIRE_BUNDLES=0 \
           METALSHARP_GPUI_SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}" app-gpui/package-app.sh
 
+      - name: Notarize app for Sparkle
+        # Sparkle installs the app itself, so it carries its own notarization ticket (and the DMG made from it below).
+        if: steps.apple-signing.outputs.ready == 'true' && startsWith(github.ref, 'refs/tags/v')
+        run: tools/sparkle/sparkle_release.py notarize --app app-gpui/target/MetalSharp.app
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - name: Sparkle update (archive, deltas, appcast)
+        # The update archive, a .delta from each of the last two releases with one, and this build's appcast, all
+        # signed with the Sparkle EdDSA key.
+        if: steps.apple-signing.outputs.ready == 'true' && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          tools/sparkle/sparkle_release.py publish --app app-gpui/target/MetalSharp.app --variant regular \
+            --version "${GITHUB_REF_NAME#v}" --out dist/gpui
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Package DMG
         run: tools/dmg/package-gpui-dmg.sh app-gpui/target/MetalSharp.app dist/gpui
 
@@ -281,6 +304,9 @@ jobs:
             dist/gpui/*.dmg
             dist/gpui/DMG-SIGNING.txt
             dist/gpui/RELEASE-TAG.txt
+            dist/gpui/*.zip
+            dist/gpui/*.delta
+            dist/gpui/appcast.xml
 
   build-fex:
     name: Build FEX DMG
@@ -392,6 +418,29 @@ jobs:
           METALSHARP_GPUI_REQUIRE_BUNDLES=0 \
           METALSHARP_GPUI_SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}" app-gpui/package-app.sh
 
+      - name: Notarize app for Sparkle
+        # Sparkle installs the app itself, so it carries its own notarization ticket (and the DMG made from it below).
+        if: steps.apple-signing.outputs.ready == 'true' && startsWith(github.ref, 'refs/tags/v')
+        run: tools/sparkle/sparkle_release.py notarize --app app-gpui/target/MetalSharp.app
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - name: Sparkle update (archive, deltas, appcast)
+        # The update archive, a .delta from each of the last two releases with one, and this build's appcast, all
+        # signed with the Sparkle EdDSA key.
+        if: steps.apple-signing.outputs.ready == 'true' && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          tools/sparkle/sparkle_release.py publish --app app-gpui/target/MetalSharp.app --variant fex \
+            --version "${GITHUB_REF_NAME#v}" --out dist/gpui-fex
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Package FEX DMG
         run: tools/dmg/package-gpui-dmg.sh app-gpui/target/MetalSharp.app dist/gpui-fex
 
@@ -453,6 +502,9 @@ jobs:
             dist/gpui-fex/*.dmg
             dist/gpui-fex/DMG-SIGNING-FEX.txt
             dist/gpui-fex/RELEASE-TAG.txt
+            dist/gpui-fex/*.zip
+            dist/gpui-fex/*.delta
+            dist/gpui-fex/appcast-fex.xml
 
   release:
     name: Release
@@ -487,6 +539,9 @@ jobs:
           find release -type f -name 'DMG-SIGNING.txt' -exec cp {} release-flat/ \;
           find release-fex -type f -name 'MetalSharp-*-arm64-FEX.dmg' -exec cp {} release-flat/ \;
           find release-fex -type f -name 'DMG-SIGNING-FEX.txt' -exec cp {} release-flat/ \;
+          # Sparkle: each build's update archive, its deltas and its appcast, when the build made them.
+          find release -type f \( -name 'MetalSharp-*-arm64.zip' -o -name 'MetalSharp-*-arm64-from*.delta' -o -name appcast.xml \) -exec cp {} release-flat/ \;
+          find release-fex -type f \( -name 'MetalSharp-*-arm64-FEX.zip' -o -name 'MetalSharp-*-arm64-FEX-from*.delta' -o -name appcast-fex.xml \) -exec cp {} release-flat/ \;
           test "$(find release-flat -type f -name '*.dmg' | wc -l | tr -d ' ')" -ge 1
           # Both builds go to the same release; 0.80.0's updater tells them apart by "FEX".
           test "$(find release-flat -type f -name '*.dmg' ! -name '*FEX*' | wc -l | tr -d ' ')" -eq 1
@@ -510,4 +565,8 @@ jobs:
             release-flat/*.dmg
             release-flat/DMG-SIGNING.txt
             release-flat/DMG-SIGNING-FEX.txt
+            release-flat/*.zip
+            release-flat/*.delta
+            release-flat/appcast.xml
+            release-flat/appcast-fex.xml
           generate_release_notes: true
