@@ -5,9 +5,11 @@
 //! parent: the bar sits over the container's right edge, shows how far it is scrolled, and
 //! scrolls it when the track is clicked or dragged. It is left out when nothing scrolls.
 
+use std::{cell::Cell, rc::Rc};
+
 use gpui::{
-    MouseButton, Pixels, ScrollHandle, ScrollWheelEvent, Stateful, Window, div, point, prelude::*,
-    px, rgba,
+    App, MouseButton, Pixels, ScrollHandle, ScrollWheelEvent, Stateful, Window, div, point,
+    prelude::*, px, rgba,
 };
 
 /// Space kept free above and below the thumb, so it doesn't touch rounded corners.
@@ -28,21 +30,49 @@ fn thumb_geometry(viewport: f32, max: f32, scrolled: f32) -> Option<(f32, f32)> 
     Some((top, thumb))
 }
 
-/// Scrolls `handle` so that the point at `y` (window coordinates) of the track is shown.
-fn seek(handle: &ScrollHandle, y: Pixels) {
-    let bounds = handle.bounds();
-    let height = f32::from(bounds.size.height) - 2.0 * INSET;
-    let max = f32::from(handle.max_offset().height);
-    if height <= 0.0 || max <= 0.0 {
-        return;
+/// The scroll offset that puts the thumb's top at `thumb_top` (from the track's top) in a viewport
+/// of `viewport` scrolling `max` with a thumb `thumb` tall.
+fn offset_for_thumb_top(viewport: f32, max: f32, thumb: f32, thumb_top: f32) -> f32 {
+    let travel = viewport - 2.0 * INSET - thumb;
+    if travel <= 0.0 {
+        return 0.0;
     }
-    let fraction = ((f32::from(y - bounds.origin.y) - INSET) / height).clamp(0.0, 1.0);
-    handle.set_offset(point(handle.offset().x, px(-max * fraction)));
+    ((thumb_top - INSET) / travel).clamp(0.0, 1.0) * max
+}
+
+/// Scrolls `handle` so the thumb's point `grab` below its top is at `y` (window coordinates).
+fn seek(handle: &ScrollHandle, y: Pixels, grab: f32) {
+    let bounds = handle.bounds();
+    let viewport = f32::from(bounds.size.height);
+    let max = f32::from(handle.max_offset().height);
+    let Some((_, thumb)) = thumb_geometry(viewport, max, 0.0) else {
+        return;
+    };
+    let thumb_top = f32::from(y - bounds.origin.y) - grab;
+    let offset = offset_for_thumb_top(viewport, max, thumb, thumb_top);
+    handle.set_offset(point(handle.offset().x, px(-offset)));
+}
+
+/// A thumb being dragged: which bar's, and where on the thumb it was taken. Held by GPUI for the
+/// whole drag, so the drag follows the pointer anywhere until the button is let go.
+#[derive(Clone)]
+struct ThumbDrag {
+    bar: &'static str,
+    grab: Rc<Cell<f32>>,
+}
+
+/// GPUI draws a dragged item's preview; a thumb has none.
+struct NoPreview;
+
+impl Render for NoPreview {
+    fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        div()
+    }
 }
 
 /// The bar for the container `handle` scrolls, in `rgba` color (0xRRGGBBAA).
 pub fn vertical(
-    id: impl Into<gpui::ElementId>,
+    bar: &'static str,
     handle: &ScrollHandle,
     color: u32,
 ) -> Option<Stateful<gpui::Div>> {
@@ -50,38 +80,59 @@ pub fn vertical(
     let max = f32::from(handle.max_offset().height);
     let scrolled = -f32::from(handle.offset().y);
     let (top, thumb) = thumb_geometry(viewport, max, scrolled)?;
-    let down = handle.clone();
-    let drag = handle.clone();
+    let page = handle.clone();
+    let dragged = handle.clone();
     Some(
         div()
-            .id(id)
+            .id(bar)
             .absolute()
             .top(px(0.0))
             .right(px(0.0))
             .w(px(TRACK_WIDTH))
             .h_full()
             .cursor_default()
+            // a click on the track (not the thumb) brings the thumb's middle there
             .on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                seek(&down, event.position.y);
+                seek(&page, event.position.y, thumb / 2.0);
                 window.refresh();
                 cx.stop_propagation();
             })
-            .on_mouse_move(move |event, window, _| {
-                if event.pressed_button == Some(MouseButton::Left) {
-                    seek(&drag, event.position.y);
+            .on_drag_move::<ThumbDrag>(move |event, window, cx| {
+                let drag = event.drag(cx);
+                if drag.bar == bar {
+                    seek(&dragged, event.event.position.y, drag.grab.get());
                     window.refresh();
                 }
             })
             .on_click(|_, _, cx| cx.stop_propagation())
             .child(
                 div()
+                    .id((bar, 1usize))
                     .absolute()
                     .top(px(top))
-                    .right(px((TRACK_WIDTH - THUMB_WIDTH) / 2.0))
-                    .w(px(THUMB_WIDTH))
+                    .left(px(0.0))
+                    .w(px(TRACK_WIDTH))
                     .h(px(thumb))
-                    .rounded(px(THUMB_WIDTH / 2.0))
-                    .bg(rgba(color)),
+                    .flex()
+                    .justify_center()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_drag(
+                        ThumbDrag {
+                            bar,
+                            grab: Rc::new(Cell::new(thumb / 2.0)),
+                        },
+                        |drag: &ThumbDrag, offset, _, cx: &mut App| {
+                            drag.grab.set(f32::from(offset.y));
+                            cx.new(|_| NoPreview)
+                        },
+                    )
+                    .child(
+                        div()
+                            .w(px(THUMB_WIDTH))
+                            .h_full()
+                            .rounded(px(THUMB_WIDTH / 2.0))
+                            .bg(rgba(color)),
+                    ),
             ),
     )
 }
@@ -94,6 +145,18 @@ pub fn refresh_on_scroll(_: &ScrollWheelEvent, window: &mut Window, _: &mut gpui
 #[cfg(test)]
 mod tests {
     use super::thumb_geometry;
+
+    #[test]
+    fn dragging_the_thumb_maps_its_top_to_the_offset() {
+        use super::offset_for_thumb_top;
+        // 408 tall, 408 more below: a 200 tall thumb travels 200
+        assert_eq!(offset_for_thumb_top(408.0, 408.0, 200.0, 4.0), 0.0);
+        assert_eq!(offset_for_thumb_top(408.0, 408.0, 200.0, 104.0), 204.0);
+        assert_eq!(offset_for_thumb_top(408.0, 408.0, 200.0, 204.0), 408.0);
+        // past either end stays at the end
+        assert_eq!(offset_for_thumb_top(408.0, 408.0, 200.0, -50.0), 0.0);
+        assert_eq!(offset_for_thumb_top(408.0, 408.0, 200.0, 900.0), 408.0);
+    }
 
     #[test]
     fn no_bar_when_nothing_scrolls() {
