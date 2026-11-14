@@ -681,6 +681,9 @@ pub struct MetalSharpApp {
     steamcmd_inputs: Option<[gpui::Entity<crate::search_input::SearchInput>; 3]>,
     /// Game Settings > Advanced: the environment variables and DLL overrides fields.
     tuning_inputs: Option<[gpui::Entity<crate::search_input::SearchInput>; 2]>,
+    /// Whether Game Settings shows its Advanced Settings (collapsed whenever the popup opens or the
+    /// game changes)
+    advanced_settings_open: bool,
     game_settings_open: bool,
     /// The [...] art menu of a Sharp Library entry, opened from the hero or
     /// from the selected dock card.
@@ -752,6 +755,7 @@ impl MetalSharpApp {
             steamcmd_modal: None,
             steamcmd_inputs: None,
             tuning_inputs: None,
+            advanced_settings_open: false,
             game_settings_open: false,
             art_menu: None,
             drive_prompt: None,
@@ -3316,6 +3320,7 @@ impl MetalSharpApp {
                                                     let open = !this.game_settings_open;
                                                     this.close_library_menus();
                                                     this.game_settings_open = open;
+                                                    this.advanced_settings_open = false;
                                                     if open {
                                                         this.load_game_tuning(cx);
                                                     }
@@ -3821,6 +3826,9 @@ impl MetalSharpApp {
     }
 
     fn select_game(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index != self.selected_game {
+            self.advanced_settings_open = false;
+        }
         self.selected_game = index.min(self.games.len().saturating_sub(1));
         let matches = self.matching_games();
         if let Some(position) = matches.iter().position(|game| *game == self.selected_game) {
@@ -4640,6 +4648,7 @@ impl MetalSharpApp {
                 .child(label)
                 .child(options)
         };
+        let open = self.advanced_settings_open;
         let mut section = div()
             .flex()
             .flex_col()
@@ -4649,10 +4658,26 @@ impl MetalSharpApp {
             .border_color(rgb(theme.border()))
             .child(
                 div()
-                    .text_size(px(10.0))
-                    .text_color(rgb(muted))
-                    .child("ADVANCED"),
+                    .id("advanced-settings-toggle")
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .cursor_pointer()
+                    .child("Advanced Settings")
+                    .child(
+                        div()
+                            .text_size(px(10.0))
+                            .text_color(rgb(muted))
+                            .child(if open { "▾" } else { "▸" }),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.advanced_settings_open = !this.advanced_settings_open;
+                        cx.notify();
+                    })),
             );
+        if !open {
+            return Some(section);
+        }
         for (field, (label, hint)) in [
             (
                 "Environment variables",
