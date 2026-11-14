@@ -16,6 +16,9 @@ void ms_process_register_game(unsigned, pid_t);
  * a Wine process of that executable does. */
 void ms_process_register_game_executable(unsigned, pid_t, const char*);
 void ms_process_register_pending_game(unsigned, pid_t, unsigned);
+/* Game Settings' low priority: lowers the Wine process running `executable` (a file name) to nice 10
+ * once it is seen, whoever started it, for the next ten minutes. */
+void ms_process_watch_game_priority(const char* home, const char* executable);
 unsigned long ms_process_background_task_generation(void);
 bool ms_process_background_task_cancelled(unsigned long);
 bool ms_process_background_task_begin(unsigned long);

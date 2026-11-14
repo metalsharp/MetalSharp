@@ -249,6 +249,82 @@ static wine_process_list find_non_steam_wine_executables(const char* home) {
     return find_wine_executables(home, NULL);
 }
 
+/* Game Settings' low priority for a game a launcher starts (or restarts): its Wine process gets nice 10
+ * once it is seen. The watch looks for ten minutes, and for two after it last lowered one. */
+#define PRIORITY_WATCH_NICE 10
+#define PRIORITY_WATCH_MAX  8
+
+typedef struct priority_watch {
+    char* home;
+    char executable[256];
+} priority_watch;
+
+static pthread_mutex_t g_priority_watch_mutex = PTHREAD_MUTEX_INITIALIZER;
+static char g_priority_watches[PRIORITY_WATCH_MAX][256];
+
+static void* priority_watch_worker(void* opaque) {
+    priority_watch* watch = opaque;
+    unsigned long long now = process_monotonic_millis(), deadline = now + 10ULL * 60 * 1000;
+    while (!g_background_shutdown_requested && process_monotonic_millis() < deadline) {
+        wine_process_list processes = find_wine_executables(watch->home, watch->executable);
+        for (size_t i = 0; i < processes.count; i++) {
+            errno = 0;
+            int current = getpriority(PRIO_PROCESS, processes.pids[i]);
+            if ((current != -1 || errno == 0) && current < PRIORITY_WATCH_NICE &&
+                setpriority(PRIO_PROCESS, processes.pids[i], PRIORITY_WATCH_NICE) == 0) {
+                unsigned long long until = process_monotonic_millis() + 2ULL * 60 * 1000;
+                if (until < deadline)
+                    deadline = until;
+            }
+        }
+        free(processes.pids);
+        sleep(3);
+    }
+    pthread_mutex_lock(&g_priority_watch_mutex);
+    for (size_t i = 0; i < PRIORITY_WATCH_MAX; i++)
+        if (!strcasecmp(g_priority_watches[i], watch->executable))
+            g_priority_watches[i][0] = '\0';
+    pthread_mutex_unlock(&g_priority_watch_mutex);
+    free(watch->home);
+    free(watch);
+    return NULL;
+}
+
+void ms_process_watch_game_priority(const char* home, const char* executable) {
+    priority_watch* watch = NULL;
+    pthread_t thread;
+    size_t slot = PRIORITY_WATCH_MAX;
+    if (!home || !executable || !executable[0] || strlen(executable) >= sizeof(watch->executable))
+        return;
+    pthread_mutex_lock(&g_priority_watch_mutex);
+    for (size_t i = 0; i < PRIORITY_WATCH_MAX; i++) {
+        if (!strcasecmp(g_priority_watches[i], executable)) {
+            pthread_mutex_unlock(&g_priority_watch_mutex);
+            return; /* already watched */
+        }
+        if (!g_priority_watches[i][0] && slot == PRIORITY_WATCH_MAX)
+            slot = i;
+    }
+    if (slot == PRIORITY_WATCH_MAX || !(watch = calloc(1, sizeof(*watch))) || !(watch->home = strdup(home))) {
+        if (slot != PRIORITY_WATCH_MAX && watch)
+            free(watch);
+        pthread_mutex_unlock(&g_priority_watch_mutex);
+        return;
+    }
+    snprintf(watch->executable, sizeof(watch->executable), "%s", executable);
+    snprintf(g_priority_watches[slot], sizeof(g_priority_watches[slot]), "%s", executable);
+    pthread_mutex_unlock(&g_priority_watch_mutex);
+    if (pthread_create(&thread, NULL, priority_watch_worker, watch) != 0) {
+        pthread_mutex_lock(&g_priority_watch_mutex);
+        g_priority_watches[slot][0] = '\0';
+        pthread_mutex_unlock(&g_priority_watch_mutex);
+        free(watch->home);
+        free(watch);
+        return;
+    }
+    (void)pthread_detach(thread);
+}
+
 static size_t kill_non_steam_wine_executables(const char* home, wine_process_list* killed) {
     wine_process_list processes = find_non_steam_wine_executables(home);
     size_t count = 0;

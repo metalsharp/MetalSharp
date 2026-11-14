@@ -46,6 +46,8 @@
 #include "metalsharp_backend/rosetta.h"
 #include "metalsharp_backend/wine_runtime.h"
 
+#include "metalsharp_backend/game_tuning.h"
+
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -1292,6 +1294,24 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/game/dual-info") == 0) {
         int status = 500;
         body = ms_game_dual_json(context->metalsharp_home, request->query, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    /* Game Settings > Advanced: a game's variables, DLL overrides, Windows version, CPU cores and priority. */
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/game-tuning") == 0) {
+        int status = 500;
+        body = ms_game_tuning_get_json(context->metalsharp_home, request->query, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/game-tuning") == 0) {
+        int status = 500;
+        body = ms_game_tuning_save_json(context->metalsharp_home, (const char*)request->body, request->body_length,
+                                        &status);
         if (body == NULL)
             return false;
         set_json_response(response, status, body);

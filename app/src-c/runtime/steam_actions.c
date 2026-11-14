@@ -6563,6 +6563,10 @@ static char* performance_core_shim(const char* home) {
     return NULL;
 }
 
+char* ms_steam_cpu_topology_shim(const char* home) {
+    return home ? performance_core_shim(home) : NULL;
+}
+
 /* The environment a directly launched game starts with: the route, launch preferences, caches and
  * per-title settings (logging and the CPU shim are the launch's own). */
 /* Whether a prefix's System32 has Microsoft's VC++ runtime (msvcp140.dll that is not a copy of Wine's builtin,

@@ -73,6 +73,9 @@ void ms_steam_apply_rockstar_launcher_env(const char* home, const char* pipeline
 /* Per-title settings a Rockstar client needs on its route (RDR2's system.xml on D3DMetal). */
 void ms_steam_prepare_rockstar_client(const char* home, const char* pipeline, const char* client_executable);
 bool ms_steam_ensure_game_audio_fix(const char*, unsigned);
+/* The CPU topology shim (runtime/shims/libmetalsharp_cpu_topology.dylib, METALSHARP_CPU_COUNT), built from
+ * the bundled source when missing; NULL when it cannot be. */
+char* ms_steam_cpu_topology_shim(const char* home);
 /* Create the default manifest for a Steam app when a route is saved before launch. */
 bool ms_steam_ensure_bottle_manifest(const char*, unsigned, const char*);
 /* Canonical MTSP recipe/prepare/doctor inspection.  mode: 0 prepare, 1 recipe, 2 doctor. */
