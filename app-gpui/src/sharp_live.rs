@@ -421,7 +421,13 @@ impl SharpPreview {
                     live::DEFAULT_TIMEOUT,
                     |this, r, cx| {
                         if let Some(app) = r.as_ref().filter(|r| is_ok(r)).and_then(|r| r.get("app")) {
-                            toast::success(cx, format!("Installed {}", s(app, "name")));
+                            if super::sharp_deck::installer_like(s(app, "exe_path")) {
+                                // A setup stays out of the library: run it now, and what it
+                                // installs is added when it exits.
+                                this.launch_app(app.clone(), cx);
+                            } else {
+                                toast::success(cx, format!("Installed {}", s(app, "name")));
+                            }
                             this.load(cx);
                         } else if r.as_ref().is_some_and(|r| is_ok(r) && b(r, "installing")) {
                             toast::success(
@@ -487,6 +493,15 @@ impl SharpPreview {
                             None => format!("Launched {name}"),
                         },
                     );
+                    // MetalSharp Wine installs the WebView2 Runtime before the program starts, the first time
+                    if r.as_ref().is_some_and(|r| b(r, "installing_webview2")) {
+                        toast::info(
+                            cx,
+                            format!(
+                                "Installing Microsoft Edge WebView2 for {name}. This happens once and takes about a minute."
+                            ),
+                        );
+                    }
                 } else {
                     let error = error_text(r.as_ref())
                         .unwrap_or_else(|| format!("Failed to launch {name}"));

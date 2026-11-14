@@ -1309,7 +1309,7 @@ int main(int argc, char** argv) {
         fixture(home, "sharp-running/sharp-library/library.json", library);
         snprintf(launch_body, sizeof(launch_body), "{\"id\":\"sharp-smoke\"}");
         response = ms_sharp_action_json(sharp_home, (const unsigned char*)launch_body, strlen(launch_body), "launch");
-        assert(response && strstr(response, "\"ok\":true"));
+        assert(response && strstr(response, "\"ok\":true") && strstr(response, "\"installing_webview2\":false"));
         free(response);
         response = ms_sharp_running_json();
         assert(response && strstr(response, "sharp-smoke"));
@@ -1326,9 +1326,81 @@ int main(int argc, char** argv) {
         response = ms_sharp_stop_all_json(&status);
         assert(response && status == 200 && strstr(response, "\"stopped\":1"));
         free(response);
+        /* A program that uses WebView2 (a .NET single-file one lists WebView2Loader.dll at its end): its first launch
+         * in a prefix without the runtime says MetalSharp Wine installs it, a launch once it is there does not. */
+        {
+            const char* webview_body = "{\"id\":\"sharp-webview2\"}";
+            char* webview_exe = join(sharp_home, "games/Launcher.exe");
+            char webview_library[PATH_MAX];
+            fixture(home, "sharp-running/games/Launcher.exe", "MZ bundle ... WebView2Loader.dll ... manifest");
+            snprintf(webview_library, sizeof(webview_library),
+                     "[{\"id\":\"sharp-webview2\",\"name\":\"Launcher\",\"exe_path\":\"%s\","
+                     "\"install_dir\":\"%s\",\"engine\":\"auto\",\"bottle_id\":null}]",
+                     webview_exe, sharp_home);
+            fixture(home, "sharp-running/sharp-library/library.json", webview_library);
+            response =
+                ms_sharp_action_json(sharp_home, (const unsigned char*)webview_body, strlen(webview_body), "launch");
+            assert(response && strstr(response, "\"installing_webview2\":true"));
+            free(response);
+            response = ms_sharp_stop_all_json(&status);
+            free(response);
+            fixture(home,
+                    "sharp-running/prefix-steam/drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application/"
+                    "157.0.4341.60/msedgewebview2.exe",
+                    "MZ");
+            response =
+                ms_sharp_action_json(sharp_home, (const unsigned char*)webview_body, strlen(webview_body), "launch");
+            assert(response && strstr(response, "\"installing_webview2\":false"));
+            free(response);
+            response = ms_sharp_stop_all_json(&status);
+            free(response);
+            free(webview_exe);
+        }
         free(sharp_home);
         free(wine_path);
         free(exe_path);
+    }
+    /* What a setup installed joins the library, but not Microsoft Edge or its WebView2 Runtime, which MetalSharp Wine
+     * installs for a program using WebView2 (NoHesi Launcher). */
+    {
+        char* sharp_home = join(home, "sharp-adopt");
+        char* setup = join(home, "sharp-adopt-downloads/Example-Setup.exe");
+        char* drive_c = join(home, "sharp-adopt/prefix-steam/drive_c");
+        char* dosdevices = join(home, "sharp-adopt/prefix-steam/dosdevices");
+        char *c_drive = dosdevices ? join(dosdevices, "c:") : NULL, *response;
+        char library[PATH_MAX], reg[2048];
+        long long now = (long long)time(NULL);
+        fixture(home, "sharp-adopt-downloads/Example-Setup.exe", "MZ setup");
+        fixture(home, "sharp-adopt/prefix-steam/drive_c/Program Files/Example Game/Game.exe", "MZ game");
+        fixture(home,
+                "sharp-adopt/prefix-steam/drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application/"
+                "157.0.4341.60/msedgewebview2.exe",
+                "MZ edge");
+        assert(drive_c && c_drive && ensure_directory(dosdevices) && symlink(drive_c, c_drive) == 0);
+        snprintf(reg, sizeof(reg),
+                 "WINE REGISTRY Version 2\n\n"
+                 "[Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Uninstall\\\\Example Game] %lld\n"
+                 "\"DisplayName\"=\"Example Game\"\n"
+                 "\"DisplayIcon\"=\"C:\\\\Program Files\\\\Example Game\\\\Game.exe\"\n\n"
+                 "[Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Uninstall\\\\Microsoft EdgeWebView] %lld\n"
+                 "\"DisplayName\"=\"Microsoft Edge WebView2 Runtime\"\n"
+                 "\"DisplayIcon\"=\"C:\\\\Program Files (x86)\\\\Microsoft\\\\EdgeWebView\\\\Application\\\\"
+                 "157.0.4341.60\\\\msedgewebview2.exe,0\"\n",
+                 now, now);
+        fixture(home, "sharp-adopt/prefix-steam/system.reg", reg);
+        snprintf(library, sizeof(library),
+                 "[{\"id\":\"sharp-adopt-setup\",\"name\":\"Example-Setup\",\"exe_path\":\"%s\","
+                 "\"install_dir\":\"%s\",\"engine\":\"auto\",\"bottle_id\":null,\"installed_at\":%lld}]",
+                 setup, home, now - 10);
+        fixture(home, "sharp-adopt/sharp-library/library.json", library);
+        response = ms_sharp_library_json(sharp_home);
+        assert(response && strstr(response, "Example Game/Game.exe") && !strstr(response, "msedgewebview2"));
+        free(response);
+        free(c_drive);
+        free(dosdevices);
+        free(drive_c);
+        free(setup);
+        free(sharp_home);
     }
     /* A Moonscraper installed before 0.80 (engine "auto", a prefix without the runtime's fonts) moves
      * to DXMT at launch and gets the fonts its prefix lacks; a font already there is kept. */
@@ -1411,6 +1483,39 @@ int main(int argc, char** argv) {
         free(sharp_home);
         free(extractor);
         free(installer);
+    }
+    /* A setup is named by its file and keeps one entry when it is picked again (the frontend runs it each time). */
+    {
+        char* sharp_home = join(home, "sharp-setup-again");
+        char* installer = join(home, "sharp-setup-downloads/NoHesiLauncher-Setup.exe");
+        char body[PATH_MAX];
+        char *first, *again, *text;
+        fixture(home, "sharp-setup-downloads/NoHesiLauncher-Setup.exe", "MZ inno");
+        snprintf(body, sizeof(body), "{\"srcPath\":\"%s\"}", installer);
+        first = ms_sharp_action_json(sharp_home, (const unsigned char*)body, strlen(body), "install");
+        assert(first && strstr(first, "\"ok\":true") && strstr(first, "\"name\":\"NoHesiLauncher-Setup\""));
+        again = ms_sharp_action_json(sharp_home, (const unsigned char*)body, strlen(body), "install");
+        assert(again && strstr(again, "\"ok\":true"));
+        {
+            /* the same "id":"sharp_..." in both answers */
+            const char* a = strstr(first, "\"id\":\"");
+            const char* b = strstr(again, "\"id\":\"");
+            size_t length = a ? strcspn(a + 6, "\"") + 6 : 0;
+            assert(a && b && length > 6 && !strncmp(a, b, length + 1));
+        }
+        text = read_hook_fixture(home, "sharp-setup-again/sharp-library/library.json");
+        assert(text);
+        {
+            int entries = 0;
+            for (const char* p = text; (p = strstr(p, "\"exe_path\"")); p++)
+                entries++;
+            assert(entries == 1);
+        }
+        free(text);
+        free(first);
+        free(again);
+        free(installer);
+        free(sharp_home);
     }
 #ifdef __APPLE__
     {
