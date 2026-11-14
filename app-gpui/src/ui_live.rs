@@ -1531,6 +1531,8 @@ impl MetalSharpApp {
                     deck_engine_options: entry.engine_options,
                     executable_path: entry.executable,
                     needs_install: !entry.installed,
+                    playtime_forever: entry.playtime_seconds / 60,
+                    last_played_at: entry.last_played_at,
                     ..Default::default()
                 }
             })

@@ -3048,6 +3048,7 @@ impl MetalSharpApp {
                 LibraryPage::Steam | LibraryPage::Logs => "Windows · Steam library",
             })
         };
+        let playtime = library_model::playtime_label(game.playtime_forever);
         let hero = div()
             .relative()
             .w_full()
@@ -3131,6 +3132,13 @@ impl MetalSharpApp {
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(rgb(0xf0f0ee))
                             .child(badge)
+                    }))
+                    .children(playtime.map(|playtime| {
+                        div()
+                            .mt(px(layout.scaled(8.0)))
+                            .text_size(px(layout.scaled(12.0)))
+                            .text_color(rgb(0xc3cbd8))
+                            .child(playtime)
                     }))
                     .child(
                         div()

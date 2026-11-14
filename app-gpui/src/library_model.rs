@@ -393,6 +393,16 @@ pub fn live_games(library: &[LibGame], history: &HashMap<String, i64>) -> Vec<Li
     games
 }
 
+/// "Played 2h 5m" for a play time in minutes; None before a minute is played.
+pub fn playtime_label(minutes: u64) -> Option<String> {
+    match (minutes / 60, minutes % 60) {
+        (0, 0) => None,
+        (0, m) => Some(format!("Played {m}m")),
+        (h, 0) => Some(format!("Played {h}h")),
+        (h, m) => Some(format!("Played {h}h {m}m")),
+    }
+}
+
 /// The x86_64 runtime's lanes (`variant::X86_64_PIPELINE_OPTIONS`).
 pub const PIPELINE_OPTIONS: [(&str, &str); 4] = crate::variant::X86_64_PIPELINE_OPTIONS;
 
@@ -772,6 +782,14 @@ mod tests {
             game(json!({"appid": 3, "name": "Older", "installed": true, "installed_at": 500}));
         let library = vec![played, downloaded, older];
         assert_eq!(order(&library, &HashMap::new()), [2, 1, 3]);
+    }
+
+    #[test]
+    fn playtime_reads_in_hours_and_minutes() {
+        assert_eq!(playtime_label(0), None);
+        assert_eq!(playtime_label(7).as_deref(), Some("Played 7m"));
+        assert_eq!(playtime_label(120).as_deref(), Some("Played 2h"));
+        assert_eq!(playtime_label(125).as_deref(), Some("Played 2h 5m"));
     }
 
     #[test]

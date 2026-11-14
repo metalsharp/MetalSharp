@@ -25,6 +25,10 @@ pub struct DeckGame {
     pub executable: Option<String>,
     /// The engines the hero's picker offers for it; None hides the picker (a native game).
     pub engine_options: Option<Vec<(String, String)>>,
+    /// Time played, in seconds (Windows programs, which the backend times).
+    pub playtime_seconds: u64,
+    /// When it was last played, in epoch seconds, as the backend saw it.
+    pub last_played_at: Option<String>,
 }
 
 /// GOG's and Epic's graphics engines on this build, as the Collection view lists them.
@@ -87,6 +91,14 @@ impl SharpPreview {
                 engine: Some(super::sharp_live::app_engine(app)),
                 executable: None,
                 engine_options: Some(super::sharp_live::app_engine_options()),
+                playtime_seconds: app
+                    .get("playtime_seconds")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0),
+                last_played_at: app
+                    .get("last_played_at")
+                    .and_then(Value::as_u64)
+                    .map(|at| at.to_string()),
             });
         }
         for game in live
@@ -110,6 +122,8 @@ impl SharpPreview {
                 executable: None,
                 engine_options: (!flag(game, "native"))
                     .then(|| super::sharp_live::gamejolt_engine_options(game)),
+                playtime_seconds: 0,
+                last_played_at: None,
             });
         }
         // Every owned GOG and Epic game, installed or not, like the
@@ -139,6 +153,8 @@ impl SharpPreview {
                     .filter(|path| !path.is_empty())
                     .map(str::to_owned),
                 engine_options: Some(sharp_engine_options()),
+                playtime_seconds: 0,
+                last_played_at: None,
             });
         }
         for game in &live.epic_games {
@@ -163,6 +179,8 @@ impl SharpPreview {
                     .filter(|path| !path.is_empty())
                     .map(str::to_owned),
                 engine_options: Some(sharp_engine_options()),
+                playtime_seconds: 0,
+                last_played_at: None,
             });
         }
         games.retain(|game| !game.id.is_empty());
