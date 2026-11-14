@@ -29,6 +29,25 @@ pub struct DeckGame {
     pub playtime_seconds: u64,
     /// When it was last played, in epoch seconds, as the backend saw it.
     pub last_played_at: Option<String>,
+    /// A Windows program's launch arguments and display and controller choices.
+    pub settings: Option<crate::library_model::SharpAppSettings>,
+}
+
+/// An entry's string field, None when it is missing, null or empty.
+fn choice(value: &Value, key: &str) -> Option<String> {
+    Some(text(value, key))
+        .filter(|choice| !choice.is_empty())
+        .map(str::to_owned)
+}
+
+/// The request key set-preferences takes for a Sharp Library entry's key.
+fn preference_request_key(key: &str) -> Option<&'static str> {
+    match key {
+        "window_mode" => Some("windowMode"),
+        "game_resolution" => Some("gameResolution"),
+        "controller_input" => Some("controllerInput"),
+        _ => None,
+    }
 }
 
 /// GOG's and Epic's graphics engines on this build, as the Collection view lists them.
@@ -99,6 +118,19 @@ impl SharpPreview {
                     .get("last_played_at")
                     .and_then(Value::as_u64)
                     .map(|at| at.to_string()),
+                settings: Some(crate::library_model::SharpAppSettings {
+                    launch_args: app
+                        .get("user_launch_args")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect(),
+                    window_mode: choice(app, "window_mode"),
+                    game_resolution: choice(app, "game_resolution"),
+                    controller_input: choice(app, "controller_input"),
+                }),
             });
         }
         for game in live
@@ -124,6 +156,7 @@ impl SharpPreview {
                     .then(|| super::sharp_live::gamejolt_engine_options(game)),
                 playtime_seconds: 0,
                 last_played_at: None,
+                settings: None,
             });
         }
         // Every owned GOG and Epic game, installed or not, like the
@@ -155,6 +188,7 @@ impl SharpPreview {
                 engine_options: Some(sharp_engine_options()),
                 playtime_seconds: 0,
                 last_played_at: None,
+                settings: None,
             });
         }
         for game in &live.epic_games {
@@ -181,6 +215,7 @@ impl SharpPreview {
                 engine_options: Some(sharp_engine_options()),
                 playtime_seconds: 0,
                 last_played_at: None,
+                settings: None,
             });
         }
         games.retain(|game| !game.id.is_empty());
@@ -318,6 +353,128 @@ impl SharpPreview {
             }
             _ => {}
         }
+    }
+
+    /// Rename a Windows program or Game Jolt game from the deck's game settings.
+    pub fn deck_rename(&mut self, source: &str, id: &str, name: String, cx: &mut Context<Self>) {
+        let name = name.trim().to_owned();
+        let (route, gamejolt) = match source {
+            "windows" => ("/sharp-library/rename", false),
+            "gamejolt" => ("/gamejolt/name", true),
+            _ => return,
+        };
+        if name.is_empty() {
+            crate::toast::error(cx, "The name can't be empty");
+            return;
+        }
+        let id = id.to_owned();
+        crate::live::call(
+            cx,
+            "POST",
+            route,
+            Some(serde_json::json!({"id": id, "name": name})),
+            crate::live::DEFAULT_TIMEOUT,
+            move |this, r, cx| {
+                if !r.as_ref().is_some_and(crate::live::is_ok) {
+                    crate::toast::error(
+                        cx,
+                        crate::live::error_text(r.as_ref())
+                            .unwrap_or_else(|| "Could not save the name".into()),
+                    );
+                    return;
+                }
+                let saved = r
+                    .as_ref()
+                    .and_then(|r| r.get("name"))
+                    .and_then(Value::as_str)
+                    .filter(|saved| !saved.is_empty())
+                    .map(str::to_owned)
+                    .unwrap_or(name.clone());
+                if let Some(live) = this.live.as_mut() {
+                    let list = if gamejolt {
+                        &mut live.gj_games
+                    } else {
+                        &mut live.apps
+                    };
+                    if let Some(entry) = list.iter_mut().find(|entry| text(entry, "id") == id) {
+                        entry["name"] = serde_json::json!(saved);
+                    }
+                }
+                crate::toast::success(cx, format!("Renamed to {saved}"));
+                cx.notify();
+            },
+        );
+    }
+
+    /// Save a Windows program's launch arguments from the deck's game settings.
+    pub fn deck_set_launch_args(&mut self, id: &str, args: Vec<String>, cx: &mut Context<Self>) {
+        let id = id.to_owned();
+        crate::live::call(
+            cx,
+            "POST",
+            "/sharp-library/set-launch-args",
+            Some(serde_json::json!({"id": id, "args": args})),
+            crate::live::DEFAULT_TIMEOUT,
+            move |this, r, cx| {
+                if !r.as_ref().is_some_and(crate::live::is_ok) {
+                    crate::toast::error(
+                        cx,
+                        crate::live::error_text(r.as_ref())
+                            .unwrap_or_else(|| "Could not save the launch arguments".into()),
+                    );
+                    return;
+                }
+                if let Some(entry) = this
+                    .live
+                    .as_mut()
+                    .and_then(|live| live.apps.iter_mut().find(|app| text(app, "id") == id))
+                {
+                    entry["user_launch_args"] = serde_json::json!(args);
+                }
+                crate::toast::success(cx, "Launch arguments saved");
+                cx.notify();
+            },
+        );
+    }
+
+    /// Save one of a Windows program's own display or controller choices (`window_mode`,
+    /// `game_resolution` or `controller_input`); None goes back to the shared choice.
+    pub fn deck_set_preference(
+        &mut self,
+        id: &str,
+        key: &'static str,
+        value: Option<&'static str>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(request_key) = preference_request_key(key) else {
+            return;
+        };
+        let id = id.to_owned();
+        crate::live::call(
+            cx,
+            "POST",
+            "/sharp-library/set-preferences",
+            Some(serde_json::json!({"id": id, request_key: value})),
+            crate::live::DEFAULT_TIMEOUT,
+            move |this, r, cx| {
+                if !r.as_ref().is_some_and(crate::live::is_ok) {
+                    crate::toast::error(
+                        cx,
+                        crate::live::error_text(r.as_ref())
+                            .unwrap_or_else(|| "Could not save the setting".into()),
+                    );
+                    return;
+                }
+                if let Some(entry) = this
+                    .live
+                    .as_mut()
+                    .and_then(|live| live.apps.iter_mut().find(|app| text(app, "id") == id))
+                {
+                    entry[key] = serde_json::json!(value);
+                }
+                cx.notify();
+            },
+        );
     }
 
     /// Uninstall an installed GOG or Epic game: only its files go (its prefix or bottle, saves and

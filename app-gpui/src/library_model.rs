@@ -112,6 +112,63 @@ pub struct LibGame {
     /// An owned GOG or Epic game that is listed but not downloaded yet.
     #[serde(skip)]
     pub needs_install: bool,
+    /// A Windows program's own launch settings, from its Sharp Library entry.
+    #[serde(skip)]
+    pub sharp_settings: Option<SharpAppSettings>,
+}
+
+/// A Windows program's launch arguments and its own display and controller choices (`window_mode`,
+/// `game_resolution`, `controller_input` in the Sharp Library); None keeps the shared choice.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SharpAppSettings {
+    pub launch_args: Vec<String>,
+    pub window_mode: Option<String>,
+    pub game_resolution: Option<String>,
+    pub controller_input: Option<String>,
+}
+
+/// Launch arguments typed on one line: split at spaces, with "double quotes" around an argument that has
+/// spaces in it.
+pub fn parse_launch_args(line: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let (mut quoted, mut started) = (false, false);
+    for ch in line.chars() {
+        match ch {
+            '"' => {
+                quoted = !quoted;
+                started = true;
+            }
+            c if c.is_whitespace() && !quoted => {
+                if started {
+                    args.push(std::mem::take(&mut current));
+                    started = false;
+                }
+            }
+            c => {
+                current.push(c);
+                started = true;
+            }
+        }
+    }
+    if started {
+        args.push(current);
+    }
+    args
+}
+
+/// The arguments on one line, as `parse_launch_args` reads them back.
+pub fn format_launch_args(args: &[String]) -> String {
+    args.iter()
+        .map(|arg| {
+            if arg.is_empty() || arg.chars().any(char::is_whitespace) {
+                format!("\"{arg}\"")
+            } else {
+                arg.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 impl LibGame {
@@ -814,6 +871,18 @@ mod tests {
         assert_eq!(ids(apply_card_order(games.clone(), &[])), [1, 2, 3, 4]);
         // 9 was uninstalled; 4 is new since the order was set.
         assert_eq!(ids(apply_card_order(games, &[3, 9, 1, 2])), [3, 1, 2, 4]);
+    }
+
+    #[test]
+    fn launch_args_split_at_spaces_and_keep_quoted_ones_whole() {
+        let args = parse_launch_args(r#"  -dx11 "C:\My Games\save" -w 1280 "" "#);
+        assert_eq!(args, ["-dx11", r"C:\My Games\save", "-w", "1280", ""]);
+        assert_eq!(
+            format_launch_args(&args),
+            r#"-dx11 "C:\My Games\save" -w 1280 """#
+        );
+        assert_eq!(parse_launch_args(&format_launch_args(&args)), args);
+        assert!(parse_launch_args("   ").is_empty());
     }
 
     #[test]

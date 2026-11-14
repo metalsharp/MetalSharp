@@ -1553,6 +1553,7 @@ impl MetalSharpApp {
                     needs_install: !entry.installed,
                     playtime_forever: entry.playtime_seconds / 60,
                     last_played_at: entry.last_played_at,
+                    sharp_settings: entry.settings,
                     ..Default::default()
                 }
             })
