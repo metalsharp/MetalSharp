@@ -173,7 +173,10 @@ mod tests {
         assert!(state.available);
         assert_eq!(state.phase, "downloading");
         assert_eq!(state.percent(), 22.5);
-        assert_eq!(state.message(), "Downloading MetalSharp 1.3.0: 50 of 200 MB");
+        assert_eq!(
+            state.message(),
+            "Downloading MetalSharp 1.3.0: 50 of 200 MB"
+        );
     }
 
     #[test]
@@ -208,7 +211,8 @@ mod tests {
 
     #[test]
     fn writes_the_marker_update_sh_writes() {
-        let marker: serde_json::Value = serde_json::from_str(&migration_marker("1.3.0", "fex", 42)).unwrap();
+        let marker: serde_json::Value =
+            serde_json::from_str(&migration_marker("1.3.0", "fex", 42)).unwrap();
         assert_eq!(marker["needed"], true);
         assert_eq!(marker["target_version"], "1.3.0");
         assert_eq!(marker["target_variant"], "fex");

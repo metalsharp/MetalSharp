@@ -27,7 +27,7 @@ Sparkle never checks on its own (`SUEnableAutomaticChecks` is false), and it nev
   - copies `Sparkle.framework` into `Contents/Frameworks`;
   - writes the Sparkle keys into `Info.plist`;
   - signs Sparkle inside-out as Sparkle documents: `Installer.xpc`, then `Downloader.xpc` (keeping its own entitlements), `Autoupdate`, `Updater.app`, and the framework. None of them gets MetalSharp's entitlements.
-- `METALSHARP_SPARKLE=0` packages without Sparkle.
+- `package-app.sh`, the release identity that Release CI and the DMG builds use, turns Sparkle on. `METALSHARP_SPARKLE=0` packages without it. The side-by-side preview (`package-local-preview.sh` on its own) leaves it off unless `METALSHARP_SPARKLE=1`, so a preview never follows the release feed.
 - `app-gpui/build.rs` compiles `MSSparkleBridge.m` and links the framework, only with the `sparkle` feature. Without the feature (`cargo test`, development builds) nothing is linked, and `sparkle::available()` is false.
 
 ## Releasing

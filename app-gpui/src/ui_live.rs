@@ -3333,7 +3333,12 @@ impl MetalSharpApp {
 
     /// What update.sh did before replacing the app: Steam and Wine stopped, the migration marker written for the new
     /// version's first launch, and the backend stopped (it runs from inside the app). Then Sparkle may install.
-    fn prepare_sparkle_install(&mut self, version: String, variant: &'static str, cx: &mut Context<Self>) {
+    fn prepare_sparkle_install(
+        &mut self,
+        version: String,
+        variant: &'static str,
+        cx: &mut Context<Self>,
+    ) {
         let Some(live) = Live::get(cx) else { return };
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -3342,10 +3347,14 @@ impl MetalSharpApp {
                     let stop = live
                         .request("POST", "/steam/stop", None, MS(15_000))
                         .map(live::unwrap_data)
-                        .map_err(|error| format!("Could not stop Steam and Wine for the update: {error}"))?;
-                    if !is_ok(&stop) || stop.get("running").and_then(Value::as_bool) != Some(false) {
-                        return Err(error_text(Some(&stop))
-                            .unwrap_or_else(|| "Steam and Wine did not stop; the update was not installed.".into()));
+                        .map_err(|error| {
+                            format!("Could not stop Steam and Wine for the update: {error}")
+                        })?;
+                    if !is_ok(&stop) || stop.get("running").and_then(Value::as_bool) != Some(false)
+                    {
+                        return Err(error_text(Some(&stop)).unwrap_or_else(|| {
+                            "Steam and Wine did not stop; the update was not installed.".into()
+                        }));
                     }
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -3354,7 +3363,10 @@ impl MetalSharpApp {
                     let home = live.home();
                     std::fs::write(
                         home.join(".post-update-migration"),
-                        format!("{}\n", crate::sparkle::migration_marker(&version, variant, now)),
+                        format!(
+                            "{}\n",
+                            crate::sparkle::migration_marker(&version, variant, now)
+                        ),
                     )
                     .map_err(|error| format!("Could not prepare the update: {error}"))?;
                     live.stop_backend();
@@ -3365,10 +3377,14 @@ impl MetalSharpApp {
                 Ok(()) => {
                     if !crate::sparkle::install() {
                         if let Some(live) = Live::get(cx) {
-                            let _ = std::fs::remove_file(live.home().join(".post-update-migration"));
+                            let _ =
+                                std::fs::remove_file(live.home().join(".post-update-migration"));
                         }
                         this.live.update_downloading = false;
-                        toast::error(cx, "The update is no longer ready; restart MetalSharp and try again.");
+                        toast::error(
+                            cx,
+                            "The update is no longer ready; restart MetalSharp and try again.",
+                        );
                         cx.notify();
                     }
                 }

@@ -95,9 +95,10 @@ CARGO_FEATURES="${METALSHARP_GPUI_CARGO_FEATURES:-}"
 if [ "$VARIANT" = "fex" ] && grep -Eq '^fex[[:space:]]*=' "$APP_DIR/Cargo.toml"; then
   CARGO_FEATURES="${CARGO_FEATURES:+$CARGO_FEATURES,}fex"
 fi
-# Updates through Sparkle (METALSHARP_SPARKLE=0 leaves it out): the app links Sparkle.framework, carries it in
-# Contents/Frameworks, and reads its build's appcast. Without it MetalSharp updates with a DMG as before.
-SPARKLE="${METALSHARP_SPARKLE:-1}"
+# Updates through Sparkle (METALSHARP_SPARKLE=1; package-app.sh, the release identity, turns it on): the app links
+# Sparkle.framework, carries it in Contents/Frameworks, and reads its build's appcast. Off by default here, so a
+# side-by-side preview never follows the release feed; without it MetalSharp updates with a DMG as before.
+SPARKLE="${METALSHARP_SPARKLE:-0}"
 SPARKLE_DIR=""
 if [ "$SPARKLE" = "1" ]; then
   SPARKLE_DIR="$("$ROOT/tools/sparkle/fetch-sparkle.sh")"
