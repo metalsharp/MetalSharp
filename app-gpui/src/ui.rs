@@ -644,6 +644,13 @@ fn preview_games() -> Vec<LibGame> {
         .collect()
 }
 
+/// Text fields of a Windows program's or Game Jolt game's settings, for the game they were opened on.
+struct SharpSettingInputs {
+    key: (LibraryPage, u64),
+    name: gpui::Entity<crate::search_input::SearchInput>,
+    args: gpui::Entity<crate::search_input::SearchInput>,
+}
+
 pub struct MetalSharpApp {
     streaming_unpair_confirm: bool,
     streaming_unpair_deadline: Option<std::time::Instant>,
@@ -685,6 +692,8 @@ pub struct MetalSharpApp {
     /// game changes)
     advanced_settings_open: bool,
     game_settings_open: bool,
+    /// The game settings' Name and Launch arguments fields for a Windows program or Game Jolt game.
+    sharp_setting_inputs: Option<SharpSettingInputs>,
     /// The game settings popup's scroll position, for its scrollbar
     game_settings_scroll: gpui::ScrollHandle,
     /// The [...] art menu of a Sharp Library entry, opened from the hero or
@@ -698,6 +707,8 @@ pub struct MetalSharpApp {
     runtime_switch: Option<runtime_impl::RuntimeSwitch>,
     uninstall_prompt: Option<drive_impl::UninstallPrompt>,
     hovered_card: Option<usize>,
+    /// Keyboard focus of the Play view: arrows or WASD move between cards, Enter plays.
+    play_focus: Option<gpui::FocusHandle>,
     active_tab: LibraryTab,
     step: usize,
     selected_language: &'static str,
@@ -759,6 +770,7 @@ impl MetalSharpApp {
             tuning_inputs: None,
             advanced_settings_open: false,
             game_settings_open: false,
+            sharp_setting_inputs: None,
             game_settings_scroll: gpui::ScrollHandle::new(),
             art_menu: None,
             drive_prompt: None,
@@ -766,6 +778,7 @@ impl MetalSharpApp {
             runtime_switch: None,
             uninstall_prompt: None,
             hovered_card: None,
+            play_focus: None,
             active_tab: LibraryTab::Play,
             step: 2,
             selected_language: "en",
@@ -1341,6 +1354,26 @@ impl Render for MetalSharpApp {
         if !library_visible {
             self.deactivate_polling_pages(cx);
         }
+        // The Play view has the keyboard unless the search field or a panel over it does, so arrows
+        // move between cards without a click first, also after Collection or a closed panel.
+        if library_visible
+            && self.active_tab == LibraryTab::Play
+            && !self.play_keys_blocked()
+            && self.live.update_dialog.is_none()
+            && self.live.fex_welcome_page.is_none()
+        {
+            let focus = self
+                .play_focus
+                .get_or_insert_with(|| cx.focus_handle())
+                .clone();
+            let searching = self
+                .search_input
+                .as_ref()
+                .is_some_and(|input| input.read(cx).focus_handle(cx).is_focused(window));
+            if !searching && !focus.is_focused(window) {
+                window.focus(&focus);
+            }
+        }
         let body: gpui::AnyElement = if let Some(moving) = self.live.data_move.clone() {
             self.render_data_move(&moving).into_any_element()
         } else if let Some(prompt) = self.live.data_prompt.clone() {
@@ -1571,11 +1604,18 @@ impl MetalSharpApp {
             let sharp = cx.new(|cx| {
                 let mut sharp = crate::sharp_preview::SharpPreview::new();
                 sharp.asset_root = asset_path("");
+                sharp.back_to_play = true;
                 sharp.attach_live(cx);
                 sharp
             });
             cx.observe(&sharp, |this, sharp, cx| this.sync_deck_games(sharp, cx))
                 .detach();
+            cx.subscribe(&sharp, |this, _, event, cx| match event {
+                crate::sharp_preview::SharpPreviewEvent::BackToPlay => {
+                    this.set_page_collection(false, cx)
+                }
+            })
+            .detach();
             self.sharp_preview = Some(sharp);
             self.sync_sharp_source(cx);
         }
@@ -3018,14 +3058,13 @@ impl MetalSharpApp {
         let launching = self.live.launching == Some(game.appid)
             || self.live.deck_busy.contains(&game.appid)
             || install_progress.is_some();
-        // Graphics, game settings and artwork apply to Steam and the launchers' games, and to GOG's;
-        // other Sharp Library entries keep theirs in Collection.
+        // Graphics apply to Steam and the launchers' games, to GOG's and Epic's, and to Windows
+        // Programs that run on an engine. Every game has its settings (the gear).
         let bottle_settings = game.external_id.is_none();
-        let game_controls =
-            bottle_settings || matches!(game.page(), LibraryPage::Gog | LibraryPage::Epic);
-        // The graphics picker also shows for Windows Programs that run on an engine.
+        let store_game = matches!(game.page(), LibraryPage::Gog | LibraryPage::Epic);
         let pipeline_picker = !game.has_native_build
-            && (game_controls
+            && (bottle_settings
+                || store_game
                 || (game.page() == LibraryPage::WindowsPrograms
                     && game.deck_engine_options.is_some()));
         let pipeline_label = library_model::game_pipeline_options(&game)
@@ -3051,6 +3090,7 @@ impl MetalSharpApp {
                 LibraryPage::Steam | LibraryPage::Logs => "Windows · Steam library",
             })
         };
+        let playtime = library_model::playtime_label(game.playtime_forever);
         let hero = div()
             .relative()
             .w_full()
@@ -3134,6 +3174,13 @@ impl MetalSharpApp {
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(rgb(0xf0f0ee))
                             .child(badge)
+                    }))
+                    .children(playtime.map(|playtime| {
+                        div()
+                            .mt(px(layout.scaled(8.0)))
+                            .text_size(px(layout.scaled(12.0)))
+                            .text_color(rgb(0xc3cbd8))
+                            .child(playtime)
                     }))
                     .child(
                         div()
@@ -3304,7 +3351,7 @@ impl MetalSharpApp {
                                             )
                                             .children(pipeline_menu)
                                     }))
-                                    .children(game_controls.then(|| {
+                                    .child({
                                         div().relative().flex_none().child(
                                             div()
                                                 .id("library-game-settings")
@@ -3322,9 +3369,9 @@ impl MetalSharpApp {
                                                 .on_click(cx.listener(|this, _, _, cx| {
                                                     let open = !this.game_settings_open;
                                                     this.close_library_menus();
-                                                    this.game_settings_open = open;
                                                     this.advanced_settings_open = false;
                                                     if open {
+                                                        this.open_game_settings(cx);
                                                         this.load_game_tuning(cx);
                                                     }
                                                     cx.notify();
@@ -3335,7 +3382,7 @@ impl MetalSharpApp {
                                                     0xf0f0ee,
                                                 )),
                                         )
-                                    })),
+                                    }),
                             ),
                     ),
             );
@@ -3413,8 +3460,8 @@ impl MetalSharpApp {
                     this.select_game(index, cx);
                     cx.notify();
                 }))
-                // [...] on the selected Sharp Library card: its own art.
-                .children((selected_card && card_game.art_key.is_some()).then(|| {
+                // [...] on the selected card: its place in the dock, and a Sharp Library entry's own art.
+                .children(selected_card.then(|| {
                     div()
                         .absolute()
                         .top(px(layout.scaled(8.0)))
@@ -3777,6 +3824,10 @@ impl MetalSharpApp {
                     )),
             );
 
+        let focus = self
+            .play_focus
+            .get_or_insert_with(|| cx.focus_handle())
+            .clone();
         div()
             .id("library-play-scroll")
             .relative()
@@ -3786,9 +3837,183 @@ impl MetalSharpApp {
             .bg(rgb(page_bg))
             .flex()
             .flex_col()
+            .track_focus(&focus)
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _, window, _| {
+                    if let Some(focus) = &this.play_focus {
+                        window.focus(focus);
+                    }
+                }),
+            )
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                // Only while the Play view itself has focus: a text field keeps its keys.
+                if this
+                    .play_focus
+                    .as_ref()
+                    .is_some_and(|f| f.is_focused(window))
+                    && this.play_key(&event.keystroke, cx)
+                {
+                    cx.stop_propagation();
+                }
+            }))
             .child(backdrop)
             .child(hero)
             .child(dock)
+    }
+
+    /// A prompt or menu over the Play view has the keyboard's attention instead of the cards.
+    fn play_keys_blocked(&self) -> bool {
+        self.game_settings_open
+            || self.settings_open
+            || self.streaming_open
+            || self.game_uninstall_prompt.is_some()
+            || self.drive_prompt.is_some()
+            || self.uninstall_prompt.is_some()
+            || self.runtime_switch.is_some()
+            || self.steamcmd_modal.is_some()
+    }
+
+    /// Arrow keys or WASD on the Play view: Left/Right (A/D) step between cards, Up/Down (W/S) a dock's
+    /// worth of cards, Home/End to the ends, Enter plays the selected game and Escape closes menus.
+    /// True when the key was used.
+    fn play_key(&mut self, keystroke: &gpui::Keystroke, cx: &mut Context<Self>) -> bool {
+        let modifiers = keystroke.modifiers;
+        if modifiers.platform || modifiers.control || modifiers.alt || modifiers.function {
+            return false;
+        }
+        if keystroke.key == "escape" {
+            self.close_library_menus();
+            cx.notify();
+            return true;
+        }
+        if self.play_keys_blocked() {
+            return false;
+        }
+        if modifiers.shift {
+            let delta = match keystroke.key.as_str() {
+                "left" | "a" => -1,
+                "right" | "d" => 1,
+                _ => return false,
+            };
+            self.move_card(delta, cx);
+            return true;
+        }
+        let page = DOCK_VISIBLE_CARDS as isize;
+        let step = match keystroke.key.as_str() {
+            "left" | "a" => -1,
+            "right" | "d" => 1,
+            "up" | "w" => -page,
+            "down" | "s" => page,
+            "home" => isize::MIN / 2,
+            "end" => isize::MAX / 2,
+            "enter" => {
+                let Some(game) = self.featured_game() else {
+                    return false;
+                };
+                // Enter only starts a game; Stop stays on the button.
+                if !self.is_running(game.appid) {
+                    self.close_library_menus();
+                    self.launch_game(game, cx);
+                    cx.notify();
+                }
+                return true;
+            }
+            _ => return false,
+        };
+        self.step_selection(step, cx);
+        true
+    }
+
+    /// Where the featured card can move: (left, right), among the cards the search shows.
+    fn card_moves(&self) -> (bool, bool) {
+        let matches = self.matching_games();
+        let Some(game) = self.featured_game() else {
+            return (false, false);
+        };
+        match matches
+            .iter()
+            .position(|index| self.games[*index].key() == game.key())
+        {
+            Some(position) => (position > 0, position + 1 < matches.len()),
+            None => (false, false),
+        }
+    }
+
+    /// Move the featured card one place left (-1) or right (1) among the cards the search shows. The
+    /// page then keeps its own order (gpui-ui-state.json's cardOrder) until Reset order.
+    fn move_card(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let Some(game) = self.featured_game() else {
+            return;
+        };
+        let matches = self.matching_games();
+        let Some(position) = matches
+            .iter()
+            .position(|index| self.games[*index].key() == game.key())
+        else {
+            return;
+        };
+        let target = position as isize + delta;
+        if target < 0 || target as usize >= matches.len() {
+            return;
+        }
+        let (from, to) = (matches[position], matches[target as usize]);
+        let mut order: Vec<u64> = self.games.iter().map(|game| game.appid).collect();
+        order.swap(from, to);
+        self.live
+            .card_order
+            .insert(self.page.storage_id().to_owned(), order);
+        self.selected_game = from;
+        self.rebuild_display_games(cx);
+        self.select_game(self.selected_game, cx);
+        self.save_ui_state(cx);
+        cx.notify();
+    }
+
+    /// Back to the page's usual order: the most recently played or downloaded first.
+    fn reset_card_order(&mut self, cx: &mut Context<Self>) {
+        if self
+            .live
+            .card_order
+            .remove(self.page.storage_id())
+            .is_none()
+        {
+            return;
+        }
+        self.rebuild_display_games(cx);
+        self.select_game(self.selected_game, cx);
+        self.save_ui_state(cx);
+        cx.notify();
+    }
+
+    /// The game the hero shows: the selection, or the first search match when the search hides it.
+    fn featured_game(&self) -> Option<LibGame> {
+        let matches = self.matching_games();
+        let index = if matches.contains(&self.selected_game) {
+            self.selected_game
+        } else {
+            *matches.first()?
+        };
+        self.games.get(index).cloned()
+    }
+
+    /// Move the selection `delta` cards along the search's matches, stopping at either end.
+    fn step_selection(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let matches = self.matching_games();
+        if matches.is_empty() {
+            return;
+        }
+        let position = matches
+            .iter()
+            .position(|index| *index == self.selected_game)
+            .unwrap_or(0) as isize;
+        let next = position
+            .saturating_add(delta)
+            .clamp(0, matches.len() as isize - 1) as usize;
+        if matches[next] != self.selected_game {
+            self.select_game(matches[next], cx);
+            cx.notify();
+        }
     }
 
     fn matching_games(&self) -> Vec<usize> {
@@ -4029,11 +4254,17 @@ impl MetalSharpApp {
                 .child(label)
         };
         let (card_game, hero_game, reset_game) = (game.clone(), game.clone(), game.clone());
+        let art = game.art_key.is_some();
         let uninstall_game = (matches!(game.page(), LibraryPage::Gog | LibraryPage::Epic)
             && game.installed
             && !game.needs_install
             && game.external_id.is_some())
         .then(|| game.clone());
+        let (left, right) = self.card_moves();
+        let ordered = self.live.card_order.contains_key(self.page.storage_id());
+        let order_item = |id: &'static str, label: &'static str, enabled: bool| {
+            item(id, label).opacity(if enabled { 1.0 } else { 0.4 })
+        };
         div()
             .absolute()
             .top(px(layout.scaled(48.0)))
@@ -4049,18 +4280,22 @@ impl MetalSharpApp {
             .shadow_lg()
             .p(px(5.0))
             .occlude()
-            .child(item("art-menu-card", "Set card art…").on_click(cx.listener(
-                move |this, _, _, cx| {
-                    this.art_menu = None;
-                    this.pick_custom_art(card_game.clone(), false, cx);
-                },
-            )))
-            .child(item("art-menu-hero", "Set hero art…").on_click(cx.listener(
-                move |this, _, _, cx| {
-                    this.art_menu = None;
-                    this.pick_custom_art(hero_game.clone(), true, cx);
-                },
-            )))
+            .children(art.then(|| {
+                item("art-menu-card", "Set card art…").on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        this.art_menu = None;
+                        this.pick_custom_art(card_game.clone(), false, cx);
+                    },
+                ))
+            }))
+            .children(art.then(|| {
+                item("art-menu-hero", "Set hero art…").on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        this.art_menu = None;
+                        this.pick_custom_art(hero_game.clone(), true, cx);
+                    },
+                ))
+            }))
             .children(custom.then(|| {
                 item("art-menu-reset", "Use original art").on_click(cx.listener(
                     move |this, _, _, cx| {
@@ -4069,20 +4304,46 @@ impl MetalSharpApp {
                     },
                 ))
             }))
-            .child(
+            .children(art.then(|| {
                 item("art-menu-collection", "Settings in Collection…").on_click(cx.listener(
                     |this, _, _, cx| {
                         this.art_menu = None;
                         this.set_page_collection(true, cx);
                     },
-                )),
-            )
+                ))
+            }))
             .children(uninstall_game.map(|game| {
                 item("art-menu-uninstall", "Uninstall…").on_click(cx.listener(
                     move |this, _, _, cx| {
                         this.art_menu = None;
                         this.game_uninstall_prompt = Some(game.clone());
                         cx.notify();
+                    },
+                ))
+            }))
+            .child(
+                order_item("art-menu-move-left", "Move left", left).on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        if left {
+                            this.move_card(-1, cx);
+                        }
+                    },
+                )),
+            )
+            .child(
+                order_item("art-menu-move-right", "Move right", right).on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        if right {
+                            this.move_card(1, cx);
+                        }
+                    },
+                )),
+            )
+            .children(ordered.then(|| {
+                item("art-menu-reset-order", "Reset order").on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.art_menu = None;
+                        this.reset_card_order(cx);
                     },
                 ))
             }))
@@ -4407,6 +4668,9 @@ impl MetalSharpApp {
                             })),
                     ),
             );
+        if let Some(section) = self.render_sharp_game_settings(game, cx) {
+            menu = menu.child(section);
+        }
         let theme = self.theme;
         let option = move |id: (&'static str, usize), text: &'static str, active: bool| {
             div()
@@ -4476,14 +4740,17 @@ impl MetalSharpApp {
         let msync = self.live.msync;
         let metal_hud = self.live.metal_hud;
         let x87 = self.live.x87;
+        // A Windows program has its own controller input (above) and isn't launched with the Metal
+        // HUD switch.
+        let windows_program = game.source.as_deref() == Some("windows");
         cells.push(row("MetalFX", metal_fx));
         // MetalSharp Wine's own xinput/dinput see controllers through SDL; the FEX build stages no
         // input shims, so the choice would do nothing there.
-        if !crate::variant::is_fex() {
+        if !crate::variant::is_fex() && !windows_program {
             cells.push(row("Controller input", controller));
         }
         // The Metal HUD switch (both Wine runtimes).
-        {
+        if !windows_program {
             cells.push(row(
                 "Metal HUD",
                 div().flex().child(
@@ -4537,7 +4804,9 @@ impl MetalSharpApp {
                 ),
             ));
         }
-        if game.installed && !game.needs_install && !game.has_native_build {
+        // Windows programs and Game Jolt games keep their executable in the Sharp Library.
+        let sharp_app = matches!(game.source.as_deref(), Some("windows" | "gamejolt"));
+        if game.installed && !game.needs_install && !game.has_native_build && !sharp_app {
             let executable_name = game
                 .executable_path
                 .as_deref()
@@ -4920,6 +5189,322 @@ impl MetalSharpApp {
                      also finds a game a launcher starts.",
             )),
         )
+    }
+
+    /// Open the selected game's settings; a Windows program or Game Jolt game gets its Name (and a
+    /// program its Launch arguments) as fields filled with what is saved.
+    fn open_game_settings(&mut self, cx: &mut Context<Self>) {
+        self.game_settings_open = true;
+        self.sharp_setting_inputs = None;
+        let Some(game) = self.games.get(self.selected_game).cloned() else {
+            return;
+        };
+        if !matches!(game.source.as_deref(), Some("windows" | "gamejolt")) {
+            return;
+        }
+        let text_color = self.theme.control_text();
+        let field = |content: String, placeholder: &'static str, cx: &mut Context<Self>| {
+            cx.new(|cx| {
+                let mut input = crate::search_input::SearchInput::new(cx);
+                input.content = content.into();
+                input.placeholder = placeholder.into();
+                input.text_color = text_color;
+                input.font_size = 12.0;
+                input
+            })
+        };
+        let args = game
+            .sharp_settings
+            .as_ref()
+            .map(|settings| library_model::format_launch_args(&settings.launch_args))
+            .unwrap_or_default();
+        self.sharp_setting_inputs = Some(SharpSettingInputs {
+            key: game.key(),
+            name: field(game.name.clone(), "Name", cx),
+            args: field(args, "-windowed \"-path C:\\Games\"", cx),
+        });
+    }
+
+    /// The selected game, its Sharp Library source and id, and the Sharp Library view, for its settings.
+    fn sharp_settings_target(
+        &self,
+    ) -> Option<(
+        LibGame,
+        String,
+        String,
+        gpui::Entity<crate::sharp_preview::SharpPreview>,
+    )> {
+        let game = self.games.get(self.selected_game)?.clone();
+        let source = game.source.clone()?;
+        let id = game.external_id.clone()?;
+        Some((game, source, id, self.sharp_preview.clone()?))
+    }
+
+    fn save_sharp_name(&mut self, cx: &mut Context<Self>) {
+        let Some((game, source, id, sharp)) = self.sharp_settings_target() else {
+            return;
+        };
+        let Some(inputs) = self
+            .sharp_setting_inputs
+            .as_ref()
+            .filter(|inputs| inputs.key == game.key())
+        else {
+            return;
+        };
+        let name = inputs.name.read(cx).content.trim().to_owned();
+        if name == game.name {
+            return;
+        }
+        sharp.update(cx, |sharp, cx| sharp.deck_rename(&source, &id, name, cx));
+    }
+
+    fn save_sharp_launch_args(&mut self, cx: &mut Context<Self>) {
+        let Some((game, _, id, sharp)) = self.sharp_settings_target() else {
+            return;
+        };
+        let Some(inputs) = self
+            .sharp_setting_inputs
+            .as_ref()
+            .filter(|inputs| inputs.key == game.key())
+        else {
+            return;
+        };
+        let args = library_model::parse_launch_args(&inputs.args.read(cx).content);
+        sharp.update(cx, |sharp, cx| sharp.deck_set_launch_args(&id, args, cx));
+    }
+
+    fn set_sharp_preference(
+        &mut self,
+        key: &'static str,
+        value: Option<&'static str>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((_, _, id, sharp)) = self.sharp_settings_target() else {
+            return;
+        };
+        sharp.update(cx, |sharp, cx| {
+            sharp.deck_set_preference(&id, key, value, cx)
+        });
+    }
+
+    /// A Windows program's or Game Jolt game's own settings, over the shared ones below: its name, and
+    /// a program's launch arguments, display mode, resolution and controller input.
+    fn render_sharp_game_settings(
+        &self,
+        game: &LibGame,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Div> {
+        let inputs = self
+            .sharp_setting_inputs
+            .as_ref()
+            .filter(|inputs| inputs.key == game.key())?;
+        let theme = self.theme;
+        let muted = if theme == PreviewTheme::Light {
+            0x5d6366
+        } else {
+            0x939a9b
+        };
+        let button = move |id: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .flex_none()
+                .cursor_pointer()
+                .px(px(9.0))
+                .py(px(6.0))
+                .rounded(px(5.0))
+                .border_1()
+                .border_color(rgb(theme.border()))
+                .bg(rgb(theme.menu_bg()))
+                .hover(move |style| style.bg(rgb(theme.menu_hover())))
+                .child(label)
+        };
+        let field = |id: &'static str, input: &gpui::Entity<crate::search_input::SearchInput>| {
+            let focus_input = input.clone();
+            div()
+                .id(id)
+                .flex_1()
+                .min_w_0()
+                .h(px(28.0))
+                .px(px(8.0))
+                .overflow_hidden()
+                .flex()
+                .items_center()
+                .rounded(px(5.0))
+                .border_1()
+                .border_color(rgb(theme.border()))
+                .bg(rgb(theme.page_bg_raised()))
+                .cursor(gpui::CursorStyle::IBeam)
+                .on_click(move |_, window, cx| {
+                    window.focus(&focus_input.read(cx).focus_handle(cx));
+                })
+                .child(input.clone())
+        };
+        let label = |text: &'static str| div().w(px(104.0)).flex_none().child(text);
+        let mut section = div()
+            .flex()
+            .flex_col()
+            .gap(px(10.0))
+            .pb(px(12.0))
+            .border_b_1()
+            .border_color(rgb(theme.border()))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .child(label("Name"))
+                    .child(
+                        field("sharp-setting-name", &inputs.name).on_key_down(cx.listener(
+                            |this, event: &gpui::KeyDownEvent, _, cx| {
+                                if event.keystroke.key == "enter" {
+                                    this.save_sharp_name(cx);
+                                    cx.stop_propagation();
+                                }
+                            },
+                        )),
+                    )
+                    .child(
+                        button("sharp-setting-name-save", "Rename")
+                            .on_click(cx.listener(|this, _, _, cx| this.save_sharp_name(cx))),
+                    ),
+            );
+        let Some(settings) = game.sharp_settings.as_ref() else {
+            // A Game Jolt game: its name only.
+            return Some(section);
+        };
+        section = section.child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .child(label("Launch arguments"))
+                .child(
+                    field("sharp-setting-args", &inputs.args).on_key_down(cx.listener(
+                        |this, event: &gpui::KeyDownEvent, _, cx| {
+                            if event.keystroke.key == "enter" {
+                                this.save_sharp_launch_args(cx);
+                                cx.stop_propagation();
+                            }
+                        },
+                    )),
+                )
+                .child(
+                    button("sharp-setting-args-save", "Save")
+                        .on_click(cx.listener(|this, _, _, cx| this.save_sharp_launch_args(cx))),
+                ),
+        );
+        let choices = |id: &'static str,
+                       key: &'static str,
+                       current: Option<&str>,
+                       options: &[(&'static str, Option<&'static str>)],
+                       cx: &mut Context<Self>| {
+            let mut row = div().flex_1().flex().flex_wrap().justify_end().gap(px(4.0));
+            for (index, (text, value)) in options.iter().copied().enumerate() {
+                let active = current == value;
+                row = row.child(
+                    div()
+                        .id((id, index))
+                        .px(px(8.0))
+                        .py(px(6.0))
+                        .rounded(px(5.0))
+                        .border_1()
+                        .border_color(rgb(if active {
+                            theme.button_border()
+                        } else {
+                            theme.border()
+                        }))
+                        .bg(rgb(if active {
+                            theme.menu_hover()
+                        } else {
+                            theme.menu_bg()
+                        }))
+                        .cursor_pointer()
+                        .child(text)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if !active {
+                                this.set_sharp_preference(key, value, cx);
+                            }
+                        })),
+                );
+            }
+            row
+        };
+        let display = choices(
+            "sharp-setting-window-mode",
+            "window_mode",
+            settings.window_mode.as_deref(),
+            &[
+                ("Shared", None),
+                ("Game default", Some("default")),
+                ("Windowed", Some("windowed")),
+                ("Fullscreen", Some("fullscreen")),
+            ],
+            cx,
+        );
+        let resolution = choices(
+            "sharp-setting-resolution",
+            "game_resolution",
+            settings.game_resolution.as_deref(),
+            &[
+                ("Shared", None),
+                ("Game default", Some("default")),
+                ("720p", Some("1280x720")),
+                ("1080p", Some("1920x1080")),
+                ("1440p", Some("2560x1440")),
+                ("4K", Some("3840x2160")),
+            ],
+            cx,
+        );
+        section = section
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .child(label("Display mode"))
+                    .child(display),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .child(label("Resolution"))
+                    .child(resolution),
+            );
+        // The FEX build stages no controller input shims (MetalSharp Wine's own xinput/dinput).
+        if !crate::variant::is_fex() {
+            let controller = choices(
+                "sharp-setting-controller",
+                "controller_input",
+                settings.controller_input.as_deref(),
+                &[
+                    ("Shared", None),
+                    ("Off", Some("off")),
+                    ("XInput", Some("x")),
+                    ("DInput", Some("d")),
+                ],
+                cx,
+            );
+            section = section.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .child(label("Controller input"))
+                    .child(controller),
+            );
+        }
+        Some(section.child(
+            div()
+                .text_size(px(10.5))
+                .line_height(px(15.0))
+                .text_color(rgb(muted))
+                .child(
+                    "Shared uses the Windows Programs collection's launch preferences. Windowed and a \
+                     resolution use a Wine virtual desktop. Applies on next launch.",
+                ),
+        ))
     }
 
     fn render_collection_menu(

@@ -464,6 +464,7 @@ static bool sharp_terminate_locked(sharp_running_app* entry) {
 }
 
 static void sharp_adopt_finished(void);
+static void sharp_record_playtime(const sharp_running_app* entry);
 
 char* ms_sharp_running_json(void) {
     ms_json_writer writer;
@@ -482,6 +483,8 @@ char* ms_sharp_running_json(void) {
         ms_json_writer_string(&writer, entry->id);
         ms_json_writer_key(&writer, "pid");
         ms_json_writer_u64(&writer, (unsigned long long)entry->pid);
+        ms_json_writer_key(&writer, "started");
+        ms_json_writer_u64(&writer, (unsigned long long)entry->started);
         ms_json_writer_object_end(&writer);
     }
     ms_json_writer_array_end(&writer);
@@ -562,6 +565,7 @@ char* ms_sharp_stop_json(const unsigned char* body, size_t length, int* status) 
 char* ms_sharp_stop_all_json(int* status) {
     size_t stopped = 0;
     bool failed = false;
+    sharp_running_app* ended = NULL;
     pthread_mutex_lock(&g_sharp_running_mutex);
     sharp_running_app** current = &g_sharp_running;
     while (*current) {
@@ -574,9 +578,16 @@ char* ms_sharp_stop_all_json(int* status) {
             continue;
         }
         *current = entry->next;
-        sharp_entry_free(entry);
+        entry->next = ended;
+        ended = entry;
     }
     pthread_mutex_unlock(&g_sharp_running_mutex);
+    while (ended) {
+        sharp_running_app* next = ended->next;
+        sharp_record_playtime(ended);
+        sharp_entry_free(ended);
+        ended = next;
+    }
     ms_json_writer writer;
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
@@ -1674,6 +1685,37 @@ done:
     ms_json_free(apps);
 }
 
+/* A run that ended adds its time to the app's playtime_seconds and makes it the app's last_played_at (epoch
+ * seconds). The end is when the backend saw the app was gone, polled while the library is open. */
+static void sharp_record_playtime(const sharp_running_app* entry) {
+    if (!entry || !entry->home || !entry->id || entry->started <= 0)
+        return;
+    time_t now = time(NULL);
+    long long run = now > entry->started ? (long long)(now - entry->started) : 0;
+    long long total = 0;
+    bool found = false;
+    ms_json* apps = load_array(entry->home);
+    for (size_t i = 0; apps && i < ms_json_array_length(apps); i++) {
+        const ms_json* app = ms_json_array_get(apps, i);
+        char* app_id = field(app, "id", "");
+        found = !strcmp(app_id, entry->id);
+        free(app_id);
+        if (found) {
+            if (!ms_json_as_i64(ms_json_object_get(app, "playtime_seconds"), &total) || total < 0)
+                total = 0;
+            break;
+        }
+    }
+    ms_json_free(apps);
+    if (!found)
+        return;
+    char value[32];
+    snprintf(value, sizeof(value), "%lld", total + run);
+    (void)set_field(entry->home, entry->id, "playtime_seconds", value);
+    snprintf(value, sizeof(value), "%lld", (long long)now);
+    (void)set_field(entry->home, entry->id, "last_played_at", value);
+}
+
 /* Scan the installs of every Sharp app that exited since the last call. */
 static void sharp_adopt_finished(void) {
     sharp_running_app* finished;
@@ -1684,10 +1726,15 @@ static void sharp_adopt_finished(void) {
     pthread_mutex_unlock(&g_sharp_running_mutex);
     while (finished) {
         sharp_running_app* next = finished->next;
+        sharp_record_playtime(finished);
         adopt_installed_programs(finished->home, finished->id, finished->started, 0);
         sharp_entry_free(finished);
         finished = next;
     }
+}
+
+void ms_sharp_note_exits(void) {
+    sharp_adopt_finished();
 }
 
 /* One-time pass for installers run before this existed (or while the backend
@@ -1712,6 +1759,117 @@ static void sharp_adopt_catch_up(const char* home) {
         free(id);
     }
     ms_json_free(apps);
+}
+
+/* A Windows program's own display and controller choices, in library.json, over the shared ones in
+ * configs/config.json (ms_steam_apply_launch_preferences). A missing or null key keeps the shared choice. */
+typedef struct {
+    const char* request_key;
+    const char* app_key;
+    const char* const* allowed;
+    size_t count;
+} sharp_preference;
+
+static const char* const sharp_window_modes[] = {"default", "windowed", "fullscreen"};
+static const char* const sharp_resolutions[] = {"default", "1280x720", "1920x1080", "2560x1440", "3840x2160"};
+static const char* const sharp_controller_modes[] = {"off", "x", "d"};
+static const sharp_preference sharp_preferences[] = {
+    {"windowMode", "window_mode", sharp_window_modes, sizeof(sharp_window_modes) / sizeof(sharp_window_modes[0])},
+    {"gameResolution", "game_resolution", sharp_resolutions, sizeof(sharp_resolutions) / sizeof(sharp_resolutions[0])},
+    {"controllerInput", "controller_input", sharp_controller_modes,
+     sizeof(sharp_controller_modes) / sizeof(sharp_controller_modes[0])},
+};
+
+static bool sharp_preference_allowed(const sharp_preference* preference, const char* value) {
+    for (size_t i = 0; value && i < preference->count; i++)
+        if (!strcmp(value, preference->allowed[i]))
+            return true;
+    return false;
+}
+
+/* The app's own choice for a preference, or NULL when it keeps the shared one. */
+static char* sharp_app_preference(const ms_json* app, const sharp_preference* preference) {
+    char* value = NULL;
+    if (!app || !ms_json_as_string(ms_json_object_get(app, preference->app_key), &value))
+        return NULL;
+    if (sharp_preference_allowed(preference, value))
+        return value;
+    free(value);
+    return NULL;
+}
+
+/* In the launched child, after the shared preferences: the app's own display mode and resolution. */
+static void sharp_apply_display_preferences(const char* window_mode, const char* resolution) {
+    if (window_mode && !strcmp(window_mode, "default"))
+        unsetenv("METALSHARP_GAME_WINDOW_MODE");
+    else if (window_mode)
+        setenv("METALSHARP_GAME_WINDOW_MODE", window_mode, 1);
+    if (resolution && !strcmp(resolution, "default"))
+        unsetenv("METALSHARP_GAME_RESOLUTION");
+    else if (resolution)
+        setenv("METALSHARP_GAME_RESOLUTION", resolution, 1);
+}
+
+/* set-preferences: each of windowMode, gameResolution and controllerInput the request names is saved; null keeps
+ * the shared choice. Nothing is saved when any value is not one of its choices. */
+static const char* sharp_save_preferences(const char* home, const char* id, const ms_json* request) {
+    const size_t count = sizeof(sharp_preferences) / sizeof(sharp_preferences[0]);
+    char* values[sizeof(sharp_preferences) / sizeof(sharp_preferences[0])] = {0};
+    const char* error = NULL;
+    for (size_t i = 0; i < count && !error; i++) {
+        const ms_json* value = ms_json_object_get(request, sharp_preferences[i].request_key);
+        char* text = NULL;
+        if (!value)
+            continue;
+        if (ms_json_type_of(value) == MS_JSON_NULL)
+            values[i] = strdup("null");
+        else if (ms_json_as_string(value, &text) && sharp_preference_allowed(&sharp_preferences[i], text))
+            values[i] = ms_json_quote(text);
+        else
+            error = "invalid launch preference";
+        free(text);
+        if (!error && !values[i])
+            error = "failed to save Sharp Library";
+    }
+    for (size_t i = 0; i < count && !error; i++)
+        if (values[i] && !set_field(home, id, sharp_preferences[i].app_key, values[i]))
+            error = "failed to save Sharp Library";
+    for (size_t i = 0; i < count; i++)
+        free(values[i]);
+    return error;
+}
+
+/* The command line a launch runs: [runner], the program, then its launch_args and the user's user_launch_args
+ * (strings only). Slot 0 is left for the runner, which the launched child picks. NULL-terminated. */
+static char** sharp_launch_argv(const ms_json* app, const char* exe_path) {
+    static const char* const keys[] = {"launch_args", "user_launch_args"};
+    size_t count = 0, used = 2;
+    for (size_t k = 0; app && k < sizeof(keys) / sizeof(keys[0]); k++) {
+        const ms_json* args = ms_json_object_get(app, keys[k]);
+        if (args && ms_json_type_of(args) == MS_JSON_ARRAY)
+            count += ms_json_array_length(args);
+    }
+    char** argv = calloc(count + 3, sizeof(char*));
+    if (!argv)
+        return NULL;
+    argv[1] = strdup(exe_path);
+    for (size_t k = 0; app && k < sizeof(keys) / sizeof(keys[0]); k++) {
+        const ms_json* args = ms_json_object_get(app, keys[k]);
+        if (!args || ms_json_type_of(args) != MS_JSON_ARRAY)
+            continue;
+        for (size_t i = 0; i < ms_json_array_length(args); i++) {
+            char* arg = NULL;
+            if (ms_json_as_string(ms_json_array_get(args, i), &arg) && arg)
+                argv[used++] = arg;
+        }
+    }
+    return argv;
+}
+
+static void sharp_launch_argv_free(char** argv) {
+    for (size_t i = 1; argv && argv[i]; i++)
+        free(argv[i]);
+    free(argv);
 }
 
 char* ms_sharp_library_json(const char* home) {
@@ -1745,7 +1903,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
     bool needs_id = !strcmp(action, "uninstall") || !strcmp(action, "rename") || !strcmp(action, "set-cover") ||
                     !strcmp(action, "set-cover-position") || !strcmp(action, "set-launch-args") ||
                     !strcmp(action, "set-engine") || !strcmp(action, "launch") || !strcmp(action, "doctor") ||
-                    !strcmp(action, "relaunch");
+                    !strcmp(action, "relaunch") || !strcmp(action, "set-preferences");
     if (!j || ms_json_type_of(j) != MS_JSON_OBJECT) {
         ms_json_free(j);
         return failure("invalid JSON body");
@@ -1963,6 +2121,15 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 free(engine);
             } else if (!strcmp(action, "set-launch-args")) {
                 const ms_json* args = ms_json_object_get(j, "args");
+                bool valid = !args || ms_json_type_of(args) == MS_JSON_ARRAY;
+                for (size_t i = 0; valid && args && i < ms_json_array_length(args); i++)
+                    valid = ms_json_type_of(ms_json_array_get(args, i)) == MS_JSON_STRING;
+                if (!valid) {
+                    ms_json_free(a);
+                    free(id);
+                    ms_json_free(j);
+                    return failure("args must be an array of strings");
+                }
                 value = args ? ms_json_stringify(args) : strdup("[]");
                 key = "user_launch_args";
             } else {
@@ -1993,7 +2160,9 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 value = strdup(b);
                 key = "cover_position_y";
             }
-            if (!value || !replace_field(home, id, key, value)) {
+            /* Entries from before user_launch_args existed get it added. */
+            if (!value || !(!strcmp(action, "set-launch-args") ? set_field(home, id, key, value)
+                                                               : replace_field(home, id, key, value))) {
                 free(value);
                 ms_json_free(a);
                 free(id);
@@ -2016,6 +2185,15 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                     }
                     free(item_id);
                 }
+            }
+        }
+        if (!strcmp(action, "set-preferences")) {
+            const char* error = sharp_save_preferences(home, id, j);
+            if (error) {
+                ms_json_free(a);
+                free(id);
+                ms_json_free(j);
+                return failure(error);
             }
         }
         if (!strcmp(action, "launch") || !strcmp(action, "relaunch")) {
@@ -2099,8 +2277,16 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             }
             if (!strcmp(action, "launch"))
                 sharp_stage_engine(home, engine, exe_path, work_dir);
-            pid_t pid = fork();
+            char** launch_argv = sharp_launch_argv(app, exe_path);
+            char* window_mode = sharp_app_preference(app, &sharp_preferences[0]);
+            char* resolution = sharp_app_preference(app, &sharp_preferences[1]);
+            char* controller = sharp_app_preference(app, &sharp_preferences[2]);
+            pid_t pid = launch_argv && launch_argv[1] ? fork() : -1;
             if (pid < 0) {
+                sharp_launch_argv_free(launch_argv);
+                free(window_mode);
+                free(resolution);
+                free(controller);
                 free(wine);
                 free(exe_path);
                 free(work_dir);
@@ -2123,10 +2309,11 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                     work_dir = executable_dir;
                 }
                 if (work_dir && work_dir[0]) {
-                    ms_steam_deploy_controller_input_shims(home, work_dir);
+                    ms_steam_deploy_controller_input_shims_as(home, work_dir, controller);
                     (void)chdir(work_dir);
                 }
                 ms_steam_apply_launch_preferences(home);
+                sharp_apply_display_preferences(window_mode, resolution);
                 if (engine && strcmp(engine, "wine_bare") && strcmp(engine, "auto"))
                     ms_steam_apply_graphics_route(home, engine);
                 if (!strcmp(action, "launch") && !ms_sharp_is_msi(exe_path))
@@ -2135,11 +2322,15 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 char* runner = (char*)(launch_wrapper && access(launch_wrapper, X_OK) == 0 ? launch_wrapper : wine);
                 /* Windows Installer packages run through msiexec. */
                 char* msi_argv[] = {runner, "msiexec", "/i", exe_path, NULL};
-                char* launch_argv[] = {runner, exe_path, NULL};
+                launch_argv[0] = runner;
                 execv(runner, ms_sharp_is_msi(exe_path) ? msi_argv : launch_argv);
                 _exit(127);
             }
             (void)setpgid(pid, pid);
+            sharp_launch_argv_free(launch_argv);
+            free(window_mode);
+            free(resolution);
+            free(controller);
             if (!strcmp(action, "launch"))
                 sharp_remember(id, pid, true, work_dir, home);
             const char* reported_pipeline = engine && engine[0] ? engine : "auto";

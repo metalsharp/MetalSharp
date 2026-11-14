@@ -219,8 +219,19 @@ impl PreviewState {
     }
 }
 
+/// What the Sharp Library view asks of the app around it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SharpPreviewEvent {
+    /// The header's Back to Play: the page's Steam Deck layout.
+    BackToPlay,
+}
+
+impl gpui::EventEmitter<SharpPreviewEvent> for SharpPreview {}
+
 pub struct SharpPreview {
     pub palette: PagePalette,
+    /// The header offers Back to Play (the app's pages, which have a Steam Deck layout).
+    pub back_to_play: bool,
     pub asset_root: PathBuf,
     state: PreviewState,
     focus: Option<gpui::FocusHandle>,
@@ -232,6 +243,7 @@ impl SharpPreview {
     pub fn new() -> Self {
         Self {
             palette: PagePalette::default(),
+            back_to_play: false,
             asset_root: PathBuf::new(),
             state: PreviewState::default(),
             focus: None,
@@ -1253,6 +1265,23 @@ impl Render for SharpPreview {
             .flex()
             .items_center()
             .gap(px(12.0));
+        if self.back_to_play {
+            source_controls = source_controls.child(
+                self.palette
+                    .button("sharp-back-to-play", "⌂  Back to Play", false)
+                    .h(px(42.0))
+                    .px(px(14.0))
+                    .rounded(px(10.0))
+                    .text_size(px(13.0))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.state.picker = false;
+                        this.state.launch_settings_open = false;
+                        this.state.resolution_open = false;
+                        cx.emit(SharpPreviewEvent::BackToPlay);
+                        cx.notify();
+                    })),
+            );
+        }
         source_controls =
             source_controls.child(self.launch_settings_control(window.viewport_size(), cx));
         controls = controls

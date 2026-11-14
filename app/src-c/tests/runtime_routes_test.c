@@ -77,6 +77,24 @@ static void executable_fixture(const char* home, const char* relative) {
     free(path);
 }
 
+/* The contents of a file a launched child writes, once it is there (up to 5 s). */
+static char* wait_for_file_text(const char* path) {
+    struct timespec delay = {.tv_sec = 0, .tv_nsec = 20000000};
+    for (int attempt = 0; attempt < 250; attempt++) {
+        FILE* file = fopen(path, "rb");
+        if (file) {
+            char* text = calloc(1, 8192);
+            size_t length = text ? fread(text, 1, 8191, file) : 0;
+            fclose(file);
+            if (text && length > 0 && strstr(text, "END\n"))
+                return text;
+            free(text);
+        }
+        (void)nanosleep(&delay, NULL);
+    }
+    return NULL;
+}
+
 static void test_ubisoft_library(const char* home) {
     const char* registry =
         "[Software\\\\Wow6432Node\\\\Ubisoft\\\\Launcher\\\\Installs\\\\12345] 1\n"
@@ -1312,20 +1330,54 @@ int main(int argc, char** argv) {
         assert(response && strstr(response, "\"ok\":true") && strstr(response, "\"installing_webview2\":false"));
         free(response);
         response = ms_sharp_running_json();
-        assert(response && strstr(response, "sharp-smoke"));
+        assert(response && strstr(response, "sharp-smoke") && strstr(response, "\"started\":"));
         free(response);
+        sleep(1);
         response = ms_sharp_stop_json((const unsigned char*)stop_body, strlen(stop_body), &status);
         assert(response && status == 200 && strstr(response, "\"ok\":true"));
         free(response);
+        /* The running-games poll notices the run ended: its time is the app's play time, and it was just
+         * played. */
+        ms_sharp_note_exits();
+        long long first_playtime = 0;
+        {
+            char parse_error[96];
+            long long last_played = 0;
+            char* library_path = join(sharp_home, "sharp-library/library.json");
+            char* saved = read_bounded_file(library_path);
+            ms_json* parsed = saved ? ms_json_parse(saved, strlen(saved), parse_error, sizeof(parse_error)) : NULL;
+            const ms_json* app = parsed ? ms_json_array_get(parsed, 0) : NULL;
+            assert(app && ms_json_as_i64(ms_json_object_get(app, "playtime_seconds"), &first_playtime));
+            assert(first_playtime >= 1 && first_playtime < 30);
+            assert(ms_json_as_i64(ms_json_object_get(app, "last_played_at"), &last_played));
+            assert(last_played >= (long long)time(NULL) - 30);
+            ms_json_free(parsed);
+            free(saved);
+            free(library_path);
+        }
         response = ms_sharp_running_json();
         assert(response && !strstr(response, "sharp-smoke"));
         free(response);
         response = ms_sharp_action_json(sharp_home, (const unsigned char*)launch_body, strlen(launch_body), "launch");
         assert(response && strstr(response, "\"ok\":true"));
         free(response);
+        sleep(1);
         response = ms_sharp_stop_all_json(&status);
         assert(response && status == 200 && strstr(response, "\"stopped\":1"));
         free(response);
+        /* Stopping every app adds each one's run as well. */
+        {
+            char parse_error[96];
+            long long playtime = 0;
+            response = ms_sharp_library_json(sharp_home);
+            ms_json* parsed =
+                response ? ms_json_parse(response, strlen(response), parse_error, sizeof(parse_error)) : NULL;
+            const ms_json* app = parsed ? ms_json_array_get(ms_json_object_get(parsed, "apps"), 0) : NULL;
+            assert(app && ms_json_as_i64(ms_json_object_get(app, "playtime_seconds"), &playtime));
+            assert(playtime >= first_playtime + 1);
+            ms_json_free(parsed);
+            free(response);
+        }
         /* A program that uses WebView2 (a .NET single-file one lists WebView2Loader.dll at its end): its first launch
          * in a prefix without the runtime says MetalSharp Wine installs it, a launch once it is there does not. */
         {
@@ -1358,6 +1410,110 @@ int main(int argc, char** argv) {
         }
         free(sharp_home);
         free(wine_path);
+        free(exe_path);
+    }
+    /* A Windows program launches with its saved launch arguments, after the ones it came with. */
+    {
+        char* sharp_home = join(home, "sharp-args");
+        char* wine_path = join(sharp_home, "runtime/wine/bin/metalsharp-wine");
+        char* args_path = join(sharp_home, "launch.txt");
+        char* exe_path = join(sharp_home, "games/Example.exe");
+        char library[PATH_MAX * 2];
+        char script[PATH_MAX * 2];
+        const char* body = "{\"id\":\"sharp-args\"}";
+        char* response;
+        char* launched;
+        int status = 0;
+        snprintf(script, sizeof(script),
+                 "#!/bin/sh\nfor arg in \"$@\"; do printf '[%%s]\\n' \"$arg\"; done > '%s.tmp'\n"
+                 "echo END >> '%s.tmp'\nmv '%s.tmp' '%s'\nexec /bin/sleep 30\n",
+                 args_path, args_path, args_path, args_path);
+        fixture(home, "sharp-args/runtime/wine/bin/metalsharp-wine", script);
+        assert(chmod(wine_path, 0700) == 0);
+        fixture(home, "sharp-args/games/Example.exe", "MZ game");
+        snprintf(library, sizeof(library),
+                 "[{\"id\":\"sharp-args\",\"name\":\"Args App\",\"exe_path\":\"%s\","
+                 "\"install_dir\":\"%s/games\",\"engine\":\"auto\",\"bottle_id\":null,"
+                 "\"launch_args\":[\"-preset\"]}]",
+                 exe_path, sharp_home);
+        fixture(home, "sharp-args/sharp-library/library.json", library);
+        response = ms_sharp_action_json(sharp_home, (const unsigned char*)"{\"id\":\"sharp-args\",\"args\":[1]}",
+                                        strlen("{\"id\":\"sharp-args\",\"args\":[1]}"), "set-launch-args");
+        assert(response && strstr(response, "\"ok\":false"));
+        free(response);
+        {
+            const char* args_body = "{\"id\":\"sharp-args\",\"args\":[\"-dx11\",\"two words\"]}";
+            response =
+                ms_sharp_action_json(sharp_home, (const unsigned char*)args_body, strlen(args_body), "set-launch-args");
+            assert(response && strstr(response, "\"ok\":true"));
+            free(response);
+        }
+        response = ms_sharp_action_json(sharp_home, (const unsigned char*)body, strlen(body), "launch");
+        assert(response && strstr(response, "\"ok\":true"));
+        free(response);
+        launched = wait_for_file_text(args_path);
+        assert(launched);
+        {
+            char expected[PATH_MAX + 64];
+            snprintf(expected, sizeof(expected), "[%s]\n[-preset]\n[-dx11]\n[two words]\nEND\n", exe_path);
+            assert(strstr(launched, expected));
+        }
+        free(launched);
+        response = ms_sharp_stop_all_json(&status);
+        assert(response && status == 200);
+        free(response);
+        /* Its own display mode, resolution and controller input apply over the shared ones; a value that isn't
+         * one of the choices saves nothing, and null goes back to the shared choice. */
+        {
+            const char* invalid = "{\"id\":\"sharp-args\",\"windowMode\":\"windowed\",\"gameResolution\":\"9x9\"}";
+            const char* own = "{\"id\":\"sharp-args\",\"windowMode\":\"windowed\","
+                              "\"gameResolution\":\"1920x1080\",\"controllerInput\":\"x\"}";
+            const char* shared = "{\"id\":\"sharp-args\",\"windowMode\":null,\"gameResolution\":null}";
+            char expected[PATH_MAX + 128];
+            char* shims = join(sharp_home, "games/.metalsharp/input-shims.json");
+            char* shim_text;
+            response =
+                ms_sharp_action_json(sharp_home, (const unsigned char*)invalid, strlen(invalid), "set-preferences");
+            assert(response && strstr(response, "\"ok\":false"));
+            free(response);
+            response = ms_sharp_library_json(sharp_home);
+            assert(response && !strstr(response, "window_mode"));
+            free(response);
+            response = ms_sharp_action_json(sharp_home, (const unsigned char*)own, strlen(own), "set-preferences");
+            assert(response && strstr(response, "\"ok\":true"));
+            free(response);
+            response = ms_sharp_library_json(sharp_home);
+            assert(response && strstr(response, "\"window_mode\":\"windowed\"") &&
+                   strstr(response, "\"game_resolution\":\"1920x1080\"") &&
+                   strstr(response, "\"controller_input\":\"x\""));
+            free(response);
+            (void)unlink(args_path);
+            response = ms_sharp_action_json(sharp_home, (const unsigned char*)body, strlen(body), "launch");
+            assert(response && strstr(response, "\"ok\":true"));
+            free(response);
+            launched = wait_for_file_text(args_path);
+            snprintf(expected, sizeof(expected), "[explorer]\n[/desktop=MetalSharp,1920x1080]\n[%s]\n[-preset]\n",
+                     exe_path);
+            assert(launched && strstr(launched, expected));
+            free(launched);
+            shim_text = ms_wine_is_fex() ? NULL : read_bounded_file(shims);
+            assert(ms_wine_is_fex() || (shim_text && strstr(shim_text, "\"mode\":\"x\"")));
+            free(shim_text);
+            response = ms_sharp_stop_all_json(&status);
+            free(response);
+            response =
+                ms_sharp_action_json(sharp_home, (const unsigned char*)shared, strlen(shared), "set-preferences");
+            assert(response && strstr(response, "\"ok\":true"));
+            free(response);
+            response = ms_sharp_library_json(sharp_home);
+            assert(response && strstr(response, "\"window_mode\":null") &&
+                   strstr(response, "\"game_resolution\":null") && strstr(response, "\"controller_input\":\"x\""));
+            free(response);
+            free(shims);
+        }
+        free(sharp_home);
+        free(wine_path);
+        free(args_path);
         free(exe_path);
     }
     /* What a setup installed joins the library, but not Microsoft Edge or its WebView2 Runtime, which MetalSharp Wine

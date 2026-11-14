@@ -2134,6 +2134,13 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, 200, body);
         return true;
     }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/set-preferences") == 0) {
+        body = ms_sharp_action_json(context->metalsharp_home, request->body, request->body_length, "set-preferences");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/set-engine") == 0) {
         body = ms_sharp_action_json(context->metalsharp_home, request->body, request->body_length, "set-engine");
         if (body == NULL)
@@ -2584,6 +2591,7 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         return true;
     }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/game/running") == 0) {
+        ms_sharp_note_exits();
         body = ms_process_running_json(context->metalsharp_home);
         if (body == NULL)
             return false;
