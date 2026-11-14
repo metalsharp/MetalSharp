@@ -543,6 +543,10 @@ typedef struct {
     char* game_dir;
     char* native_app_path;
     bool installed;
+    /* Steam finished downloading it: the manifest's StateFlags has 4 (fully installed). */
+    bool fully_installed;
+    /* When MetalSharp first saw it fully installed (epoch seconds), 0 when that is unknown: see stamp_install_times. */
+    long long installed_at;
 } steam_game;
 
 static char* acf_field(const char* text, const char* key) {
@@ -595,6 +599,9 @@ static void collect_steam_games(const char* steamapps, steam_game** games, size_
         id_text = acf_field(text, "appid");
         name = acf_field(text, "name");
         install = acf_field(text, "installdir");
+        char* state_text = acf_field(text, "StateFlags");
+        unsigned long state_flags = state_text == NULL ? 0 : strtoul(state_text, NULL, 10);
+        free(state_text);
         id = id_text == NULL ? 0 : strtoul(id_text, &end, 10);
         free(id_text);
         if (id == 0 || id > 0xffffffffUL || name == NULL || install == NULL ||
@@ -625,6 +632,8 @@ static void collect_steam_games(const char* steamapps, steam_game** games, size_
         (*games)[*count].game_dir = game_dir;
         (*games)[*count].native_app_path = steam_native_app_bundle(game_dir);
         (*games)[*count].installed = true;
+        (*games)[*count].fully_installed = (state_flags & 4) != 0;
+        (*games)[*count].installed_at = 0;
         (*count)++;
         free(install);
         free(text);
@@ -980,6 +989,8 @@ static bool append_owned_game(steam_game** games, size_t* count, size_t* capacit
     (*games)[*count].game_dir = NULL;
     (*games)[*count].native_app_path = NULL;
     (*games)[*count].installed = false;
+    (*games)[*count].fully_installed = false;
+    (*games)[*count].installed_at = 0;
     if (!(*games)[*count].name)
         return false;
     (*count)++;
@@ -1261,6 +1272,75 @@ static const char* pipeline_display_name(const char* pipeline) {
     return "VKD3D";
 }
 
+/* When each Steam game finished downloading, as far as MetalSharp can tell, so the library can put a newly downloaded
+ * game first. Steam keeps no install time (its LastUpdated moves with every game update), so MetalSharp remembers the
+ * first scan that sees a game fully installed, in <home>/config/steam-installed-at.json ({"<appid>": seconds}).
+ * The first time there is no file, every installed game is recorded as unknown (0): the library keeps its order
+ * instead of treating the whole collection as new. A game that is no longer installed is forgotten, so installing it
+ * again counts as a new download. */
+static void stamp_install_times(const char* home, steam_game* games, size_t count, long long now) {
+    char *config = join_path(home, "config"), *path = config ? join_path(config, "steam-installed-at.json") : NULL;
+    char *text = path ? read_file(path, NULL) : NULL, *tmp = NULL;
+    ms_json* saved = text ? ms_json_parse(text, strlen(text), NULL, 0) : NULL;
+    bool first = text == NULL, changed = false;
+    ms_json_writer w;
+    size_t i, j, kept = 0;
+    free(text);
+    if (!path) {
+        free(config);
+        ms_json_free(saved);
+        return;
+    }
+    ms_json_writer_init(&w);
+    ms_json_writer_object_begin(&w);
+    for (i = 0; i < count; ++i) {
+        char key[16];
+        long long when = 0;
+        bool duplicate = false;
+        if (!games[i].installed || !games[i].fully_installed)
+            continue;
+        for (j = 0; j < i && !duplicate; ++j)
+            duplicate = games[j].appid == games[i].appid && games[j].installed && games[j].fully_installed;
+        if (duplicate)
+            continue;
+        snprintf(key, sizeof(key), "%u", games[i].appid);
+        if (!saved || !ms_json_as_i64(ms_json_object_get(saved, key), &when)) {
+            when = first ? 0 : now;
+            changed = true;
+        }
+        games[i].installed_at = when;
+        ms_json_writer_key(&w, key);
+        ms_json_writer_i64(&w, when);
+        kept++;
+    }
+    ms_json_writer_object_end(&w);
+    if (saved && ms_json_object_length(saved) != kept)
+        changed = true;
+    if (first || changed) {
+        char* json = ms_json_writer_take(&w);
+        size_t length = json ? strlen(json) : 0;
+        (void)mkdir(config, 0755);
+        tmp = malloc(strlen(path) + 5);
+        if (json && tmp) {
+            FILE* file;
+            sprintf(tmp, "%s.tmp", path);
+            if ((file = fopen(tmp, "w")) != NULL) {
+                bool ok = fwrite(json, 1, length, file) == length;
+                ok = fclose(file) == 0 && ok;
+                if (!ok || rename(tmp, path) != 0)
+                    unlink(tmp);
+            }
+        }
+        free(json);
+        free(tmp);
+    } else {
+        free(ms_json_writer_take(&w));
+    }
+    ms_json_free(saved);
+    free(path);
+    free(config);
+}
+
 static void write_library_game(ms_json_writer* w, const char* home, const steam_game* game, bool refresh) {
     char cover[256], header[256];
     char* embedded_icon = game->installed && game->game_dir && !game->native_app_path
@@ -1286,6 +1366,11 @@ static void write_library_game(ms_json_writer* w, const char* home, const steam_
     ms_json_writer_bool(w, game->installed);
     ms_json_writer_key(w, "state");
     ms_json_writer_string(w, game->installed ? "installed" : "not_installed");
+    ms_json_writer_key(w, "installed_at");
+    if (game->installed_at > 0)
+        ms_json_writer_i64(w, game->installed_at);
+    else
+        ms_json_writer_null(w);
     ms_json_writer_key(w, "can_uninstall");
     ms_json_writer_bool(w, game->installed);
     ms_json_writer_key(w, "launch_method");
@@ -1476,6 +1561,7 @@ static char* steam_library_json(const char* metalsharp_home, bool refresh) {
         ms_steam_prepare_rockstar_on_discovery(metalsharp_home, games[i].appid);
         (void)ms_steam_ensure_game_audio_fix(metalsharp_home, games[i].appid);
     }
+    stamp_install_times(metalsharp_home, games, count, (long long)time(NULL));
     ms_steam_shortcut* shortcuts = NULL;
     size_t shortcut_count = ms_steam_shortcuts_load(metalsharp_home, &shortcuts);
     ms_json_writer_init(&w);

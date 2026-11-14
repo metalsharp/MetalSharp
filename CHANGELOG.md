@@ -4,6 +4,7 @@
 
 ### Changed
 
+- **A newly downloaded game comes first in the library** — the library is ordered by when each game was last played or, if later, when it finished downloading, so a game you just downloaded leads until you play something else. The backend remembers the first scan that sees a Steam game fully installed (`installed_at` in `/steam/library`, kept in `~/.metalsharp/config/steam-installed-at.json`); games already installed before this update keep their order, and an uninstalled game is forgotten, so reinstalling it counts as new.
 - **Updates through Sparkle, with deltas** — an update to a newer version of the running build is downloaded, checked and installed by [Sparkle](https://sparkle-project.org) 2.9.6, drawn in MetalSharp's own update sheet. Each release carries a `.delta` from its last two Sparkle releases, so an update downloads only what changed, and every update file is checked against MetalSharp's EdDSA key before it is extracted. Switching between the x86_64 and FEX builds, and updating from a release before Sparkle, still use the release's DMG. Release CI notarizes and staples the app itself, and publishes each build's `.zip`, `.delta` files and appcast (`appcast.xml`, `appcast-fex.xml`) next to its DMG. See [docs/updates.md](docs/updates.md).
 
 ## v1.2.0 — 2026-11-13
