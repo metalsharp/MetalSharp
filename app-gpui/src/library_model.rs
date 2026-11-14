@@ -161,6 +161,29 @@ impl LibGame {
             ),
         }
     }
+    /// The backend's key for this game's Game Settings > Advanced (`/game-tuning`): the launcher and its
+    /// own id for the game, as the executable overrides are keyed.
+    pub fn tuning_key(&self) -> Option<(&'static str, String)> {
+        let (provider, id) = match self.page() {
+            LibraryPage::Steam => ("steam", (self.appid != 0).then(|| self.appid.to_string())),
+            LibraryPage::Ubisoft | LibraryPage::Rockstar | LibraryPage::BattleNet => {
+                let (route, _, id) = self.launcher_route()?;
+                (route, id.clone())
+            }
+            LibraryPage::Gog => ("gog", self.external_id.clone()),
+            LibraryPage::Epic => ("epic", self.external_id.clone()),
+            LibraryPage::WindowsPrograms => (
+                if self.source.as_deref() == Some("gamejolt") {
+                    "gamejolt"
+                } else {
+                    "windows"
+                },
+                self.external_id.clone(),
+            ),
+            LibraryPage::Logs => return None,
+        };
+        id.filter(|id| !id.is_empty()).map(|id| (provider, id))
+    }
     /// A non-Steam game the user added to Wine Steam (shortcuts.vdf).
     pub fn is_shortcut(&self) -> bool {
         self.source.as_deref() == Some("steam_shortcut")
@@ -684,6 +707,37 @@ mod tests {
             steam.save_executable_request("/x").0,
             "/steam/save-executable"
         );
+    }
+
+    #[test]
+    fn tuning_keys_follow_each_launchers_ids() {
+        assert_eq!(
+            game(json!({"appid": 400})).tuning_key(),
+            Some(("steam", "400".to_owned()))
+        );
+        assert_eq!(
+            game(json!({"appid": 1, "source": "ubisoft", "ubisoft_id": "720"})).tuning_key(),
+            Some(("ubisoft", "720".to_owned()))
+        );
+        assert_eq!(
+            game(json!({"appid": 1, "source": "battlenet", "battlenet_id": "wow"})).tuning_key(),
+            Some(("battlenet", "wow".to_owned()))
+        );
+        assert_eq!(
+            game(json!({"appid": 1, "source": "rockstar"})).tuning_key(),
+            None
+        );
+        for (source, provider) in [
+            ("gog", "gog"),
+            ("epic", "epic"),
+            ("windows", "windows"),
+            ("gamejolt", "gamejolt"),
+        ] {
+            let mut entry = game(json!({"appid": 1, "source": source}));
+            assert_eq!(entry.tuning_key(), None);
+            entry.external_id = Some("sharp_17".to_owned());
+            assert_eq!(entry.tuning_key(), Some((provider, "sharp_17".to_owned())));
+        }
     }
 
     #[test]

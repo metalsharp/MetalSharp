@@ -2,6 +2,7 @@
  * Steam also puts it on a Steam copy's first run), started without Steam, and the games it
  * installs. Steam copies of Rockstar titles keep their own path (steam_actions.c). */
 #include "metalsharp_backend/rockstar.h"
+#include "metalsharp_backend/game_tuning.h"
 #include "metalsharp_backend/library_locations.h"
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/steam_actions.h"
@@ -290,11 +291,14 @@ static bool rockstar_stop_processes(const char* home, const rockstar_process_set
 typedef struct {
     const char* pipeline;
     const char* client;
+    const char* game_id; /* a game's Game Settings, or NULL for the launcher alone */
 } rockstar_env;
 
 static void rockstar_apply_env(const char* home, const void* opaque) {
     const rockstar_env* env = opaque;
     ms_steam_apply_rockstar_launcher_env(home, env->pipeline, env->client);
+    if (env->game_id)
+        ms_game_tuning_apply_child(home, "rockstar", env->game_id);
 }
 
 /* The lane the launcher runs on by itself: D3DMetal with WFDXCompat on the x86_64 runtime (as the
@@ -335,7 +339,7 @@ static bool rockstar_start_launcher(const char* home, const char* pipeline, cons
     char* wine = ms_store_wine(home);
     char* prefix = rockstar_prefix(home);
     char* dir = launcher ? strdup(launcher) : NULL;
-    rockstar_env env = {pipeline, client};
+    rockstar_env env = {pipeline, client, NULL};
     char lane[64];
     pid_t pid = 0;
     bool ok = launcher && wine && prefix && dir;
@@ -380,7 +384,7 @@ static void* rockstar_install_worker(void* opaque) {
         /* The installer's own window; it can start the launcher when it finishes, which then keeps this
          * environment, so it gets the launcher's. Its exit status is not the result: the launcher is. */
         char* argv[] = {wine, installer, NULL};
-        rockstar_env env = {rockstar_launcher_lane(), NULL};
+        rockstar_env env = {rockstar_launcher_lane(), NULL, NULL};
         int status = 0;
         char lane[64];
         ms_store_write_state(home, ROCKSTAR_CACHE_DIR, "installing", NULL);
@@ -572,6 +576,13 @@ char* ms_rockstar_launch_game_json(const char* home, const char* body, size_t bo
     }
     ms_steam_deploy_controller_input_shims(home, game->path);
     ms_steam_prepare_rockstar_client(home, pipeline, client);
+    /* The launcher starts the client: its Game Settings key on the client, which is the game. */
+    {
+        char* tuning_prefix = rockstar_prefix(home);
+        if (tuning_prefix)
+            ms_game_tuning_prepare_launch(home, "rockstar", game->id, tuning_prefix, game->path, client);
+        free(tuning_prefix);
+    }
     /* The launcher hands its environment to the games it starts. On the bundles' x86_64 runtime a launcher running
      * with another game's route is restarted with this one's. On MetalSharp Wine the launcher keeps its lane for
      * every game (Mullion on fex, D3DMetal with WFDXCompat's companion on the x86_64 app), and each game takes its
@@ -603,7 +614,7 @@ char* ms_rockstar_launch_game_json(const char* home, const char* body, size_t bo
     *strrchr(cwd, '/') = '\0';
     {
         char* argv[] = {wine, executable, NULL};
-        rockstar_env env = {pipeline, client};
+        rockstar_env env = {pipeline, client, game->id};
         if (!ms_store_run_wine(home, prefix, cwd, argv, rockstar_apply_env, &env, false, NULL, &pid)) {
             snprintf(failure, sizeof(failure), "Could not start the MetalSharp Wine process for %s", game->name);
             goto done;
