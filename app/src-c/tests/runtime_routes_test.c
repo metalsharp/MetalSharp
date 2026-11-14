@@ -77,6 +77,24 @@ static void executable_fixture(const char* home, const char* relative) {
     free(path);
 }
 
+/* The contents of a file a launched child writes, once it is there (up to 5 s). */
+static char* wait_for_file_text(const char* path) {
+    struct timespec delay = {.tv_sec = 0, .tv_nsec = 20000000};
+    for (int attempt = 0; attempt < 250; attempt++) {
+        FILE* file = fopen(path, "rb");
+        if (file) {
+            char* text = calloc(1, 8192);
+            size_t length = text ? fread(text, 1, 8191, file) : 0;
+            fclose(file);
+            if (text && length > 0 && strstr(text, "END\n"))
+                return text;
+            free(text);
+        }
+        (void)nanosleep(&delay, NULL);
+    }
+    return NULL;
+}
+
 static void test_ubisoft_library(const char* home) {
     const char* registry =
         "[Software\\\\Wow6432Node\\\\Ubisoft\\\\Launcher\\\\Installs\\\\12345] 1\n"
@@ -1358,6 +1376,61 @@ int main(int argc, char** argv) {
         }
         free(sharp_home);
         free(wine_path);
+        free(exe_path);
+    }
+    /* A Windows program launches with its saved launch arguments, after the ones it came with. */
+    {
+        char* sharp_home = join(home, "sharp-args");
+        char* wine_path = join(sharp_home, "runtime/wine/bin/metalsharp-wine");
+        char* args_path = join(sharp_home, "launch.txt");
+        char* exe_path = join(sharp_home, "games/Example.exe");
+        char library[PATH_MAX * 2];
+        char script[PATH_MAX * 2];
+        const char* body = "{\"id\":\"sharp-args\"}";
+        char* response;
+        char* launched;
+        int status = 0;
+        snprintf(script, sizeof(script),
+                 "#!/bin/sh\nfor arg in \"$@\"; do printf '[%%s]\\n' \"$arg\"; done > '%s.tmp'\n"
+                 "echo END >> '%s.tmp'\nmv '%s.tmp' '%s'\nexec /bin/sleep 30\n",
+                 args_path, args_path, args_path, args_path);
+        fixture(home, "sharp-args/runtime/wine/bin/metalsharp-wine", script);
+        assert(chmod(wine_path, 0700) == 0);
+        fixture(home, "sharp-args/games/Example.exe", "MZ game");
+        snprintf(library, sizeof(library),
+                 "[{\"id\":\"sharp-args\",\"name\":\"Args App\",\"exe_path\":\"%s\","
+                 "\"install_dir\":\"%s/games\",\"engine\":\"auto\",\"bottle_id\":null,"
+                 "\"launch_args\":[\"-preset\"]}]",
+                 exe_path, sharp_home);
+        fixture(home, "sharp-args/sharp-library/library.json", library);
+        response = ms_sharp_action_json(sharp_home, (const unsigned char*)"{\"id\":\"sharp-args\",\"args\":[1]}",
+                                        strlen("{\"id\":\"sharp-args\",\"args\":[1]}"), "set-launch-args");
+        assert(response && strstr(response, "\"ok\":false"));
+        free(response);
+        {
+            const char* args_body = "{\"id\":\"sharp-args\",\"args\":[\"-dx11\",\"two words\"]}";
+            response =
+                ms_sharp_action_json(sharp_home, (const unsigned char*)args_body, strlen(args_body), "set-launch-args");
+            assert(response && strstr(response, "\"ok\":true"));
+            free(response);
+        }
+        response = ms_sharp_action_json(sharp_home, (const unsigned char*)body, strlen(body), "launch");
+        assert(response && strstr(response, "\"ok\":true"));
+        free(response);
+        launched = wait_for_file_text(args_path);
+        assert(launched);
+        {
+            char expected[PATH_MAX + 64];
+            snprintf(expected, sizeof(expected), "[%s]\n[-preset]\n[-dx11]\n[two words]\nEND\n", exe_path);
+            assert(strstr(launched, expected));
+        }
+        free(launched);
+        response = ms_sharp_stop_all_json(&status);
+        assert(response && status == 200);
+        free(response);
+        free(sharp_home);
+        free(wine_path);
+        free(args_path);
         free(exe_path);
     }
     /* What a setup installed joins the library, but not Microsoft Edge or its WebView2 Runtime, which MetalSharp Wine

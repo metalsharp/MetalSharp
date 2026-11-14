@@ -1713,6 +1713,39 @@ static void sharp_adopt_catch_up(const char* home) {
     ms_json_free(apps);
 }
 
+/* The command line a launch runs: [runner], the program, then its launch_args and the user's user_launch_args
+ * (strings only). Slot 0 is left for the runner, which the launched child picks. NULL-terminated. */
+static char** sharp_launch_argv(const ms_json* app, const char* exe_path) {
+    static const char* const keys[] = {"launch_args", "user_launch_args"};
+    size_t count = 0, used = 2;
+    for (size_t k = 0; app && k < sizeof(keys) / sizeof(keys[0]); k++) {
+        const ms_json* args = ms_json_object_get(app, keys[k]);
+        if (args && ms_json_type_of(args) == MS_JSON_ARRAY)
+            count += ms_json_array_length(args);
+    }
+    char** argv = calloc(count + 3, sizeof(char*));
+    if (!argv)
+        return NULL;
+    argv[1] = strdup(exe_path);
+    for (size_t k = 0; app && k < sizeof(keys) / sizeof(keys[0]); k++) {
+        const ms_json* args = ms_json_object_get(app, keys[k]);
+        if (!args || ms_json_type_of(args) != MS_JSON_ARRAY)
+            continue;
+        for (size_t i = 0; i < ms_json_array_length(args); i++) {
+            char* arg = NULL;
+            if (ms_json_as_string(ms_json_array_get(args, i), &arg) && arg)
+                argv[used++] = arg;
+        }
+    }
+    return argv;
+}
+
+static void sharp_launch_argv_free(char** argv) {
+    for (size_t i = 1; argv && argv[i]; i++)
+        free(argv[i]);
+    free(argv);
+}
+
 char* ms_sharp_library_json(const char* home) {
     sharp_adopt_finished();
     sharp_adopt_catch_up(home);
@@ -1962,6 +1995,15 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 free(engine);
             } else if (!strcmp(action, "set-launch-args")) {
                 const ms_json* args = ms_json_object_get(j, "args");
+                bool valid = !args || ms_json_type_of(args) == MS_JSON_ARRAY;
+                for (size_t i = 0; valid && args && i < ms_json_array_length(args); i++)
+                    valid = ms_json_type_of(ms_json_array_get(args, i)) == MS_JSON_STRING;
+                if (!valid) {
+                    ms_json_free(a);
+                    free(id);
+                    ms_json_free(j);
+                    return failure("args must be an array of strings");
+                }
                 value = args ? ms_json_stringify(args) : strdup("[]");
                 key = "user_launch_args";
             } else {
@@ -1992,7 +2034,9 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 value = strdup(b);
                 key = "cover_position_y";
             }
-            if (!value || !replace_field(home, id, key, value)) {
+            /* Entries from before user_launch_args existed get it added. */
+            if (!value || !(!strcmp(action, "set-launch-args") ? set_field(home, id, key, value)
+                                                               : replace_field(home, id, key, value))) {
                 free(value);
                 ms_json_free(a);
                 free(id);
@@ -2095,8 +2139,10 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             }
             if (!strcmp(action, "launch"))
                 sharp_stage_engine(home, engine, exe_path, work_dir);
-            pid_t pid = fork();
+            char** launch_argv = sharp_launch_argv(app, exe_path);
+            pid_t pid = launch_argv && launch_argv[1] ? fork() : -1;
             if (pid < 0) {
+                sharp_launch_argv_free(launch_argv);
                 free(wine);
                 free(exe_path);
                 free(work_dir);
@@ -2129,11 +2175,12 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 char* runner = (char*)(launch_wrapper && access(launch_wrapper, X_OK) == 0 ? launch_wrapper : wine);
                 /* Windows Installer packages run through msiexec. */
                 char* msi_argv[] = {runner, "msiexec", "/i", exe_path, NULL};
-                char* launch_argv[] = {runner, exe_path, NULL};
+                launch_argv[0] = runner;
                 execv(runner, ms_sharp_is_msi(exe_path) ? msi_argv : launch_argv);
                 _exit(127);
             }
             (void)setpgid(pid, pid);
+            sharp_launch_argv_free(launch_argv);
             if (!strcmp(action, "launch"))
                 sharp_remember(id, pid, true, work_dir, home);
             const char* reported_pipeline = engine && engine[0] ? engine : "auto";
