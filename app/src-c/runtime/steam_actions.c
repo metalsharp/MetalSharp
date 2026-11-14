@@ -5,6 +5,7 @@
 #endif
 #include "metalsharp_backend/host_os.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/ngx_core.h"
 #include "metalsharp_backend/d3dmetal.h"
 #include "metalsharp_backend/config.h"
 #include "metalsharp_backend/game_executable.h"
@@ -1165,6 +1166,8 @@ void ms_steam_apply_graphics_route(const char* home, const char* pipeline) {
         setenv("MS_GRAPHICS_BACKEND", canonical, 1);
     }
     setenv("METALSHARP_PIPELINE", canonical, 1);
+    /* DLSS's NGX core: Apple's on D3DMetal, Mullion's own otherwise (ngx_core.c) */
+    (void)ms_ngx_core_route(home, canonical);
     overrides = pipeline_overrides(canonical);
     if (overrides)
         setenv("WINEDLLOVERRIDES", overrides, 1);
@@ -3291,6 +3294,9 @@ static void set_pipeline_runtime_env(const char* home, const char* pipeline) {
     char vulkan_icd[PATH_MAX];
     const char* backend = "dxmt";
     set_rosetta_avx_env();
+    /* DLSS's NGX core: Apple's on D3DMetal (the lane this sets up below only for "d3dmetal"), Mullion's own
+     * otherwise (ngx_core.c) */
+    (void)ms_ngx_core_route(home, pipeline && !strcmp(pipeline, "d3dmetal") ? "d3dmetal" : "dxmt");
     if (ms_wine_is_fex()) {
         const char* canonical = canonical_pipeline(pipeline);
         set_fex_route_paths(home, canonical && strcmp(canonical, "auto") ? canonical : "dxmt");
@@ -7264,6 +7270,7 @@ static char* spawn_gptk_game(const char* home, const char* executable, unsigned 
         setenv("WINEDLLOVERRIDES", "d3d10,d3d11,d3d12,d3d12core,dxgi,nvapi64,nvngx-on-metalfx=n,b", 1);
         if (!strcmp(pipeline, "d3dmetal"))
             setenv("D3DMETAL_FRAMEWORK_PATH", framework, 1);
+        (void)ms_ngx_core_route(home, canonical_pipeline(pipeline));
         /* A non-Steam shortcut's id is not a Steam app. */
         if (ms_steam_appid_is_shortcut(id)) {
             unsetenv("SteamAppId");
