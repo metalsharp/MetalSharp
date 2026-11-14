@@ -1561,11 +1561,18 @@ impl MetalSharpApp {
             let sharp = cx.new(|cx| {
                 let mut sharp = crate::sharp_preview::SharpPreview::new();
                 sharp.asset_root = asset_path("");
+                sharp.back_to_play = true;
                 sharp.attach_live(cx);
                 sharp
             });
             cx.observe(&sharp, |this, sharp, cx| this.sync_deck_games(sharp, cx))
                 .detach();
+            cx.subscribe(&sharp, |this, _, event, cx| match event {
+                crate::sharp_preview::SharpPreviewEvent::BackToPlay => {
+                    this.set_page_collection(false, cx)
+                }
+            })
+            .detach();
             self.sharp_preview = Some(sharp);
             self.sync_sharp_source(cx);
         }
