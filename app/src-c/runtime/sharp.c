@@ -463,6 +463,7 @@ static bool sharp_terminate_locked(sharp_running_app* entry) {
 }
 
 static void sharp_adopt_finished(void);
+static void sharp_record_playtime(const sharp_running_app* entry);
 
 char* ms_sharp_running_json(void) {
     ms_json_writer writer;
@@ -481,6 +482,8 @@ char* ms_sharp_running_json(void) {
         ms_json_writer_string(&writer, entry->id);
         ms_json_writer_key(&writer, "pid");
         ms_json_writer_u64(&writer, (unsigned long long)entry->pid);
+        ms_json_writer_key(&writer, "started");
+        ms_json_writer_u64(&writer, (unsigned long long)entry->started);
         ms_json_writer_object_end(&writer);
     }
     ms_json_writer_array_end(&writer);
@@ -561,6 +564,7 @@ char* ms_sharp_stop_json(const unsigned char* body, size_t length, int* status) 
 char* ms_sharp_stop_all_json(int* status) {
     size_t stopped = 0;
     bool failed = false;
+    sharp_running_app* ended = NULL;
     pthread_mutex_lock(&g_sharp_running_mutex);
     sharp_running_app** current = &g_sharp_running;
     while (*current) {
@@ -573,9 +577,16 @@ char* ms_sharp_stop_all_json(int* status) {
             continue;
         }
         *current = entry->next;
-        sharp_entry_free(entry);
+        entry->next = ended;
+        ended = entry;
     }
     pthread_mutex_unlock(&g_sharp_running_mutex);
+    while (ended) {
+        sharp_running_app* next = ended->next;
+        sharp_record_playtime(ended);
+        sharp_entry_free(ended);
+        ended = next;
+    }
     ms_json_writer writer;
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
@@ -1673,6 +1684,37 @@ done:
     ms_json_free(apps);
 }
 
+/* A run that ended adds its time to the app's playtime_seconds and makes it the app's last_played_at (epoch
+ * seconds). The end is when the backend saw the app was gone, polled while the library is open. */
+static void sharp_record_playtime(const sharp_running_app* entry) {
+    if (!entry || !entry->home || !entry->id || entry->started <= 0)
+        return;
+    time_t now = time(NULL);
+    long long run = now > entry->started ? (long long)(now - entry->started) : 0;
+    long long total = 0;
+    bool found = false;
+    ms_json* apps = load_array(entry->home);
+    for (size_t i = 0; apps && i < ms_json_array_length(apps); i++) {
+        const ms_json* app = ms_json_array_get(apps, i);
+        char* app_id = field(app, "id", "");
+        found = !strcmp(app_id, entry->id);
+        free(app_id);
+        if (found) {
+            if (!ms_json_as_i64(ms_json_object_get(app, "playtime_seconds"), &total) || total < 0)
+                total = 0;
+            break;
+        }
+    }
+    ms_json_free(apps);
+    if (!found)
+        return;
+    char value[32];
+    snprintf(value, sizeof(value), "%lld", total + run);
+    (void)set_field(entry->home, entry->id, "playtime_seconds", value);
+    snprintf(value, sizeof(value), "%lld", (long long)now);
+    (void)set_field(entry->home, entry->id, "last_played_at", value);
+}
+
 /* Scan the installs of every Sharp app that exited since the last call. */
 static void sharp_adopt_finished(void) {
     sharp_running_app* finished;
@@ -1683,6 +1725,7 @@ static void sharp_adopt_finished(void) {
     pthread_mutex_unlock(&g_sharp_running_mutex);
     while (finished) {
         sharp_running_app* next = finished->next;
+        sharp_record_playtime(finished);
         adopt_installed_programs(finished->home, finished->id, finished->started, 0);
         sharp_entry_free(finished);
         finished = next;

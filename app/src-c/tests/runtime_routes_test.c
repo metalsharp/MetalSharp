@@ -1330,20 +1330,51 @@ int main(int argc, char** argv) {
         assert(response && strstr(response, "\"ok\":true") && strstr(response, "\"installing_webview2\":false"));
         free(response);
         response = ms_sharp_running_json();
-        assert(response && strstr(response, "sharp-smoke"));
+        assert(response && strstr(response, "sharp-smoke") && strstr(response, "\"started\":"));
         free(response);
+        sleep(1);
         response = ms_sharp_stop_json((const unsigned char*)stop_body, strlen(stop_body), &status);
         assert(response && status == 200 && strstr(response, "\"ok\":true"));
         free(response);
         response = ms_sharp_running_json();
         assert(response && !strstr(response, "sharp-smoke"));
         free(response);
+        /* The run's time is the app's play time, and it was just played. */
+        long long first_playtime = 0;
+        {
+            char parse_error[96];
+            long long last_played = 0;
+            response = ms_sharp_library_json(sharp_home);
+            ms_json* parsed =
+                response ? ms_json_parse(response, strlen(response), parse_error, sizeof(parse_error)) : NULL;
+            const ms_json* app = parsed ? ms_json_array_get(ms_json_object_get(parsed, "apps"), 0) : NULL;
+            assert(app && ms_json_as_i64(ms_json_object_get(app, "playtime_seconds"), &first_playtime));
+            assert(first_playtime >= 1 && first_playtime < 30);
+            assert(ms_json_as_i64(ms_json_object_get(app, "last_played_at"), &last_played));
+            assert(last_played >= (long long)time(NULL) - 30);
+            ms_json_free(parsed);
+            free(response);
+        }
         response = ms_sharp_action_json(sharp_home, (const unsigned char*)launch_body, strlen(launch_body), "launch");
         assert(response && strstr(response, "\"ok\":true"));
         free(response);
+        sleep(1);
         response = ms_sharp_stop_all_json(&status);
         assert(response && status == 200 && strstr(response, "\"stopped\":1"));
         free(response);
+        /* Stopping every app adds each one's run as well. */
+        {
+            char parse_error[96];
+            long long playtime = 0;
+            response = ms_sharp_library_json(sharp_home);
+            ms_json* parsed =
+                response ? ms_json_parse(response, strlen(response), parse_error, sizeof(parse_error)) : NULL;
+            const ms_json* app = parsed ? ms_json_array_get(ms_json_object_get(parsed, "apps"), 0) : NULL;
+            assert(app && ms_json_as_i64(ms_json_object_get(app, "playtime_seconds"), &playtime));
+            assert(playtime >= first_playtime + 1);
+            ms_json_free(parsed);
+            free(response);
+        }
         /* A program that uses WebView2 (a .NET single-file one lists WebView2Loader.dll at its end): its first launch
          * in a prefix without the runtime says MetalSharp Wine installs it, a launch once it is there does not. */
         {
