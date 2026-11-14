@@ -157,3 +157,6 @@ jobs:
 
       - name: Test DMG signing pipeline
         run: python3 -m unittest tools.dmg.tests.test_sign_notarize_dmg -v
+
+      - name: Test Sparkle release tooling
+        run: python3 -m unittest tools.sparkle.tests.test_sparkle_release -v

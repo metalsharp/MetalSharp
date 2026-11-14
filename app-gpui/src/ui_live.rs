@@ -3239,12 +3239,152 @@ impl MetalSharpApp {
         }
     }
 
-    /// App.vue `beginUpdateDownload`.
+    /// App.vue `beginUpdateDownload`. A newer version of the build that is running comes through Sparkle when this
+    /// MetalSharp has it (a `.delta` when the release carries one for this version); switching to the other build,
+    /// and a release whose feed has nothing newer, take the release's DMG as before.
     pub(super) fn begin_update_download(&mut self, variant: &'static str, cx: &mut Context<Self>) {
         self.live.update_dialog = None;
         if self.live.update_downloading {
             return;
         }
+        if variant == self.update_current_build()
+            && !self.update_is_switch(variant)
+            && crate::sparkle::available()
+            && crate::sparkle::update()
+        {
+            self.live.update_downloading = true;
+            self.live.update_progress = 0.0;
+            self.live.update_message = "Checking for the update...".into();
+            cx.notify();
+            self.poll_sparkle_update(variant, 0, false, cx);
+            return;
+        }
+        self.begin_dmg_update(variant, cx);
+    }
+
+    /// Follows Sparkle's check, download and extraction in the update sheet. When the update is ready, MetalSharp
+    /// stops Steam, Wine and its backend and writes its post-update migration marker before Sparkle installs; Sparkle
+    /// then reports "installing", MetalSharp quits, and Sparkle's installer replaces the app and relaunches it.
+    fn poll_sparkle_update(
+        &mut self,
+        variant: &'static str,
+        polls: u32,
+        preparing: bool,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(MS(500)).await;
+            let _ = this.update(cx, move |this, cx| {
+                let polls = polls + 1;
+                let state = crate::sparkle::state();
+                match state.phase.as_str() {
+                    // The feed has nothing newer: a release published before its appcast, or one without it.
+                    "none" => {
+                        this.live.update_downloading = false;
+                        this.begin_dmg_update(variant, cx);
+                        return;
+                    }
+                    "error" => {
+                        this.live.update_downloading = false;
+                        this.live.update_message.clear();
+                        toast::error(
+                            cx,
+                            if state.error.is_empty() {
+                                "The update failed".to_owned()
+                            } else {
+                                state.error.clone()
+                            },
+                        );
+                        cx.notify();
+                        return;
+                    }
+                    // Cancelled or set aside.
+                    "idle" if polls > 4 => {
+                        this.live.update_downloading = false;
+                        this.live.update_message.clear();
+                        cx.notify();
+                        return;
+                    }
+                    "ready" if !preparing => {
+                        this.live.update_progress = state.percent();
+                        this.live.update_message = state.message();
+                        cx.notify();
+                        this.prepare_sparkle_install(state.version.clone(), variant, cx);
+                        this.poll_sparkle_update(variant, polls, true, cx);
+                        return;
+                    }
+                    "installing" => {
+                        this.live.update_progress = state.percent();
+                        this.live.update_message = state.message();
+                        cx.notify();
+                        cx.quit();
+                        return;
+                    }
+                    _ => {}
+                }
+                this.live.update_progress = state.percent();
+                this.live.update_message = state.message();
+                cx.notify();
+                this.poll_sparkle_update(variant, polls, preparing, cx);
+            });
+        })
+        .detach();
+    }
+
+    /// What update.sh did before replacing the app: Steam and Wine stopped, the migration marker written for the new
+    /// version's first launch, and the backend stopped (it runs from inside the app). Then Sparkle may install.
+    fn prepare_sparkle_install(&mut self, version: String, variant: &'static str, cx: &mut Context<Self>) {
+        let Some(live) = Live::get(cx) else { return };
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let stop = live
+                        .request("POST", "/steam/stop", None, MS(15_000))
+                        .map(live::unwrap_data)
+                        .map_err(|error| format!("Could not stop Steam and Wine for the update: {error}"))?;
+                    if !is_ok(&stop) || stop.get("running").and_then(Value::as_bool) != Some(false) {
+                        return Err(error_text(Some(&stop))
+                            .unwrap_or_else(|| "Steam and Wine did not stop; the update was not installed.".into()));
+                    }
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    let home = live.home();
+                    std::fs::write(
+                        home.join(".post-update-migration"),
+                        format!("{}\n", crate::sparkle::migration_marker(&version, variant, now)),
+                    )
+                    .map_err(|error| format!("Could not prepare the update: {error}"))?;
+                    live.stop_backend();
+                    Ok(())
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(()) => {
+                    if !crate::sparkle::install() {
+                        if let Some(live) = Live::get(cx) {
+                            let _ = std::fs::remove_file(live.home().join(".post-update-migration"));
+                        }
+                        this.live.update_downloading = false;
+                        toast::error(cx, "The update is no longer ready; restart MetalSharp and try again.");
+                        cx.notify();
+                    }
+                }
+                Err(error) => {
+                    crate::sparkle::cancel();
+                    this.live.update_downloading = false;
+                    toast::error(cx, error);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// The release's DMG, installed by update.sh.
+    fn begin_dmg_update(&mut self, variant: &'static str, cx: &mut Context<Self>) {
         let Some(live) = Live::get(cx) else { return };
         let script = match crate::updater_bridge::ensure_ready(&live) {
             Ok(script) => script,

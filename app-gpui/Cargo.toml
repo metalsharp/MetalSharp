@@ -8,6 +8,9 @@ description = "Native GPUI desktop app prototype for MetalSharp"
 [features]
 # Explicit local acceptance harness; never enabled in packaging/default builds.
 browser-fixture = []
+# Updates through Sparkle (sparkle/MSSparkleBridge.m, linked to Sparkle.framework from tools/sparkle/fetch-sparkle.sh).
+# Packaging turns it on; without it MetalSharp updates with a DMG as before.
+sparkle = []
 
 [dependencies]
 anyhow = "1"
@@ -33,6 +36,9 @@ block2 = "=0.6.2"
 objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSUUID", "NSURL", "NSValue"] }
 objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSButton", "NSColor", "NSPasteboard", "NSResponder", "NSView", "NSGraphics", "NSLayoutAnchor", "NSLayoutConstraint", "NSStackView", "NSTextField", "NSUserInterfaceLayout", "NSWindow"] }
 objc2-web-kit = { version = "=0.3.1", default-features = false, features = ["objc2-app-kit", "objc2-core-foundation", "WKContentRuleList", "WKContentRuleListStore", "WKDownload", "WKDownloadDelegate", "WKUserContentController", "WKFrameInfo", "WKNavigation", "WKNavigationAction", "WKNavigationDelegate", "WKNavigationResponse", "WKSecurityOrigin", "WKUIDelegate", "WKWebView", "WKWebViewConfiguration", "WKWebsiteDataStore", "WKWindowFeatures", "block2"] }
+
+[build-dependencies]
+cc = "1"
 
 [dev-dependencies]
 gpui = { version = "=0.2.2", features = ["test-support"] }

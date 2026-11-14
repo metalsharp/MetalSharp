@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Updates through Sparkle, with deltas** — an update to a newer version of the running build is downloaded, checked and installed by [Sparkle](https://sparkle-project.org) 2.9.6, drawn in MetalSharp's own update sheet. Each release carries a `.delta` from its last two Sparkle releases, so an update downloads only what changed, and every update file is checked against MetalSharp's EdDSA key before it is extracted. Switching between the x86_64 and FEX builds, and updating from a release before Sparkle, still use the release's DMG. Release CI notarizes and staples the app itself, and publishes each build's `.zip`, `.delta` files and appcast (`appcast.xml`, `appcast-fex.xml`) next to its DMG. See [docs/updates.md](docs/updates.md).
+
 ## v1.2.0 — 2026-11-13
 
 MetalSharp 1.2.0 runs on [MetalSharp Wine 6.5](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v6.5) on both runtimes.
