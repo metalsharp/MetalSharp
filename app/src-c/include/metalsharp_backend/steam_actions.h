@@ -28,6 +28,8 @@ char* ms_steam_wine_launch_wrapper_path(const char* home);
 char* ms_witcher3_game_executable(const char* game_dir);
 char* ms_steam_launch_json(const char*, int*);
 char* ms_steam_stop_json(const char*, int*);
+/* Starts the Wine Steam client unless it is running: NULL once it is up, else an error result (with *status). */
+char* ms_steam_ensure_running_json(const char* home, int* status);
 /* Migration-time guarantee: verify/restore steamwebhelper wrapper, bridge shim and Goldberg payloads. */
 bool ms_steam_wrappers_ensure(const char* home);
 bool ms_steam_usability_ensure(const char* home);

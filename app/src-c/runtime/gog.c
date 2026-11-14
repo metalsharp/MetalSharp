@@ -1944,6 +1944,30 @@ static bool stop_gog_wineserver(const char* home) {
     return stopped;
 }
 
+bool ms_gog_game_running(const char* home, const char* product_id) {
+    ms_json* games = product_id && valid_product_id(product_id) ? load_games(home) : NULL;
+    bool running = false;
+    for (size_t i = 0; games && i < ms_json_array_length(games); i++) {
+        const ms_json* game = ms_json_array_get(games, i);
+        char* candidate = field(game, "productId", "");
+        if (!strcmp(candidate, product_id)) {
+            long long pid_value = 0;
+            pid_t tracked = gog_tracked_pid(product_id);
+            (void)ms_json_as_i64(ms_json_object_get(game, "lastLaunchPid"), &pid_value);
+            if (pid_value <= 0)
+                pid_value = tracked;
+            /* As the library has it (refresh_game_json): the fex build by gogdl's process group. */
+            if (ms_wine_metalsharp_launch_model())
+                running = pid_value > 0 && (kill(-(pid_t)pid_value, 0) == 0 || errno == EPERM);
+            else
+                running = pid_value > 0 && kill((pid_t)pid_value, 0) == 0;
+        }
+        free(candidate);
+    }
+    ms_json_free(games);
+    return running;
+}
+
 static char* gog_stop_json(const char* home, const char* id) {
     ms_json* games = load_games(home);
     for (size_t i = 0; games && i < ms_json_array_length(games); i++) {
