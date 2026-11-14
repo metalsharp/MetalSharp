@@ -451,7 +451,8 @@ static bool initialize_prefix(const char* home, char* error, size_t error_size) 
     }
     /* A library location chosen for Ubisoft games becomes Y:; without one, the external volume
      * with the most free space does, as before. */
-    char* external_volume = ms_library_location_apply(home, "ubisoft") ? NULL : ms_library_best_external_volume();
+    bool located = ms_library_location_apply(home, "ubisoft");
+    char* external_volume = located ? NULL : ms_library_best_external_volume();
     if (external_volume && !ensure_ubisoft_drive_mapping(prefix, external_volume)) {
         snprintf(error, error_size, "Could not map the external volume to Ubisoft Connect's Y: drive");
         free(external_volume);
@@ -459,6 +460,20 @@ static bool initialize_prefix(const char* home, char* error, size_t error_size) 
         free(wine);
         free(reg);
         return false;
+    }
+    /* New installs go to the games folder on Y:, whose free space Connect then measures on the right drive. */
+    if (located || external_volume) {
+        char dir[1100] = "Y:/";
+        ms_library_location location;
+        bool available = false;
+        if (located && ms_library_location_get(home, "ubisoft", &location, &available) && available &&
+            location.drive[0] && location.drive_target[0]) {
+            size_t root = strlen(location.drive_target);
+            const char* rest = !strncmp(location.path, location.drive_target, root) ? location.path + root : "";
+            snprintf(dir, sizeof(dir), "%c:%s%s", toupper((unsigned char)location.drive[0]),
+                     rest[0] == '/' ? rest : "/", rest[0] == '/' ? "/" : "");
+        }
+        (void)ms_ubisoft_settings_point_installs_at(prefix, dir);
     }
     free(external_volume);
     free(prefix);

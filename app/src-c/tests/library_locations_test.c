@@ -3,6 +3,7 @@
  * Epic install requests, and the drive letter rule in fake prefixes. */
 #include "metalsharp_backend/library_locations.h"
 #include "metalsharp_backend/json.h"
+#include "metalsharp_backend/ubisoft.h"
 #include <assert.h>
 #include <errno.h>
 #include <limits.h>
@@ -298,9 +299,16 @@ static void test_drive_letters(const char* home) {
     assert(status == 200 && string_is(answer, "drive", "Y:"));
     ms_json_free(answer);
     free(raw);
-    assert(link_is("ms-home/prefix-ubisoft/dosdevices/y:", at("volumes/AverySSD/MetalSharp Ubisoft Games")));
-    /* Again (a launcher start): kept. Moved to This Mac: MetalSharp's own Y: follows. */
+    /* On an external drive Ubisoft's Y: is the drive's root, so Connect can browse to any folder on it; the games
+     * folder is made there all the same, and recorded as where Y: points. */
+    assert(link_is("ms-home/prefix-ubisoft/dosdevices/y:", at("volumes/AverySSD")));
+    assert(access(at("volumes/AverySSD/MetalSharp Ubisoft Games"), F_OK) == 0);
+    assert(ms_library_location_get(home, "ubisoft", &location, NULL) &&
+           !strcmp(location.drive_target, at("volumes/AverySSD")) &&
+           !strcmp(location.path, at("volumes/AverySSD/MetalSharp Ubisoft Games")));
+    /* Again (a launcher start): kept. Moved to This Mac: MetalSharp's own Y: follows, to the folder there. */
     assert(ms_library_location_apply(home, "ubisoft"));
+    assert(link_is("ms-home/prefix-ubisoft/dosdevices/y:", at("volumes/AverySSD")));
     raw = set(home, "ubisoft", "internal", &status);
     assert(status == 200 && strstr(raw, "\"drive\":\"Y:\""));
     free(raw);
@@ -368,6 +376,79 @@ static void test_drive_letters(const char* home) {
     }
 }
 
+static void expect_settings(const char* before, const char* dir, const char* after, bool changed) {
+    bool moved = !changed;
+    char* text = ms_ubisoft_settings_install_to(before, dir, &moved);
+    if (!text || strcmp(text, after) || moved != changed) {
+        fprintf(stderr, "settings.yaml for %s:\n%s\nexpected (%s):\n%s\n", dir, text ? text : "(null)",
+                changed ? "changed" : "unchanged", after);
+        assert(0);
+    }
+    free(text);
+}
+
+/* Ubisoft Connect's default install folder (ubisoft_settings.c). */
+static void test_ubisoft_settings(void) {
+    const char* games = "Y:/MetalSharp Ubisoft Games/";
+    /* As found on a Mac: the folders through Z: are replaced, every other line kept byte for byte. */
+    expect_settings("autoPatching:\n  enabled: true\nmisc:\n  enable_auto_wall_posts: true\n"
+                    "  game_installation_path: Z:/Volumes/AverySSD/Ubisoft/\n"
+                    "  installer_cache_path: Z:/Volumes/AverySSD/Ubisoft/\n"
+                    "  screenshot_root_path: C:/users/u/Pictures/UbisoftConnect/\nnotifications:\n  x: 1\n",
+                    games,
+                    "autoPatching:\n  enabled: true\nmisc:\n  enable_auto_wall_posts: true\n"
+                    "  game_installation_path: Y:/MetalSharp Ubisoft Games/\n"
+                    "  installer_cache_path: Y:/MetalSharp Ubisoft Games/\n"
+                    "  screenshot_root_path: C:/users/u/Pictures/UbisoftConnect/\nnotifications:\n  x: 1\n",
+                    true);
+    /* A folder the user chose on Y: stays, quoted or not. */
+    expect_settings("misc:\n  game_installation_path: Y:/Games/\n  installer_cache_path: \"y:/cache/\"\n", games,
+                    "misc:\n  game_installation_path: Y:/Games/\n  installer_cache_path: \"y:/cache/\"\n", false);
+    /* Keys misc lacks are added at its end; a misc that is missing is added; the last line keeps its newline. */
+    expect_settings("misc:\n  game_installation_path: C:/Games/\nother:\n  a: 1", games,
+                    "misc:\n  game_installation_path: Y:/MetalSharp Ubisoft Games/\n"
+                    "  installer_cache_path: Y:/MetalSharp Ubisoft Games/\nother:\n  a: 1\n",
+                    true);
+    expect_settings("language:\n  code: en-US\n", "Y:/",
+                    "language:\n  code: en-US\nmisc:\n  game_installation_path: Y:/\n  installer_cache_path: Y:/\n", true);
+    /* A key of the same name outside misc is not misc's. */
+    expect_settings("other:\n  game_installation_path: Z:/x/\nmisc:\n  game_installation_path: Y:/a/\n"
+                    "  installer_cache_path: Y:/a/\n",
+                    games,
+                    "other:\n  game_installation_path: Z:/x/\nmisc:\n  game_installation_path: Y:/a/\n"
+                    "  installer_cache_path: Y:/a/\n",
+                    false);
+    {
+        bool changed = true;
+        assert(!ms_ubisoft_settings_install_to("misc:\n", "not a windows path", &changed) && !changed);
+    }
+
+    /* In a prefix: each user Connect has run as, and no file where it has not. */
+    {
+        FILE* file;
+        char* text;
+        make_dir("ubi-prefix/drive_c/users/u/AppData/Local/Ubisoft Game Launcher");
+        make_dir("ubi-prefix/drive_c/users/Public");
+        make_dir("ubi-prefix/drive_c/users/fresh");
+        file = fopen(at("ubi-prefix/drive_c/users/u/AppData/Local/Ubisoft Game Launcher/settings.yaml"), "w");
+        assert(file);
+        fputs("misc:\n  game_installation_path: Z:/Volumes/AverySSD/Ubisoft/\n", file);
+        fclose(file);
+        assert(ms_ubisoft_settings_point_installs_at(at("ubi-prefix"), games) == 1);
+        assert(ms_ubisoft_settings_point_installs_at(at("ubi-prefix"), games) == 0);
+        file = fopen(at("ubi-prefix/drive_c/users/u/AppData/Local/Ubisoft Game Launcher/settings.yaml"), "r");
+        assert(file);
+        text = calloc(1, 4096);
+        assert(text && fread(text, 1, 4095, file) > 0);
+        fclose(file);
+        assert(strstr(text, "  game_installation_path: Y:/MetalSharp Ubisoft Games/\n") &&
+               strstr(text, "  installer_cache_path: Y:/MetalSharp Ubisoft Games/\n"));
+        free(text);
+        assert(access(at("ubi-prefix/drive_c/users/fresh/AppData/Local/Ubisoft Game Launcher/settings.yaml"),
+                      F_OK) != 0);
+    }
+}
+
 int main(int argc, char** argv) {
     char home[PATH_MAX];
     assert(argc == 2);
@@ -386,6 +467,7 @@ int main(int argc, char** argv) {
     test_set_and_get(home);
     test_install_requests(home);
     test_drive_letters(home);
+    test_ubisoft_settings();
     assert(chmod(at("volumes/Locked"), 0755) == 0);
     printf("library locations test passed\n");
     return 0;
