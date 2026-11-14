@@ -93,6 +93,9 @@ pub struct LibGame {
     pub last_played_at: Option<String>,
     #[serde(default, deserialize_with = "lenient_string")]
     pub last_played: Option<String>,
+    /// When MetalSharp first saw the game fully downloaded (epoch seconds; Steam games), absent when unknown.
+    #[serde(default, deserialize_with = "lenient_string")]
+    pub installed_at: Option<String>,
     #[serde(default, deserialize_with = "lenient_u64")]
     pub playtime_2weeks: u64,
     #[serde(default, deserialize_with = "lenient_u64")]
@@ -361,20 +364,26 @@ fn parse_time(value: &Option<String>) -> i64 {
     0
 }
 
-/// LibraryView `liveGames`: installed only, ordered by local play history,
-/// backend last-played, recent/total playtime, then name.
+/// When the game was last touched, in milliseconds: the latest of its local play history, the backend's last-played
+/// times and when it finished downloading. Last played leads, unless a game was downloaded since.
+pub fn recency(game: &LibGame, history: &HashMap<String, i64>) -> i64 {
+    history
+        .get(&game.appid.to_string())
+        .copied()
+        .unwrap_or(0)
+        .max(parse_time(&game.last_played_at))
+        .max(parse_time(&game.last_played))
+        .max(parse_time(&game.installed_at))
+}
+
+/// LibraryView `liveGames`: installed only, the most recently played or downloaded first (`recency`), then
+/// recent/total playtime, then name.
 pub fn live_games(library: &[LibGame], history: &HashMap<String, i64>) -> Vec<LibGame> {
     let mut games: Vec<LibGame> = library.iter().filter(|g| g.installed).cloned().collect();
     games.sort_by(|a, b| {
-        let ah = history.get(&a.appid.to_string()).copied().unwrap_or(0);
-        let bh = history.get(&b.appid.to_string()).copied().unwrap_or(0);
-        if ah != bh {
-            return bh.cmp(&ah);
-        }
-        let al = parse_time(&a.last_played_at).max(parse_time(&a.last_played));
-        let bl = parse_time(&b.last_played_at).max(parse_time(&b.last_played));
-        if al != bl {
-            return bl.cmp(&al);
+        let (ar, br) = (recency(a, history), recency(b, history));
+        if ar != br {
+            return br.cmp(&ar);
         }
         let ap = a.playtime_2weeks * 100 + a.playtime_forever;
         let bp = b.playtime_2weeks * 100 + b.playtime_forever;
@@ -743,6 +752,50 @@ mod tests {
             installed.iter().map(|game| game.appid).collect::<Vec<_>>(),
             [400]
         );
+    }
+
+    fn order(library: &[LibGame], history: &HashMap<String, i64>) -> Vec<u64> {
+        live_games(library, history)
+            .iter()
+            .map(|g| g.appid)
+            .collect()
+    }
+
+    #[test]
+    fn a_game_downloaded_since_the_last_play_comes_first() {
+        // seconds from the backend; the play history is in milliseconds
+        let played =
+            game(json!({"appid": 1, "name": "Played", "installed": true, "last_played": "1000"}));
+        let downloaded =
+            game(json!({"appid": 2, "name": "New", "installed": true, "installed_at": 2000}));
+        let older =
+            game(json!({"appid": 3, "name": "Older", "installed": true, "installed_at": 500}));
+        let library = vec![played, downloaded, older];
+        assert_eq!(order(&library, &HashMap::new()), [2, 1, 3]);
+    }
+
+    #[test]
+    fn playing_after_the_download_puts_last_played_back_first() {
+        let downloaded =
+            game(json!({"appid": 2, "name": "New", "installed": true, "installed_at": 2000}));
+        let played = game(json!({"appid": 1, "name": "Played", "installed": true}));
+        let library = vec![downloaded, played];
+        let mut history = HashMap::new();
+        history.insert("1".to_owned(), 3_000_000); // 3000 s, after the download
+        assert_eq!(order(&library, &history), [1, 2]);
+        history.insert("1".to_owned(), 1_000_000); // played before the download
+        assert_eq!(order(&library, &history), [2, 1]);
+    }
+
+    #[test]
+    fn an_unknown_download_time_keeps_the_old_order() {
+        let a = game(
+            json!({"appid": 1, "name": "A", "installed": true, "installed_at": null, "playtime_forever": 5}),
+        );
+        let b = game(json!({"appid": 2, "name": "B", "installed": true, "playtime_forever": 9}));
+        let library = vec![a, b];
+        assert_eq!(order(&library, &HashMap::new()), [2, 1]);
+        assert_eq!(recency(&library[0], &HashMap::new()), 0);
     }
 
     #[test]

@@ -489,6 +489,40 @@ steam_library_default=$(curl --silent --fail --unix-socket "$sock" "http://local
 printf '%s' "$steam_library_default" | python3 -c 'import json, sys; v=json.load(sys.stdin); games={g["appid"]:g for g in v["games"]}; assert games[2270]["preferred_pipeline"] == "d3d9" and games[2270]["launch_method"] == "d3d9" and games[2270]["launch_method_name"] == "D3D9"; assert games[440]["preferred_pipeline"] == "dxmt" and games[440]["launch_method"] == "dxmt" and games[440]["launch_method_name"] == "DXMT"'
 python3 -c 'import json, os; p=os.environ["METALSHARP_HOME"] + "/bottles/steam_2270/bottle.json"; v=json.load(open(p)); assert v["preferred_pipeline"] == "d3d9" and v["runtime_profile"] == "d3d9"'
 python3 -c 'import json, os; p=os.environ["METALSHARP_HOME"] + "/bottles/steam_440/bottle.json"; v=json.load(open(p)); assert v["preferred_pipeline"] == "dxmt" and v["runtime_profile"] == "dxmt"'
+# A game Steam finished downloading (StateFlags 4) after MetalSharp first listed the library gets the time it was first
+# seen installed, which puts it first in the library; games still downloading get none. The time is kept across
+# scans, and an uninstalled game is forgotten, so installing it again counts as a new download.
+mkdir -p "$steamapps/common/Portal"
+cat > "$steamapps/appmanifest_400.acf" <<'EOF'
+"AppState"
+{
+    "appid"       "400"
+    "name"        "Portal"
+    "StateFlags"  "4"
+    "installdir"  "Portal"
+}
+EOF
+printf 'game' > "$steamapps/common/Portal/hl2.exe"
+steam_library_new=$(curl --silent --fail --unix-socket "$sock" "http://localhost/steam/library")
+printf '%s' "$steam_library_new" | python3 -c '
+import json, sys, time
+v = json.load(sys.stdin)
+games = {g["appid"]: g for g in v["games"]}
+assert isinstance(games[400]["installed_at"], int) and abs(games[400]["installed_at"] - time.time()) < 600, games[400]
+assert games[2270]["installed_at"] is None and games[440]["installed_at"] is None
+'
+first_seen=$(python3 -c 'import json, os; print(json.load(open(os.environ["METALSHARP_HOME"] + "/config/steam-installed-at.json"))["400"])')
+sleep 1
+steam_library_again=$(curl --silent --fail --unix-socket "$sock" "http://localhost/steam/library")
+printf '%s' "$steam_library_again" | FIRST_SEEN="$first_seen" python3 -c '
+import json, os, sys
+games = {g["appid"]: g for g in json.load(sys.stdin)["games"]}
+assert games[400]["installed_at"] == int(os.environ["FIRST_SEEN"]), games[400]
+'
+mv "$steamapps/appmanifest_400.acf" "$home/appmanifest_400.acf.away"
+curl --silent --fail --unix-socket "$sock" "http://localhost/steam/library" >/dev/null
+python3 -c 'import json, os; assert "400" not in json.load(open(os.environ["METALSHARP_HOME"] + "/config/steam-installed-at.json"))'
+mv "$home/appmanifest_400.acf.away" "$steamapps/appmanifest_400.acf"
 api=$(curl --silent --fail --unix-socket "$sock" "http://localhost/steam/api-key")
 printf '%s' "$api" | python3 -c 'import json, sys; assert json.load(sys.stdin)["key"] == ""'
 curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"key":"test-key"}' --unix-socket "$sock" "http://localhost/steam/save-api-key" >/dev/null
