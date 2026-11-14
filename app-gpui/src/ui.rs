@@ -691,6 +691,8 @@ pub struct MetalSharpApp {
     runtime_switch: Option<runtime_impl::RuntimeSwitch>,
     uninstall_prompt: Option<drive_impl::UninstallPrompt>,
     hovered_card: Option<usize>,
+    /// Keyboard focus of the Play view: arrows or WASD move between cards, Enter plays.
+    play_focus: Option<gpui::FocusHandle>,
     active_tab: LibraryTab,
     step: usize,
     selected_language: &'static str,
@@ -756,6 +758,7 @@ impl MetalSharpApp {
             runtime_switch: None,
             uninstall_prompt: None,
             hovered_card: None,
+            play_focus: None,
             active_tab: LibraryTab::Play,
             step: 2,
             selected_language: "en",
@@ -1316,6 +1319,17 @@ impl Render for MetalSharpApp {
             && !self.show_setup;
         if !library_visible {
             self.deactivate_polling_pages(cx);
+        }
+        // The Play view takes the keyboard when nothing else has it, so arrows move between cards
+        // without a click first.
+        if library_visible && self.active_tab == LibraryTab::Play {
+            let focus = self
+                .play_focus
+                .get_or_insert_with(|| cx.focus_handle())
+                .clone();
+            if window.focused(cx).is_none() {
+                window.focus(&focus);
+            }
         }
         let body: gpui::AnyElement = if let Some(moving) = self.live.data_move.clone() {
             self.render_data_move(&moving).into_any_element()
@@ -3749,6 +3763,10 @@ impl MetalSharpApp {
                     )),
             );
 
+        let focus = self
+            .play_focus
+            .get_or_insert_with(|| cx.focus_handle())
+            .clone();
         div()
             .id("library-play-scroll")
             .relative()
@@ -3758,9 +3776,113 @@ impl MetalSharpApp {
             .bg(rgb(page_bg))
             .flex()
             .flex_col()
+            .track_focus(&focus)
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _, window, _| {
+                    if let Some(focus) = &this.play_focus {
+                        window.focus(focus);
+                    }
+                }),
+            )
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                // Only while the Play view itself has focus: a text field keeps its keys.
+                if this
+                    .play_focus
+                    .as_ref()
+                    .is_some_and(|f| f.is_focused(window))
+                    && this.play_key(&event.keystroke, cx)
+                {
+                    cx.stop_propagation();
+                }
+            }))
             .child(backdrop)
             .child(hero)
             .child(dock)
+    }
+
+    /// A prompt or menu over the Play view has the keyboard's attention instead of the cards.
+    fn play_keys_blocked(&self) -> bool {
+        self.game_settings_open
+            || self.settings_open
+            || self.streaming_open
+            || self.game_uninstall_prompt.is_some()
+            || self.drive_prompt.is_some()
+            || self.uninstall_prompt.is_some()
+            || self.runtime_switch.is_some()
+            || self.steamcmd_modal.is_some()
+    }
+
+    /// Arrow keys or WASD on the Play view: Left/Right (A/D) step between cards, Up/Down (W/S) a dock's
+    /// worth of cards, Home/End to the ends, Enter plays the selected game and Escape closes menus.
+    /// True when the key was used.
+    fn play_key(&mut self, keystroke: &gpui::Keystroke, cx: &mut Context<Self>) -> bool {
+        let modifiers = keystroke.modifiers;
+        if modifiers.platform || modifiers.control || modifiers.alt || modifiers.function {
+            return false;
+        }
+        if keystroke.key == "escape" {
+            self.close_library_menus();
+            cx.notify();
+            return true;
+        }
+        if self.play_keys_blocked() {
+            return false;
+        }
+        let page = DOCK_VISIBLE_CARDS as isize;
+        let step = match keystroke.key.as_str() {
+            "left" | "a" => -1,
+            "right" | "d" => 1,
+            "up" | "w" => -page,
+            "down" | "s" => page,
+            "home" => isize::MIN / 2,
+            "end" => isize::MAX / 2,
+            "enter" if !modifiers.shift => {
+                let Some(game) = self.featured_game() else {
+                    return false;
+                };
+                // Enter only starts a game; Stop stays on the button.
+                if !self.is_running(game.appid) {
+                    self.close_library_menus();
+                    self.launch_game(game, cx);
+                    cx.notify();
+                }
+                return true;
+            }
+            _ => return false,
+        };
+        self.step_selection(step, cx);
+        true
+    }
+
+    /// The game the hero shows: the selection, or the first search match when the search hides it.
+    fn featured_game(&self) -> Option<LibGame> {
+        let matches = self.matching_games();
+        let index = if matches.contains(&self.selected_game) {
+            self.selected_game
+        } else {
+            *matches.first()?
+        };
+        self.games.get(index).cloned()
+    }
+
+    /// Move the selection `delta` cards along the search's matches, stopping at either end.
+    fn step_selection(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let matches = self.matching_games();
+        if matches.is_empty() {
+            return;
+        }
+        let position = matches
+            .iter()
+            .position(|index| *index == self.selected_game)
+            .unwrap_or(0) as isize;
+        let next = position
+            .saturating_add(delta)
+            .clamp(0, matches.len() as isize - 1) as usize;
+        if matches[next] != self.selected_game {
+            self.select_game(matches[next], cx);
+            cx.notify();
+        }
     }
 
     fn matching_games(&self) -> Vec<usize> {
