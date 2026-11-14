@@ -687,11 +687,13 @@ static void ensure_vkd3d_lane_shader_model(const char* home, bool lane) {
     free(existing);
 }
 
-/* Games Mullion holds to Metal 3 (3.2) shaders on both builds, whatever the macOS: Mullion reads a [program.exe]
- * section's lines for that program only. Assassin's Creed Black Flag Resynced (ACBlackFlag_Plus.exe is the one
- * Ubisoft Connect starts) does not run on Mullion's Metal 4 shaders. */
+/* Games Mullion holds to Metal 3 on both builds, whatever the macOS: Metal 3.2 shaders, and for D3D12 Metal 3's
+ * command queues rather than Metal 4's (d3d12.metal4). Mullion reads a [program.exe] section's lines for that
+ * program only. Assassin's Creed Black Flag Resynced (ACBlackFlag_Plus.exe is the one Ubisoft Connect starts) does
+ * not run on Mullion's Metal 4. */
 static const char* const MULLION_METAL3_GAMES[] = {"ACBlackFlag.exe", "ACBlackFlag_Plus.exe"};
-#define MULLION_METAL3_LINE "mullion.shaderMetalVersion = 320"
+static const char* const MULLION_METAL3_KEYS[] = {"mullion.shaderMetalVersion", "d3d12.metal4"};
+#define MULLION_METAL3_LINES "mullion.shaderMetalVersion = 320\nd3d12.metal4 = False\n"
 
 /* Whether a conf line is the [program.exe] line of a game held to Metal 3 */
 static bool conf_line_is_metal3_game(const char* line) {
@@ -766,7 +768,8 @@ static void ensure_dxmt_shader_metal_version(const char* home) {
                 in_metal3_game = conf_line_is_metal3_game(key);
                 if (!in_metal3_game)
                     fprintf(file, "%s\n", line);
-            } else if (in_metal3_game && conf_line_sets(key, "mullion.shaderMetalVersion")) {
+            } else if (in_metal3_game &&
+                       (conf_line_sets(key, MULLION_METAL3_KEYS[0]) || conf_line_sets(key, MULLION_METAL3_KEYS[1]))) {
                 continue;
             } else if (in_section) {
                 fprintf(file, "%s\n", line);
@@ -790,7 +793,7 @@ static void ensure_dxmt_shader_metal_version(const char* home) {
         if (!wrote_shader_version)
             write_shader_metal_version(file, mullion, mullion_metal_320);
         for (size_t i = 0; mullion && i < sizeof(MULLION_METAL3_GAMES) / sizeof(MULLION_METAL3_GAMES[0]); i++)
-            fprintf(file, "[%s]\n" MULLION_METAL3_LINE "\n", MULLION_METAL3_GAMES[i]);
+            fprintf(file, "[%s]\n" MULLION_METAL3_LINES, MULLION_METAL3_GAMES[i]);
         if (fclose(file) == 0) {
             if (rename(temp, path) != 0)
                 unlink(temp);

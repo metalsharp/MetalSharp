@@ -919,14 +919,15 @@ static int text_count(const char* text, const char* needle) {
 static void test_metal3_game_sections(const char* home) {
     static const char frame_rate_30[] = "{\"pipeline\":\"dxmt\",\"fps\":30}";
     static const char frame_rate_60[] = "{\"pipeline\":\"dxmt\",\"fps\":60}";
-    static const char black_flag_sections[] = "[ACBlackFlag.exe]\nmullion.shaderMetalVersion = 320\n"
-                                              "[ACBlackFlag_Plus.exe]\nmullion.shaderMetalVersion = 320\n";
+    static const char black_flag_sections[] =
+        "[ACBlackFlag.exe]\nmullion.shaderMetalVersion = 320\nd3d12.metal4 = False\n"
+        "[ACBlackFlag_Plus.exe]\nmullion.shaderMetalVersion = 320\nd3d12.metal4 = False\n";
     bool mullion = ms_wine_dxmt_lane_is_mullion(home);
     char *text, *response, *user, *black_flag;
     int status = 0;
     fixture(home, "runtime/wine/etc/mullion.conf",
             "d3d11.preferredMaxFrameRate = 60\n[Other.exe]\nd3d11.maxFeatureLevel = 11_0\n"
-            "[ACBlackFlag.exe]\nmullion.shaderMetalVersion = 400\n");
+            "[ACBlackFlag.exe]\nmullion.shaderMetalVersion = 400\nd3d12.metal4 = True\n");
     for (int pass = 0; pass < 2; pass++) {
         ms_steam_apply_graphics_route(home, "dxmt");
         text = dxmt_conf_text(home);
@@ -936,7 +937,7 @@ static void test_metal3_game_sections(const char* home) {
         /* the global lines are all before the user's section */
         assert(strstr(text, "d3d11.maxFeatureLevel = 12_1\n") < user);
         assert(strstr(text, "d3d11.preferredMaxFrameRate = 60\n") < user);
-        assert(!strstr(text, "shaderMetalVersion = 400"));
+        assert(!strstr(text, "shaderMetalVersion = 400") && !strstr(text, "d3d12.metal4 = True"));
         black_flag = strstr(text, black_flag_sections);
         assert(mullion ? black_flag && black_flag > user && !black_flag[strlen(black_flag_sections)] : !black_flag);
         assert(text_count(text, "[ACBlackFlag") == (mullion ? 2 : 0));
