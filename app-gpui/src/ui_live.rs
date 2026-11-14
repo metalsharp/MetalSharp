@@ -1987,16 +1987,22 @@ impl MetalSharpApp {
     }
 
     /// The frame rate lane of the selected game's pipeline: Mullion or VKD3D-Proton, which keep the
-    /// limit in different places; other pipelines have none.
+    /// limit in different places; other pipelines have none. Mullion's limit is in mullion.conf, which
+    /// every Mullion launch reads, Sharp Library entries' (GOG, Epic, Windows programs, Game Jolt) too;
+    /// VKD3D-Proton's is set only for the Steam launches' VKD3D_FRAME_RATE.
     pub(super) fn frame_rate_lane(&self) -> Option<&'static str> {
         let lane = if crate::variant::is_fex() {
             crate::variant::fex_pipeline(&self.live.selected_pipeline)
         } else {
             crate::variant::x86_64_pipeline(&self.live.selected_pipeline)
         };
+        let sharp_entry = self
+            .games
+            .get(self.selected_game)
+            .is_some_and(|game| game.external_id.is_some());
         match lane {
             "dxmt" => Some("dxmt"),
-            "vkd3d" => Some("vkd3d"),
+            "vkd3d" if !sharp_entry => Some("vkd3d"),
             _ => None,
         }
     }
