@@ -47,6 +47,10 @@ static unsigned battlenet_appid(const char* id) {
     return 0x20000000u | (ms_store_fnv1a(id) & 0x1fffffffu);
 }
 
+unsigned ms_battlenet_appid(const char* id) {
+    return battlenet_appid(id);
+}
+
 static char* battlenet_prefix(const char* home) {
     return ms_store_path_join(home, BATTLENET_PREFIX);
 }

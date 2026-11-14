@@ -50,6 +50,10 @@ static unsigned rockstar_appid(const char* id) {
     return 0x40000000u | (ms_store_fnv1a(id) & 0x3fffffffu);
 }
 
+unsigned ms_rockstar_appid(const char* id) {
+    return rockstar_appid(id);
+}
+
 static char* rockstar_prefix(const char* home) {
     return ms_store_path_join(home, ROCKSTAR_PREFIX);
 }

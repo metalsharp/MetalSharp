@@ -12,5 +12,7 @@ char* ms_rockstar_launch_game_json(const char* home, const char* body, size_t bo
 char* ms_rockstar_save_pipeline_json(const char* home, const char* body, size_t body_length, int* status);
 char* ms_rockstar_save_executable_json(const char* home, const char* body, size_t body_length, int* status);
 void ms_rockstar_register_running_games(const char* home);
+/* The library's appid of a Rockstar game id (bottles/rockstar_<appid>, GET /game/running). */
+unsigned ms_rockstar_appid(const char* id);
 
 #endif

@@ -21,6 +21,7 @@ STORE_LAUNCHERS_TEST ?= $(BUILD_DIR)/store-launchers-test
 LIBRARY_LOCATIONS_TEST ?= $(BUILD_DIR)/library-locations-test
 LAUNCHER_UNINSTALL_TEST ?= $(BUILD_DIR)/launcher-uninstall-test
 NGX_CORE_TEST ?= $(BUILD_DIR)/ngx-core-test
+PACKED_APP_TEST ?= $(BUILD_DIR)/packed-app-test
 # A MetalSharp-Wine.app for the fex facade test; without one it checks only the mapping.
 METALSHARP_WINE_APP ?=
 
@@ -69,6 +70,7 @@ SOURCES := \
 	runtime/store_launcher.c \
 	runtime/library_locations.c \
 	runtime/launcher_uninstall.c \
+	runtime/packed_app.c \
 	runtime/rockstar.c \
 	runtime/battlenet.c \
 	runtime/game.c \
@@ -127,17 +129,22 @@ $(NGX_CORE_TEST): runtime/ngx_core.c tests/ngx_core_test.c include/metalsharp_ba
 $(LAUNCHER_UNINSTALL_TEST): tests/launcher_uninstall_test.c $(OBJECTS)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o "$@" tests/launcher_uninstall_test.c $(filter-out $(BUILD_DIR)/c-backend/runtime/main.o,$(OBJECTS))
 
+# Packed game apps, made in a folder standing in for /Applications with a stand-in launcher.
+$(PACKED_APP_TEST): tests/packed_app_test.c $(OBJECTS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o "$@" tests/packed_app_test.c $(filter-out $(BUILD_DIR)/c-backend/runtime/main.o,$(OBJECTS))
+
 test: test-$(VARIANT)
 
 # The FEX build's suite (make VARIANT=fex BUILD_DIR=... test): its backend and the tests that hold for
 # MetalSharp Wine. The route, smoke, VC++ seeding, runtime-ready and update-download tests describe
 # the regular build's x86_64 runtime and run in test-regular.
-test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EXE_TEST) $(GAME_TUNING_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(STORE_LAUNCHERS_TEST) $(LIBRARY_LOCATIONS_TEST) $(LAUNCHER_UNINSTALL_TEST) $(NGX_CORE_TEST)
+test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EXE_TEST) $(GAME_TUNING_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(STORE_LAUNCHERS_TEST) $(LIBRARY_LOCATIONS_TEST) $(LAUNCHER_UNINSTALL_TEST) $(NGX_CORE_TEST) $(PACKED_APP_TEST)
 	@"$(SETUP_VARIANT_TEST)"
 	@home="$$(mktemp -d)"; "$(STORE_LAUNCHERS_TEST)" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
 	@dir="$$(mktemp -d)"; "$(LIBRARY_LOCATIONS_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
 	@dir="$$(mktemp -d)"; "$(LAUNCHER_UNINSTALL_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
 	@dir="$$(mktemp -d)"; "$(NGX_CORE_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
+	@dir="$$(mktemp -d)"; "$(PACKED_APP_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
 	@"$(JSON_TEST)"
 	@cd "$(PROJECT_ROOT)" && METALSHARP_HOME= "$(abspath $(MTSP_RULES_TEST))"
 	@"$(MIGRATION_TEST)"
@@ -151,12 +158,13 @@ test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EX
 	@bash "$(PROJECT_ROOT)/app/updater/tests/stopped_status_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@python3 "$(CURDIR)/tests/steam_process_test.py" "$(TARGET)"
 
-test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(GAME_TUNING_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(BUILD_DIR)/runtime-routes-test $(STORE_LAUNCHERS_TEST) $(LIBRARY_LOCATIONS_TEST) $(LAUNCHER_UNINSTALL_TEST) $(NGX_CORE_TEST)
+test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(GAME_TUNING_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(BUILD_DIR)/runtime-routes-test $(STORE_LAUNCHERS_TEST) $(LIBRARY_LOCATIONS_TEST) $(LAUNCHER_UNINSTALL_TEST) $(NGX_CORE_TEST) $(PACKED_APP_TEST)
 	@"$(SETUP_VARIANT_TEST)"
 	@home="$$(mktemp -d)"; "$(STORE_LAUNCHERS_TEST)" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
 	@dir="$$(mktemp -d)"; "$(LIBRARY_LOCATIONS_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
 	@dir="$$(mktemp -d)"; "$(LAUNCHER_UNINSTALL_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
 	@dir="$$(mktemp -d)"; "$(NGX_CORE_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
+	@dir="$$(mktemp -d)"; "$(PACKED_APP_TEST)" "$$dir"; rc=$$?; rm -rf "$$dir"; exit $$rc
 	@cd "$(PROJECT_ROOT)" && METALSHARP_HOME= "$(abspath $(MTSP_RULES_TEST))"
 	@home="$$(mktemp -d)"; "$(BUILD_DIR)/runtime-routes-test" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
 	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; HOME="$$test_home" METALSHARP_HOME="$$ms_home" "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc

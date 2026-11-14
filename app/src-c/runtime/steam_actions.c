@@ -7436,6 +7436,10 @@ static char* ensure_wine_steam_running(const char* home, int* status) {
     return NULL;
 }
 
+char* ms_steam_ensure_running_json(const char* home, int* status) {
+    return ensure_wine_steam_running(home, status);
+}
+
 /* Hogwarts Legacy (990080) starts directly on every lane: its executable is Phoenix/Binaries/Win64/HogwartsLegacy.exe,
  * not the launcher stub at the top of its folder the Steam client's launch goes through. So does BeamNG.drive (284160):
  * its launcher, a 32-bit x86 program under FEX, starts BinArm64/BeamNG.drive.arm64.exe, which then fails with

@@ -192,6 +192,15 @@ cat > "$STEAM_HELPER/Info.plist" <<STEAMPLIST
 </plist>
 STEAMPLIST
 /usr/bin/plutil -lint "$STEAM_HELPER/Info.plist" >/dev/null
+# The launcher of games packed as their own apps (POST /pack-app/create copies it into
+# /Applications/<Game>.app): a small Cocoa app that starts MetalSharp hidden when it has to, launches
+# its game through the backend and quits with it.
+mkdir -p "$CONTENTS/Resources/tools"
+command -v swiftc >/dev/null || { echo "swiftc is required to build the game app launcher" >&2; exit 1; }
+swiftc -O -target "$(uname -m)-apple-macos13.0" \
+  "$APP_DIR/game-app/main.swift" "$APP_DIR/game-app/Backend.swift" \
+  -o "$CONTENTS/Resources/tools/metalsharp-game-app"
+chmod 0755 "$CONTENTS/Resources/tools/metalsharp-game-app"
 install -m 0755 "$CARGO_TARGET_DIR/$CARGO_PROFILE/metalsharp-gpui" "$CONTENTS/MacOS/$APP_EXECUTABLE"
 if [ "$SPARKLE" = "1" ]; then
   mkdir -p "$CONTENTS/Frameworks"
