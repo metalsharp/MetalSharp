@@ -22,6 +22,8 @@ void ms_steam_apply_launch_preferences(const char* home);
 bool ms_steam_user_reg_section_has(const char* text, const char* section, const char* const* values, size_t count);
 /* Apply configured controller shims without overwriting unowned game DLLs. */
 void ms_steam_deploy_controller_input_shims(const char* home, const char* game_dir);
+/* The same with a mode ("off", "x" or "d") in place of the configured one; NULL uses the configured one. */
+void ms_steam_deploy_controller_input_shims_as(const char* home, const char* game_dir, const char* mode_override);
 /* Return the app-managed Wine shim that opens requested Wine virtual desktops. */
 char* ms_steam_wine_launch_wrapper_path(const char* home);
 /* Resolve the actual Witcher 3 game executable, not a storefront launcher. */

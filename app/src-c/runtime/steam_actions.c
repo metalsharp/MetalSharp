@@ -326,6 +326,10 @@ static void remove_input_shim_manifest(const char* game_dir) {
 }
 
 void ms_steam_deploy_controller_input_shims(const char* home, const char* game_dir) {
+    ms_steam_deploy_controller_input_shims_as(home, game_dir, NULL);
+}
+
+void ms_steam_deploy_controller_input_shims_as(const char* home, const char* game_dir, const char* mode_override) {
     static const char* const xinput[] = {"xinput1_1.dll", "xinput1_2.dll", "xinput1_3.dll", "xinput1_4.dll",
                                          "xinput9_1_0.dll"};
     static const char* const dinput[] = {"dinput.dll", "dinput8.dll"};
@@ -345,7 +349,13 @@ void ms_steam_deploy_controller_input_shims(const char* home, const char* game_d
         return;
     /* MetalSharp Wine's own xinput/dinput builtins see controllers through winebus' SDL bus;
      * "off" also removes shims an x86_64 install staged. */
-    mode = ms_wine_is_fex() ? strdup("off") : controller_input_mode_for_home(home);
+    if (ms_wine_is_fex())
+        mode = strdup("off");
+    else if (mode_override &&
+             (!strcmp(mode_override, "off") || !strcmp(mode_override, "x") || !strcmp(mode_override, "d")))
+        mode = strdup(mode_override);
+    else
+        mode = controller_input_mode_for_home(home);
     if (!mode)
         return;
     remove_input_shim_manifest(game_dir);

@@ -1459,6 +1459,55 @@ int main(int argc, char** argv) {
         response = ms_sharp_stop_all_json(&status);
         assert(response && status == 200);
         free(response);
+        /* Its own display mode, resolution and controller input apply over the shared ones; a value that isn't
+         * one of the choices saves nothing, and null goes back to the shared choice. */
+        {
+            const char* invalid = "{\"id\":\"sharp-args\",\"windowMode\":\"windowed\",\"gameResolution\":\"9x9\"}";
+            const char* own = "{\"id\":\"sharp-args\",\"windowMode\":\"windowed\","
+                              "\"gameResolution\":\"1920x1080\",\"controllerInput\":\"x\"}";
+            const char* shared = "{\"id\":\"sharp-args\",\"windowMode\":null,\"gameResolution\":null}";
+            char expected[PATH_MAX + 128];
+            char* shims = join(sharp_home, "games/.metalsharp/input-shims.json");
+            char* shim_text;
+            response =
+                ms_sharp_action_json(sharp_home, (const unsigned char*)invalid, strlen(invalid), "set-preferences");
+            assert(response && strstr(response, "\"ok\":false"));
+            free(response);
+            response = ms_sharp_library_json(sharp_home);
+            assert(response && !strstr(response, "window_mode"));
+            free(response);
+            response = ms_sharp_action_json(sharp_home, (const unsigned char*)own, strlen(own), "set-preferences");
+            assert(response && strstr(response, "\"ok\":true"));
+            free(response);
+            response = ms_sharp_library_json(sharp_home);
+            assert(response && strstr(response, "\"window_mode\":\"windowed\"") &&
+                   strstr(response, "\"game_resolution\":\"1920x1080\"") &&
+                   strstr(response, "\"controller_input\":\"x\""));
+            free(response);
+            (void)unlink(args_path);
+            response = ms_sharp_action_json(sharp_home, (const unsigned char*)body, strlen(body), "launch");
+            assert(response && strstr(response, "\"ok\":true"));
+            free(response);
+            launched = wait_for_file_text(args_path);
+            snprintf(expected, sizeof(expected), "[explorer]\n[/desktop=MetalSharp,1920x1080]\n[%s]\n[-preset]\n",
+                     exe_path);
+            assert(launched && strstr(launched, expected));
+            free(launched);
+            shim_text = ms_wine_is_fex() ? NULL : read_bounded_file(shims);
+            assert(ms_wine_is_fex() || (shim_text && strstr(shim_text, "\"mode\":\"x\"")));
+            free(shim_text);
+            response = ms_sharp_stop_all_json(&status);
+            free(response);
+            response =
+                ms_sharp_action_json(sharp_home, (const unsigned char*)shared, strlen(shared), "set-preferences");
+            assert(response && strstr(response, "\"ok\":true"));
+            free(response);
+            response = ms_sharp_library_json(sharp_home);
+            assert(response && strstr(response, "\"window_mode\":null") &&
+                   strstr(response, "\"game_resolution\":null") && strstr(response, "\"controller_input\":\"x\""));
+            free(response);
+            free(shims);
+        }
         free(sharp_home);
         free(wine_path);
         free(args_path);
