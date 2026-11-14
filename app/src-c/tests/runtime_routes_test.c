@@ -5,6 +5,7 @@
 #include "../runtime/ubisoft.c"
 #include "metalsharp_backend/metalfx.h"
 #include "metalsharp_backend/rosetta.h"
+#include "metalsharp_backend/frame_rate.h"
 #include "metalsharp_backend/config.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/sharp.h"
@@ -900,6 +901,62 @@ static void test_metalfx_route_env(const char* home) {
     free(response);
 }
 
+static char* dxmt_conf_text(const char* home) {
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/runtime/wine/etc/mullion.conf", home);
+    return read_bounded_file(path);
+}
+
+static int text_count(const char* text, const char* needle) {
+    int n = 0;
+    for (const char* p = text; (p = strstr(p, needle)); p += strlen(needle))
+        n++;
+    return n;
+}
+
+/* Assassin's Creed Black Flag Resynced is held to Metal 3 on Mullion through its own [program.exe] sections, last in
+ * mullion.conf; MetalSharp's lines stay ahead of every section, and a user's section is kept as it was. */
+static void test_metal3_game_sections(const char* home) {
+    static const char frame_rate_30[] = "{\"pipeline\":\"dxmt\",\"fps\":30}";
+    static const char frame_rate_60[] = "{\"pipeline\":\"dxmt\",\"fps\":60}";
+    static const char black_flag_sections[] = "[ACBlackFlag.exe]\nmullion.shaderMetalVersion = 320\n"
+                                              "[ACBlackFlag_Plus.exe]\nmullion.shaderMetalVersion = 320\n";
+    bool mullion = ms_wine_dxmt_lane_is_mullion(home);
+    char *text, *response, *user, *black_flag;
+    int status = 0;
+    fixture(home, "runtime/wine/etc/mullion.conf",
+            "d3d11.preferredMaxFrameRate = 60\n[Other.exe]\nd3d11.maxFeatureLevel = 11_0\n"
+            "[ACBlackFlag.exe]\nmullion.shaderMetalVersion = 400\n");
+    for (int pass = 0; pass < 2; pass++) {
+        ms_steam_apply_graphics_route(home, "dxmt");
+        text = dxmt_conf_text(home);
+        assert(text);
+        user = strstr(text, "[Other.exe]\nd3d11.maxFeatureLevel = 11_0\n");
+        assert(user);
+        /* the global lines are all before the user's section */
+        assert(strstr(text, "d3d11.maxFeatureLevel = 12_1\n") < user);
+        assert(strstr(text, "d3d11.preferredMaxFrameRate = 60\n") < user);
+        assert(!strstr(text, "shaderMetalVersion = 400"));
+        black_flag = strstr(text, black_flag_sections);
+        assert(mullion ? black_flag && black_flag > user && !black_flag[strlen(black_flag_sections)] : !black_flag);
+        assert(text_count(text, "[ACBlackFlag") == (mullion ? 2 : 0));
+        free(text);
+    }
+    /* A frame rate set from MetalSharp goes before the sections, not into the last one. */
+    response = ms_frame_rate_set_json(home, (const unsigned char*)frame_rate_30, strlen(frame_rate_30), &status);
+    assert(status == 200);
+    free(response);
+    text = dxmt_conf_text(home);
+    assert(text && text_count(text, "preferredMaxFrameRate = 30\n") == 2);
+    assert(strstr(text, "d3d12.preferredMaxFrameRate = 30\n") < strstr(text, "[Other.exe]"));
+    assert(text_count(text, "preferredMaxFrameRate") == 2);
+    free(text);
+    response = ms_frame_rate_set_json(home, (const unsigned char*)frame_rate_60, strlen(frame_rate_60), &status);
+    free(response);
+    /* Leave the file as the other tests found it. */
+    fixture(home, "runtime/wine/etc/mullion.conf", "d3d11.preferredMaxFrameRate = 60\n");
+}
+
 int main(int argc, char** argv) {
     if (argc >= 2 && !strcmp(argv[1], "--wine-exe-probe")) {
         for (;;)
@@ -953,6 +1010,7 @@ int main(int argc, char** argv) {
     assert(strstr(getenv("WINEDLLOVERRIDES"), "winemetal,dxgi,d3d11"));
     assert(!getenv("VK_DRIVER_FILES"));
     test_metalfx_route_env(home);
+    test_metal3_game_sections(home);
     test_rosetta_after_macos_upgrade(home);
     test_x87_route_env(home);
     ms_steam_apply_graphics_route(home, "dxmt_32");

@@ -111,7 +111,7 @@ static bool write_mullion_limit(const char* home, unsigned limit) {
     char* text;
     char* output;
     size_t capacity, length = 0;
-    bool ok;
+    bool ok, wrote = false;
     if (!ms_wine_graphics_conf_path(home, path, sizeof(path)))
         return false;
     text = read_file(path);
@@ -123,13 +123,21 @@ static bool write_mullion_limit(const char* home, unsigned limit) {
     }
     output[0] = '\0';
     if (text) {
+        bool in_section = false;
         for (char *save = NULL, *line = strtok_r(text, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
-            if (is_conf_key_line(line))
+            /* After a [program.exe] line, a line applies to that program only: the limits go before the first. */
+            if (!in_section && line[strspn(line, " \t")] == '[') {
+                in_section = true;
+                for (size_t i = 0; i < sizeof(conf_keys) / sizeof(conf_keys[0]); i++)
+                    length += (size_t)snprintf(output + length, capacity - length, "%s = %u\n", conf_keys[i], limit);
+            }
+            if (!in_section && is_conf_key_line(line))
                 continue;
             length += (size_t)snprintf(output + length, capacity - length, "%s\n", line);
         }
+        wrote = in_section;
     }
-    for (size_t i = 0; i < sizeof(conf_keys) / sizeof(conf_keys[0]); i++)
+    for (size_t i = 0; !wrote && i < sizeof(conf_keys) / sizeof(conf_keys[0]); i++)
         length += (size_t)snprintf(output + length, capacity - length, "%s = %u\n", conf_keys[i], limit);
     ok = write_file(path, output);
     free(output);

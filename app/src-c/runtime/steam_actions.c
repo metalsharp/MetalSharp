@@ -687,9 +687,30 @@ static void ensure_vkd3d_lane_shader_model(const char* home, bool lane) {
     free(existing);
 }
 
+/* Games Mullion holds to Metal 3 (3.2) shaders on both builds, whatever the macOS: Mullion reads a [program.exe]
+ * section's lines for that program only. Assassin's Creed Black Flag Resynced (ACBlackFlag_Plus.exe is the one
+ * Ubisoft Connect starts) does not run on Mullion's Metal 4 shaders. */
+static const char* const MULLION_METAL3_GAMES[] = {"ACBlackFlag.exe", "ACBlackFlag_Plus.exe"};
+#define MULLION_METAL3_LINE "mullion.shaderMetalVersion = 320"
+
+/* Whether a conf line is the [program.exe] line of a game held to Metal 3 */
+static bool conf_line_is_metal3_game(const char* line) {
+    line += strspn(line, " \t");
+    if (*line++ != '[')
+        return false;
+    for (size_t i = 0; i < sizeof(MULLION_METAL3_GAMES) / sizeof(MULLION_METAL3_GAMES[0]); i++) {
+        size_t length = strlen(MULLION_METAL3_GAMES[i]);
+        if (!strncmp(line, MULLION_METAL3_GAMES[i], length) && line[length] == ']' &&
+            line[length + 1 + strspn(line + length + 1, " \t\r")] == '\0')
+            return true;
+    }
+    return false;
+}
+
 /* DXMT (the regular build's lane from the bundles) is held to Metal 3.1 shaders. Mullion picks its own (Metal 4 where
  * macOS and the GPU have it), except below macOS 27, where it is held to Metal 3.2 on both builds; elsewhere
- * a forced version is taken out of mullion.conf. */
+ * a forced version is taken out of mullion.conf. MetalSharp's lines go before the first [program.exe] section, and
+ * the sections of the games held to Metal 3 last (Mullion's only, taken out on DXMT). */
 static void ensure_dxmt_shader_metal_version(const char* home) {
     bool mullion = ms_wine_dxmt_lane_is_mullion(home);
     bool mullion_metal_320 = mullion && ms_host_before_macos27();
@@ -719,6 +740,7 @@ static void ensure_dxmt_shader_metal_version(const char* home) {
     }
     if (file) {
         bool wrote_feature_level = false, wrote_shader_version = false;
+        bool in_section = false, in_metal3_game = false;
         char* cursor = existing;
         while (cursor && *cursor) {
             char* line = cursor;
@@ -731,7 +753,25 @@ static void ensure_dxmt_shader_metal_version(const char* home) {
                 cursor = NULL;
             while (*key == ' ' || *key == '\t')
                 key++;
-            if (!strncmp(key, "d3d11.maxFeatureLevel", 21) && (key[21] == ' ' || key[21] == '\t' || key[21] == '=')) {
+            if (*key == '[') {
+                /* the global lines end at the first section: MetalSharp's go there */
+                if (!in_section) {
+                    if (!wrote_feature_level)
+                        fputs("d3d11.maxFeatureLevel = 12_1\n", file);
+                    if (!wrote_shader_version)
+                        write_shader_metal_version(file, mullion, mullion_metal_320);
+                    wrote_feature_level = wrote_shader_version = in_section = true;
+                }
+                /* a Metal 3 game's section is written again at the end */
+                in_metal3_game = conf_line_is_metal3_game(key);
+                if (!in_metal3_game)
+                    fprintf(file, "%s\n", line);
+            } else if (in_metal3_game && conf_line_sets(key, "mullion.shaderMetalVersion")) {
+                continue;
+            } else if (in_section) {
+                fprintf(file, "%s\n", line);
+            } else if (!strncmp(key, "d3d11.maxFeatureLevel", 21) &&
+                       (key[21] == ' ' || key[21] == '\t' || key[21] == '=')) {
                 if (!wrote_feature_level)
                     fputs("d3d11.maxFeatureLevel = 12_1\n", file);
                 wrote_feature_level = true;
@@ -749,6 +789,8 @@ static void ensure_dxmt_shader_metal_version(const char* home) {
             fputs("d3d11.maxFeatureLevel = 12_1\n", file);
         if (!wrote_shader_version)
             write_shader_metal_version(file, mullion, mullion_metal_320);
+        for (size_t i = 0; mullion && i < sizeof(MULLION_METAL3_GAMES) / sizeof(MULLION_METAL3_GAMES[0]); i++)
+            fprintf(file, "[%s]\n" MULLION_METAL3_LINE "\n", MULLION_METAL3_GAMES[i]);
         if (fclose(file) == 0) {
             if (rename(temp, path) != 0)
                 unlink(temp);
