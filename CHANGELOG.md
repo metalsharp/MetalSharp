@@ -13,6 +13,7 @@
 - **Keyboard navigation in the library's Steam Deck layout (#771)** — on the Play view, Left/Right (or A/D) move between cards, Up/Down (or W/S) a dock's worth of cards, Home/End to the first and last, and Enter plays the selected game (it doesn't stop a running one). Escape closes the open menu. A focused search field keeps its keys.
 - **Back to Play from a Sharp Library collection (#771)** — the Windows Programs, GOG and Epic collections have a "⌂ Back to Play" button in their header, like Steam's collection, which returns to the page's Steam Deck layout without switching pages.
 - **Play time for Windows programs (#771)** — the backend times each run of a Windows program it launched or tracks, adding it to the program's `playtime_seconds` in `~/.metalsharp/sharp-library/library.json` when the program exits or is stopped, and setting its `last_played_at`; `/sharp-library/running` reports when each run `started`. The Steam Deck layout's hero shows "Played 2h 5m" for these programs, and for Steam games from their Steam play time. Game Jolt, GOG and Epic games aren't timed yet.
+- **Cards in your own order (#771)** — the selected card's [...] menu in the Steam Deck layout has Move left and Move right (Shift+Left/Right or Shift+A/D do the same), on every library page. Once you move a card the page keeps your order (`cardOrder` in `~/.metalsharp/gpui-ui-state.json`); games added later go after the ones you placed, most recent first. Reset order goes back to the usual most-recently-played order.
 
 ## v1.2.0 — 2026-11-13
 

@@ -3414,8 +3414,8 @@ impl MetalSharpApp {
                     this.select_game(index, cx);
                     cx.notify();
                 }))
-                // [...] on the selected Sharp Library card: its own art.
-                .children((selected_card && card_game.art_key.is_some()).then(|| {
+                // [...] on the selected card: its place in the dock, and a Sharp Library entry's own art.
+                .children(selected_card.then(|| {
                     div()
                         .absolute()
                         .top(px(layout.scaled(8.0)))
@@ -3844,6 +3844,15 @@ impl MetalSharpApp {
         if self.play_keys_blocked() {
             return false;
         }
+        if modifiers.shift {
+            let delta = match keystroke.key.as_str() {
+                "left" | "a" => -1,
+                "right" | "d" => 1,
+                _ => return false,
+            };
+            self.move_card(delta, cx);
+            return true;
+        }
         let page = DOCK_VISIBLE_CARDS as isize;
         let step = match keystroke.key.as_str() {
             "left" | "a" => -1,
@@ -3852,7 +3861,7 @@ impl MetalSharpApp {
             "down" | "s" => page,
             "home" => isize::MIN / 2,
             "end" => isize::MAX / 2,
-            "enter" if !modifiers.shift => {
+            "enter" => {
                 let Some(game) = self.featured_game() else {
                     return false;
                 };
@@ -3868,6 +3877,67 @@ impl MetalSharpApp {
         };
         self.step_selection(step, cx);
         true
+    }
+
+    /// Where the featured card can move: (left, right), among the cards the search shows.
+    fn card_moves(&self) -> (bool, bool) {
+        let matches = self.matching_games();
+        let Some(game) = self.featured_game() else {
+            return (false, false);
+        };
+        match matches
+            .iter()
+            .position(|index| self.games[*index].key() == game.key())
+        {
+            Some(position) => (position > 0, position + 1 < matches.len()),
+            None => (false, false),
+        }
+    }
+
+    /// Move the featured card one place left (-1) or right (1) among the cards the search shows. The
+    /// page then keeps its own order (gpui-ui-state.json's cardOrder) until Reset order.
+    fn move_card(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let Some(game) = self.featured_game() else {
+            return;
+        };
+        let matches = self.matching_games();
+        let Some(position) = matches
+            .iter()
+            .position(|index| self.games[*index].key() == game.key())
+        else {
+            return;
+        };
+        let target = position as isize + delta;
+        if target < 0 || target as usize >= matches.len() {
+            return;
+        }
+        let (from, to) = (matches[position], matches[target as usize]);
+        let mut order: Vec<u64> = self.games.iter().map(|game| game.appid).collect();
+        order.swap(from, to);
+        self.live
+            .card_order
+            .insert(self.page.storage_id().to_owned(), order);
+        self.selected_game = from;
+        self.rebuild_display_games(cx);
+        self.select_game(self.selected_game, cx);
+        self.save_ui_state(cx);
+        cx.notify();
+    }
+
+    /// Back to the page's usual order: the most recently played or downloaded first.
+    fn reset_card_order(&mut self, cx: &mut Context<Self>) {
+        if self
+            .live
+            .card_order
+            .remove(self.page.storage_id())
+            .is_none()
+        {
+            return;
+        }
+        self.rebuild_display_games(cx);
+        self.select_game(self.selected_game, cx);
+        self.save_ui_state(cx);
+        cx.notify();
     }
 
     /// The game the hero shows: the selection, or the first search match when the search hides it.
@@ -4135,11 +4205,17 @@ impl MetalSharpApp {
                 .child(label)
         };
         let (card_game, hero_game, reset_game) = (game.clone(), game.clone(), game.clone());
+        let art = game.art_key.is_some();
         let uninstall_game = (matches!(game.page(), LibraryPage::Gog | LibraryPage::Epic)
             && game.installed
             && !game.needs_install
             && game.external_id.is_some())
         .then(|| game.clone());
+        let (left, right) = self.card_moves();
+        let ordered = self.live.card_order.contains_key(self.page.storage_id());
+        let order_item = |id: &'static str, label: &'static str, enabled: bool| {
+            item(id, label).opacity(if enabled { 1.0 } else { 0.4 })
+        };
         div()
             .absolute()
             .top(px(layout.scaled(48.0)))
@@ -4155,18 +4231,22 @@ impl MetalSharpApp {
             .shadow_lg()
             .p(px(5.0))
             .occlude()
-            .child(item("art-menu-card", "Set card art…").on_click(cx.listener(
-                move |this, _, _, cx| {
-                    this.art_menu = None;
-                    this.pick_custom_art(card_game.clone(), false, cx);
-                },
-            )))
-            .child(item("art-menu-hero", "Set hero art…").on_click(cx.listener(
-                move |this, _, _, cx| {
-                    this.art_menu = None;
-                    this.pick_custom_art(hero_game.clone(), true, cx);
-                },
-            )))
+            .children(art.then(|| {
+                item("art-menu-card", "Set card art…").on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        this.art_menu = None;
+                        this.pick_custom_art(card_game.clone(), false, cx);
+                    },
+                ))
+            }))
+            .children(art.then(|| {
+                item("art-menu-hero", "Set hero art…").on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        this.art_menu = None;
+                        this.pick_custom_art(hero_game.clone(), true, cx);
+                    },
+                ))
+            }))
             .children(custom.then(|| {
                 item("art-menu-reset", "Use original art").on_click(cx.listener(
                     move |this, _, _, cx| {
@@ -4175,20 +4255,46 @@ impl MetalSharpApp {
                     },
                 ))
             }))
-            .child(
+            .children(art.then(|| {
                 item("art-menu-collection", "Settings in Collection…").on_click(cx.listener(
                     |this, _, _, cx| {
                         this.art_menu = None;
                         this.set_page_collection(true, cx);
                     },
-                )),
-            )
+                ))
+            }))
             .children(uninstall_game.map(|game| {
                 item("art-menu-uninstall", "Uninstall…").on_click(cx.listener(
                     move |this, _, _, cx| {
                         this.art_menu = None;
                         this.game_uninstall_prompt = Some(game.clone());
                         cx.notify();
+                    },
+                ))
+            }))
+            .child(
+                order_item("art-menu-move-left", "Move left", left).on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        if left {
+                            this.move_card(-1, cx);
+                        }
+                    },
+                )),
+            )
+            .child(
+                order_item("art-menu-move-right", "Move right", right).on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        if right {
+                            this.move_card(1, cx);
+                        }
+                    },
+                )),
+            )
+            .children(ordered.then(|| {
+                item("art-menu-reset-order", "Reset order").on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.art_menu = None;
+                        this.reset_card_order(cx);
                     },
                 ))
             }))

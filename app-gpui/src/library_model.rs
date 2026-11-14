@@ -393,6 +393,23 @@ pub fn live_games(library: &[LibGame], history: &HashMap<String, i64>) -> Vec<Li
     games
 }
 
+/// A page's own card order over `live_games`' order: the games the user placed come first, in their
+/// places; games added since follow in their usual order.
+pub fn apply_card_order(games: Vec<LibGame>, order: &[u64]) -> Vec<LibGame> {
+    if order.is_empty() {
+        return games;
+    }
+    let mut placed: Vec<Option<LibGame>> = vec![None; order.len()];
+    let mut rest = Vec::new();
+    for game in games {
+        match order.iter().position(|appid| *appid == game.appid) {
+            Some(slot) if placed[slot].is_none() => placed[slot] = Some(game),
+            _ => rest.push(game),
+        }
+    }
+    placed.into_iter().flatten().chain(rest).collect()
+}
+
 /// "Played 2h 5m" for a play time in minutes; None before a minute is played.
 pub fn playtime_label(minutes: u64) -> Option<String> {
     match (minutes / 60, minutes % 60) {
@@ -782,6 +799,21 @@ mod tests {
             game(json!({"appid": 3, "name": "Older", "installed": true, "installed_at": 500}));
         let library = vec![played, downloaded, older];
         assert_eq!(order(&library, &HashMap::new()), [2, 1, 3]);
+    }
+
+    #[test]
+    fn placed_cards_lead_in_their_order_and_new_games_follow() {
+        let games: Vec<LibGame> = [1, 2, 3, 4]
+            .into_iter()
+            .map(|appid| LibGame {
+                appid,
+                ..Default::default()
+            })
+            .collect();
+        let ids = |games: Vec<LibGame>| games.into_iter().map(|g| g.appid).collect::<Vec<_>>();
+        assert_eq!(ids(apply_card_order(games.clone(), &[])), [1, 2, 3, 4]);
+        // 9 was uninstalled; 4 is new since the order was set.
+        assert_eq!(ids(apply_card_order(games, &[3, 9, 1, 2])), [3, 1, 2, 4]);
     }
 
     #[test]

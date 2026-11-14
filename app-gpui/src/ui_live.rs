@@ -158,6 +158,8 @@ pub(super) struct LiveState {
     pub steamcmd_installs: HashMap<u64, Value>,
     pub steamcmd_polling: bool,
     pub play_history: HashMap<String, i64>,
+    /// Each library page's own card order (app ids, by `LibraryPage::storage_id`), set by moving cards.
+    pub card_order: HashMap<String, Vec<u64>>,
     watch_in_flight: bool,
     health_started: bool,
     steamapps_signature: Option<Vec<(String, u64)>>,
@@ -264,6 +266,7 @@ impl Default for LiveState {
             steamcmd_installs: HashMap::new(),
             steamcmd_polling: false,
             play_history: HashMap::new(),
+            card_order: HashMap::new(),
             watch_in_flight: false,
             health_started: false,
             steamapps_signature: None,
@@ -346,6 +349,15 @@ impl MetalSharpApp {
                 .filter_map(|(k, v)| v.as_i64().map(|v| (k.clone(), v)))
                 .collect();
         }
+        if let Some(order) = value.get("cardOrder").and_then(Value::as_object) {
+            self.live.card_order = order
+                .iter()
+                .filter_map(|(page, ids)| {
+                    let ids: Vec<u64> = ids.as_array()?.iter().filter_map(Value::as_u64).collect();
+                    (!ids.is_empty()).then(|| (page.clone(), ids))
+                })
+                .collect();
+        }
         if let Some(theme) = value.get("theme").and_then(Value::as_str) {
             if let Some(found) = PreviewTheme::ALL.iter().find(|t| t.storage_id() == theme) {
                 self.theme = *found;
@@ -418,6 +430,7 @@ impl MetalSharpApp {
         let Some(live) = Live::get(cx) else { return };
         let state = json!({
             "playHistory": self.live.play_history,
+            "cardOrder": self.live.card_order,
             "theme": self.theme.storage_id(),
             "language": self.selected_language,
             "developerMode": self.developer_mode,
@@ -1251,7 +1264,14 @@ impl MetalSharpApp {
             .filter(|game| game.on_page(page))
             .cloned()
             .collect();
-        let games = library_model::live_games(&library, &self.live.play_history);
+        let games = library_model::apply_card_order(
+            library_model::live_games(&library, &self.live.play_history),
+            self.live
+                .card_order
+                .get(page.storage_id())
+                .map(Vec::as_slice)
+                .unwrap_or_default(),
+        );
         let previous = self.selected_key();
         self.games = games;
         if let Some(key) = previous {
