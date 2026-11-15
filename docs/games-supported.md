@@ -7,7 +7,6 @@ Games confirmed playable by users or the developer, grouped by launch route. Man
 
 | Source | Tested game | Route |
 |---|---|---|
-
 | GOG | Fall of Porcupine: Prologue | Mullion |
 | GOG | SpaceEngine | OpenGL |
 | Ubisoft Connect | Assassin's Creed; Black Flag Resented | D3DMetal / Mullion |
