@@ -153,7 +153,7 @@ def check_workflows() -> None:
         if forbidden in pr:
             fail(f"PR CI should not run the full DMG build path: {forbidden}")
 
-    for required in ["Shell CI", "Metal CI", "C/C++/Obj-C CI", "DMG Workflow CI"]:
+    for required in ["Shell CI", "C/C++/Obj-C CI", "DMG Workflow CI"]:
         if required not in main:
             fail(f"main CI missing validation job: {required}")
     for workflow_name, workflow in [("PR CI", pr), ("main CI", main)]:

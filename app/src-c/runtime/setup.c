@@ -624,30 +624,10 @@ static void precompile_fna_shims(const char* home) {
         free(source);
         free(destination);
     }
-    const char* bundled[] = {"xaudio2_9.dylib", "xinput1_4.dylib"};
-    for (size_t i = 0; i < sizeof(bundled) / sizeof(bundled[0]); i++) {
-        char* destination = join_path(dir, bundled[i]);
-        char* source_dir = join_path(home, "scripts/tools/native");
-        char* source = source_dir ? join_path(source_dir, bundled[i]) : NULL;
-        if ((!source || !file_nonempty(source)) && source_dir) {
-            free(source);
-            source = join_path(home, "runtime/shims");
-            char* candidate = source ? join_path(source, bundled[i]) : NULL;
-            free(source);
-            source = candidate;
-        }
-        if (source && destination && file_nonempty(source) && !file_nonempty(destination))
-            (void)copy_file_path(source, destination);
-        free(destination);
-        free(source_dir);
-        free(source);
-    }
     const struct {
         const char* output;
         const char* aliases[3];
-    } links[] = {{"xaudio2_9.dylib", {"xaudio2_8.dylib", "xaudio2_7.dylib", NULL}},
-                 {"xinput1_4.dylib", {"xinput1_3.dylib", "xinput9_1_0.dylib", NULL}},
-                 {"libFAudio.0.dylib", {"libFAudio.dylib", NULL, NULL}}};
+    } links[] = {{"libFAudio.0.dylib", {"libFAudio.dylib", NULL, NULL}}};
     for (size_t i = 0; i < sizeof(links) / sizeof(links[0]); i++) {
         char* output = join_path(dir, links[i].output);
         if (!output || !file_nonempty(output)) {

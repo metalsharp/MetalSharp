@@ -5,7 +5,6 @@ import os
 import shutil
 import stat
 import subprocess
-import sys
 import tarfile
 import tempfile
 from pathlib import Path
@@ -246,41 +245,6 @@ def build_staging(tmp: Path) -> dict[str, Path]:
     copy_tree(APP_DIR / "native" / "host", roots["runtime"] / "host")
     require_host_runtime(roots["runtime"] / "host")
 
-    # Validate native shim dylibs are real binaries, not zero-byte placeholders.
-    # `require_file` already checks `is_file() and st_size == 0`, so this guards
-    # against the legacy `prepare-native-placeholders.sh` stub files slipping
-    # into the scripts-tools bundle when CMake post-build copy did not run.
-    # We validate only the platform-specific extension set so the bundle can
-    # be produced on the host that built the artifacts (macOS .dylib, Linux
-    # .so, Windows .dll). Cross-platform binaries (metalsharp, metalsharp_launcher)
-    # are always required.
-    native_dylibs = [
-        "d3d11.dylib",
-        "d3d12.dylib",
-        "dxgi.dylib",
-        "xaudio2_9.dylib",
-        "xinput1_4.dylib",
-        "opengl32.dylib",
-    ]
-    native_so = [
-        "d3d11.so",
-        "d3d12.so",
-        "dxgi.so",
-        "xaudio2_9.so",
-        "xinput1_4.so",
-    ]
-    native_dll = [name.replace(".so", ".dll") for name in native_so]
-    native_binaries = ["metalsharp", "metalsharp_launcher"]
-    if sys.platform == "darwin":
-        platform_shlibs = native_dylibs
-    elif sys.platform.startswith("linux"):
-        platform_shlibs = native_so
-    elif sys.platform in ("win32", "cygwin", "msys"):
-        platform_shlibs = native_dll
-    else:
-        platform_shlibs = native_dylibs + native_so
-    for name in platform_shlibs + native_binaries:
-        require_file(APP_DIR / "native" / name, f"native shim {name}")
     require_file(
         PROJECT_ROOT / "lib" / "metalsharp" / "x86_64-windows" / "metalsharp_ntdll_hook.dll",
         "MetalSharp ntdll hook DLL",

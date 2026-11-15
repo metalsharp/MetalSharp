@@ -219,7 +219,7 @@ Steam bottles infer needs from `_CommonRedist`, `CommonRedist`, and `installscri
 | Native Mono ARM64 | `runtime/mono-arm64/bin/mono` | 6.14.1 | Terraria-style FNA games |
 | Native Mono x86_64 | `runtime/mono-x86/bin/mono` | 6.12.0 | Celeste-style legacy FNA games (Rosetta) |
 
-The route stages FNA/XNA assemblies, native FNA3D/FAudio/SDL/Steam libraries, FMOD stubs, `steam_appid.txt`, Steamworks shims, and dllmap shims (`libkernel32.dylib`, `libuser32.dylib`, `libCarbon.dylib`, Carbon interpose, `xaudio2_9.dylib`, `xinput1_4.dylib`). Component names `fna_arm64`, `fna_x86`, `mono-arm64`, `mono-x86` stay internal.
+The route stages FNA/XNA assemblies, native FNA3D/FAudio/SDL/Steam libraries, FMOD stubs, `steam_appid.txt`, Steamworks shims, and dllmap shims (`libkernel32.dylib`, `libuser32.dylib`, `libCarbon.dylib`, Carbon interpose). Component names `fna_arm64`, `fna_x86`, `mono-arm64`, `mono-x86` stay internal.
 
 Shim sources live in `src/fna/shims/`:
 
@@ -243,17 +243,9 @@ Shims read `METALSHARP_MONO_LIB`, `METALSHARP_MONO_ROOT`, `METALSHARP_MONO_ASSEM
 
 | Area | Source | Status |
 |---|---|---|
-| D3D11/DXGI and D3D9 Wine unix bridges | `src/wine/*_pe.cpp`, `metalsharp_unix.mm`, `d3d9_unix.mm` | stable (the model for the ABI) |
-| CoreAudio (XAudio2/DirectSound) | `src/audio/` | stable |
-| GameController (XInput) | `src/input/` | stable |
-| PE loader and Win32 shims | `src/loader/`, `src/win32/kernel32/` | stable |
 | Steam bridge, kernel32/user32 shims | `src/fna/shims/steam_shim.c`, `kernel32_shim.c`, `user32_shim.c` | prototype |
-| Mono unixlib bridge | `src/wine/mscoree_unix.c` | prototype |
 | Runtime deploy glue | `app/src-c/runtime/steam_actions.c`, `setup.c` | prototype |
 | Steamworks offline, Carbon, FMOD shims | `src/fna/shims/` (`METALSHARP_FNA_STEAM_PASSTHROUGH=1` for native passthrough) | game-specific |
-| Anti-cheat database | `AntiCheatDB.h`, `src/runtime/DRMDetector.cpp` | diagnostic |
-
-**Darwin sync map** (`src/runtime/host/DarwinSyncMap.cpp`): Event, Semaphore, Mutex, CriticalSection, and in-process WaitAny map to pthread/dispatch primitives and ship. WaitAll, a `ulock` futex, and NtSync (no macOS `/dev/ntsync`) are not ready.
 
 ## Vendor Trust Kit
 

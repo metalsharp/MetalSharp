@@ -42,8 +42,6 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Download and verify release split bundles
         run: METALSHARP_REPAIR_BUNDLES=0 METALSHARP_REQUIRE_X87SIDECAR=1 tools/dmg/create-bundles.sh
@@ -118,8 +116,6 @@ jobs:
       METALSHARP_WINE_TAG: v7.0
     steps:
       - uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -129,15 +125,10 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           tools/release/set-version.sh "$VERSION"
 
-      - name: Build C++ engine
+      - name: Build host runtime
         run: |
-          mkdir -p build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
-          cmake --build . --parallel $(sysctl -n hw.ncpu)
-          mkdir -p ../app/native
-          cp libd3d11.dylib libd3d12.dylib libdxgi.dylib libxaudio2_9.dylib libxinput1_4.dylib libopengl32.dylib ../app/native/ 2>/dev/null || true
-          cp metalsharp metalsharp_launcher MetalSharpMigrator ../app/native/ 2>/dev/null || true
-          cd ..
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+          cmake --build build --target metalsharp_host_runtime --parallel $(sysctl -n hw.ncpu)
           METALSHARP_BUILD_DIR="$PWD/build" tools/package/create-host-runtime.sh
 
       - name: Build C backend
@@ -199,15 +190,12 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
-      - name: Adhoc-sign native binaries for unsigned local packaging
+      - name: Adhoc-sign the host runtime for unsigned local packaging
         run: |
           if [ -n "${CSC_KEYCHAIN:-}" ]; then
             echo "Developer ID signing enabled; skipping ad-hoc pre-sign."
             exit 0
           fi
-          for f in app/native/*.dylib app/native/metalsharp app/native/metalsharp_launcher; do
-            codesign --force --sign - "$f" 2>/dev/null || true
-          done
           find app/native/host -type f \( -name '*.dylib' -o -name '*.so' \) -print0 | xargs -0 -I{} codesign --force --sign - "{}" 2>/dev/null || true
 
       - name: Package GPUI app
@@ -320,8 +308,6 @@ jobs:
       METALSHARP_VARIANT: fex
     steps:
       - uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -359,15 +345,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build C++ engine
+      - name: Build host runtime
         run: |
-          mkdir -p build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
-          cmake --build . --parallel $(sysctl -n hw.ncpu)
-          mkdir -p ../app/native
-          cp libd3d11.dylib libd3d12.dylib libdxgi.dylib libxaudio2_9.dylib libxinput1_4.dylib libopengl32.dylib ../app/native/ 2>/dev/null || true
-          cp metalsharp metalsharp_launcher MetalSharpMigrator ../app/native/ 2>/dev/null || true
-          cd ..
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+          cmake --build build --target metalsharp_host_runtime --parallel $(sysctl -n hw.ncpu)
           METALSHARP_BUILD_DIR="$PWD/build" tools/package/create-host-runtime.sh
 
       - name: Build C backend (FEX)
@@ -399,15 +380,12 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
-      - name: Adhoc-sign native binaries for unsigned local packaging
+      - name: Adhoc-sign the host runtime for unsigned local packaging
         run: |
           if [ -n "${CSC_KEYCHAIN:-}" ]; then
             echo "Developer ID signing enabled; skipping ad-hoc pre-sign."
             exit 0
           fi
-          for f in app/native/*.dylib app/native/metalsharp app/native/metalsharp_launcher; do
-            codesign --force --sign - "$f" 2>/dev/null || true
-          done
           find app/native/host -type f \( -name '*.dylib' -o -name '*.so' \) -print0 | xargs -0 -I{} codesign --force --sign - "{}" 2>/dev/null || true
 
       - name: Package FEX GPUI app

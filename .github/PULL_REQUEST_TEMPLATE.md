@@ -41,7 +41,7 @@
 > Run locally before pushing. All of these also run automatically in CI.
 
 - [ ] C backend builds and tests: `make -C app/src-c test`
-- [ ] C++ compiles if changed: `cmake -B build-native -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON && cmake --build build-native --parallel $(sysctl -n hw.ncpu)`
+- [ ] Host runtime builds if changed: `cmake -B build-native -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON && cmake --build build-native`
 - [ ] `clang-format --dry-run --Werror` passes on any changed C/C++/Obj-C file
 - [ ] `ctest --test-dir build-native` passes if tests changed
 - [ ] GPUI app builds and tests if changed: `cd app-gpui && cargo fmt --check && cargo test`

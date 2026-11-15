@@ -3,18 +3,9 @@
 app/src-c/ @aaf2tbz
 app-gpui/ @aaf2tbz
 
-src/d3d/ @aaf2tbz
-src/dxgi/ @aaf2tbz
-src/metal/ @aaf2tbz
-src/audio/ @aaf2tbz
-src/shader/ @aaf2tbz
-src/perf/ @aaf2tbz
 src/runtime/ @aaf2tbz
 src/wine/ @aaf2tbz
-src/win32/ @aaf2tbz
-src/steam/ @aaf2tbz
-src/loader/ @aaf2tbz
-src/input/ @aaf2tbz
+src/ntdll-hook/ @aaf2tbz
 src/fna/ @aaf2tbz
 
 include/ @aaf2tbz

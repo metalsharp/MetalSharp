@@ -32,8 +32,6 @@ jobs:
       CARGO_BUILD_JOBS: '3'
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -57,7 +55,7 @@ jobs:
         run: make -C app/src-c
       - name: Verify connected startup and shutdown in a fresh isolated home
         run: cargo test --locked --manifest-path app-gpui/Cargo.toml backend_host::tests -- --ignored
-      - name: Build C++ host runtime for packaging
+      - name: Build host runtime for packaging
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
           cmake --build build --target metalsharp_host_runtime --parallel 3

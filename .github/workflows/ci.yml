@@ -52,30 +52,11 @@ jobs:
       - name: Check doc freshness (warn-only)
         run: python3 tools/ci/check-doc-freshness.py
 
-  metal:
-    name: Metal CI
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: recursive
-
-      - name: Configure
-        run: cmake -S . -B build-metal -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
-
-      - name: Build
-        run: cmake --build build-metal --parallel $(sysctl -n hw.ncpu)
-
-      - name: Metal tests
-        run: ctest --test-dir build-metal --output-on-failure -R '^(metal_device|dxbc|format_translation|phase17)$'
-
   native:
     name: C/C++/Obj-C CI
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Install native test tools
         run: brew install clang-format zstd unar
@@ -126,7 +107,6 @@ jobs:
         run: |
           find src include tests tools \
             \( -name '*.c' -o -name '*.cpp' -o -name '*.h' -o -name '*.mm' \) \
-            -not -path 'src/wine/mojoshader/*' \
             -not -path 'tools/d3d12-metal-sdk/cache/*' \
             -print0 | xargs -0 clang-format --dry-run --Werror
 
@@ -137,7 +117,7 @@ jobs:
         run: cmake --build build-native --parallel $(sysctl -n hw.ncpu)
 
       - name: Runtime tests
-        run: ctest --test-dir build-native --output-on-failure -E '^(metal_device|dxbc|format_translation|phase17)$'
+        run: ctest --test-dir build-native --output-on-failure
 
       - name: Host ABI package smoke
         run: |
