@@ -6729,6 +6729,12 @@ static void set_direct_game_env(const char* home, const char* prefix, unsigned i
      * whose GameOverlayRenderer64.dll crashes its D3D12 device (E_ABORT, "graphics device crashed").
      * The override keeps the overlay out of this game only; moving the DLL aside took it from every
      * game, and Steam puts it back when it restarts. */
+    /* Counter-Strike 2 on D3DMetal: with its fullscreen window keeping the cursor in it (MetalSharp Wine confines the
+     * cursor to a game's fullscreen window), it gets no mouse movement once a match starts; on Mullion it does. A
+     * Cmd+left click on the window, which releases that confinement, brings the mouse back, so its launches start
+     * with it off (METALSHARP_CONFINE_CURSOR=0); CS2 keeps the cursor in its window itself. */
+    if (id == 730 && !strcmp(env_pipeline, "d3dmetal"))
+        setenv("METALSHARP_CONFINE_CURSOR", "0", 1);
     if ((ms_wine_is_fex() || x86_64_metalsharp_wine()) && id == 2322010) {
         const char* overrides = getenv("WINEDLLOVERRIDES");
         char combined[1024];
