@@ -958,6 +958,21 @@ static void test_metalfx_route_env(const char* home) {
     }
 }
 
+/* Counter-Strike 2 on D3DMetal starts without MetalSharp Wine's fullscreen cursor confinement, which leaves it no
+ * mouse movement in a match; other lanes and games keep it. */
+static void test_cs2_d3dmetal_cursor(const char* home) {
+    char prefix[PATH_MAX];
+    snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
+    unsetenv("METALSHARP_CONFINE_CURSOR");
+    set_direct_game_env(home, prefix, 730, "d3dmetal", "d3dmetal", NULL);
+    assert(getenv("METALSHARP_CONFINE_CURSOR") && !strcmp(getenv("METALSHARP_CONFINE_CURSOR"), "0"));
+    unsetenv("METALSHARP_CONFINE_CURSOR");
+    set_direct_game_env(home, prefix, 730, "dxmt", "dxmt", NULL);
+    assert(!getenv("METALSHARP_CONFINE_CURSOR"));
+    set_direct_game_env(home, prefix, 570, "d3dmetal", "d3dmetal", NULL);
+    assert(!getenv("METALSHARP_CONFINE_CURSOR"));
+}
+
 int main(int argc, char** argv) {
     if (argc >= 2 && !strcmp(argv[1], "--wine-exe-probe")) {
         for (;;)
@@ -998,6 +1013,7 @@ int main(int argc, char** argv) {
     test_wine_sdl_link(home);
     test_steamwebhelper_update(home);
     test_steam_shortcuts();
+    test_cs2_d3dmetal_cursor(home);
     test_wine_steam_logon_log(home);
     ms_steam_apply_graphics_route(home, "d3dmetal");
     assert(strstr(getenv("WINEDLLPATH"), "runtime/d3dmetal-gptk4-beta2/wine/x86_64-windows"));
