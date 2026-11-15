@@ -4,6 +4,7 @@
 #include "../runtime/epic.c"
 #include "../runtime/ubisoft.c"
 #include "metalsharp_backend/metalfx.h"
+#include "metalsharp_backend/frame_rate.h"
 #include "metalsharp_backend/rosetta.h"
 #include "metalsharp_backend/config.h"
 #include "metalsharp_backend/setup.h"
@@ -913,9 +914,48 @@ static void test_metalfx_route_env(const char* home) {
     }
     ms_steam_apply_graphics_route(home, "vkd3d");
     assert(dxmt_conf_has(home, "d3d11.metalSpatialUpscaleFactor = 1.00"));
-    assert(dxmt_conf_has(home, "d3d11.preferredMaxFrameRate = 60"));
+    /* That mullion.conf's D3D11 limit alone is the default a runtime ships, not the user's: no limit, for D3D11
+     * and D3D12 alike. */
+    assert(ms_frame_rate_limit(home, "dxmt") == 0);
+    assert(dxmt_conf_has(home, "d3d11.preferredMaxFrameRate = 0"));
+    assert(dxmt_conf_has(home, "d3d12.preferredMaxFrameRate = 0"));
     response = ms_metalfx_set_json(home, (const unsigned char*)on, strlen(on));
     free(response);
+    /* A limit the user sets reaches both, and the next launch writes it into the other runtime's mullion.conf
+     * (its own default, here) after a switch. */
+    {
+        static const char limit30[] = "{\"pipeline\":\"dxmt\",\"fps\":30}";
+        static const char off_limit[] = "{\"pipeline\":\"dxmt\",\"fps\":0}";
+        char path[PATH_MAX];
+        int status = 0;
+        FILE* file;
+        response = ms_frame_rate_set_json(home, (const unsigned char*)limit30, strlen(limit30), &status);
+        assert(status == 200 && response && strstr(response, "\"dxmt\":30"));
+        free(response);
+        assert(dxmt_conf_has(home, "d3d11.preferredMaxFrameRate = 30"));
+        assert(dxmt_conf_has(home, "d3d12.preferredMaxFrameRate = 30"));
+        snprintf(path, sizeof(path), "%s/runtime/wine/etc/mullion.conf", home);
+        file = fopen(path, "wb");
+        assert(file);
+        fputs("d3d11.metalSpatialUpscaleFactor = 1.00\nd3d11.preferredMaxFrameRate = 60\n", file);
+        fclose(file);
+        assert(ms_frame_rate_limit(home, "dxmt") == 30);
+        ms_steam_apply_graphics_route(home, "dxmt");
+        assert(dxmt_conf_has(home, "d3d11.preferredMaxFrameRate = 30"));
+        assert(dxmt_conf_has(home, "d3d12.preferredMaxFrameRate = 30"));
+        assert(!dxmt_conf_has(home, "= 60"));
+        /* Off is none for both, whatever the runtime shipped. */
+        response = ms_frame_rate_set_json(home, (const unsigned char*)off_limit, strlen(off_limit), &status);
+        assert(status == 200);
+        free(response);
+        file = fopen(path, "wb");
+        assert(file);
+        fputs("d3d11.preferredMaxFrameRate = 60\n", file);
+        fclose(file);
+        ms_steam_apply_graphics_route(home, "dxmt");
+        assert(dxmt_conf_has(home, "d3d11.preferredMaxFrameRate = 0"));
+        assert(dxmt_conf_has(home, "d3d12.preferredMaxFrameRate = 0"));
+    }
 }
 
 int main(int argc, char** argv) {

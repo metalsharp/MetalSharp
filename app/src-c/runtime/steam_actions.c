@@ -1101,6 +1101,8 @@ static void set_route_default_env(const char* home, const char* pipeline) {
      * (DXMT upscales only with "1"; WineMetalGL then follows the file).
      * DXMT games' metalsharp_ntdll_hook sets the switch from the toggle. */
     (void)ms_metalfx_sync_conf(home);
+    /* the frame rate limit, D3D11's and D3D12's, in the active runtime's mullion.conf (frame_rate.c) */
+    (void)ms_frame_rate_sync_conf(home);
     if (ms_wine_dxmt_lane_is_mullion(home)) {
         /* Mullion reads MetalFX (d3d11.metalSpatialUpscale and its factor) and the rest from
          * mullion.conf when each game starts; nothing rides in the environment, which a game
