@@ -391,9 +391,88 @@ int main(int argc, char** argv) {
         setenv("METALSHARP_HOME", home, 1);
         setenv("METALSHARP_APP_RESOURCES", resources, 1);
         unsetenv("METALSHARP_WINE_APP_SOURCE");
+        /* A download from another MetalSharp Wine release (an earlier MetalSharp's) is not a source: it is
+         * downloaded again. One without a version is not either. */
+        found = ms_wine_fex_app_source();
+        EXPECT(found == NULL);
+        snprintf(path, sizeof(path), "%s/Contents", downloaded);
+        mkdir(path, 0755);
+        snprintf(path, sizeof(path), "%s/Contents/Info.plist", downloaded);
+        {
+            FILE* plist = fopen(path, "w");
+            EXPECT(plist != NULL);
+            fprintf(plist, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict>"
+                           "<key>CFBundleShortVersionString</key><string>6.5</string></dict></plist>\n");
+            fclose(plist);
+        }
+        found = ms_wine_fex_app_source();
+        EXPECT(found == NULL);
+        {
+            FILE* plist = fopen(path, "w");
+            EXPECT(plist != NULL);
+            fprintf(plist,
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict>"
+                    "<key>CFBundleShortVersionString</key><string>%s</string></dict></plist>\n",
+                    ms_wine_release_version());
+            fclose(plist);
+        }
         found = ms_wine_fex_app_source();
         EXPECT(found && !strcmp(found, downloaded));
         free(found);
+
+        /* An installed MetalSharp Wine from an earlier release is outdated only while there's nothing of this
+         * release to install from: a switch to it, and the startup refresh, download this release first. */
+        {
+            char installed[PATH_MAX], installed_plist[PATH_MAX], downloaded_plist[PATH_MAX];
+            FILE* plist;
+            snprintf(installed, sizeof(installed), "%s/runtime", home);
+            mkdir(installed, 0755);
+            snprintf(installed, sizeof(installed), "%s/runtime/MetalSharp-Wine.app", home);
+            mkdir(installed, 0755);
+            snprintf(installed_plist, sizeof(installed_plist), "%s/Contents", installed);
+            mkdir(installed_plist, 0755);
+            snprintf(installed_plist, sizeof(installed_plist), "%s/Contents/Info.plist", installed);
+            snprintf(downloaded_plist, sizeof(downloaded_plist), "%s/Contents/Info.plist", downloaded);
+            /* no version: a local build, never outdated */
+            EXPECT(!ms_wine_runtime_outdated(home, "fex"));
+            plist = fopen(installed_plist, "w");
+            EXPECT(plist != NULL);
+            fprintf(plist, "<plist version=\"1.0\"><dict><key>CFBundleShortVersionString</key><string>6.5</string>"
+                           "</dict></plist>\n");
+            fclose(plist);
+            /* this release's download is there: the refresh installs it, nothing to fetch */
+            EXPECT(!ms_wine_runtime_outdated(home, "fex"));
+            EXPECT(ms_wine_fetch_outdated_runtime(home, "fex", NULL, 0));
+            /* only an earlier release's download: outdated */
+            plist = fopen(downloaded_plist, "w");
+            EXPECT(plist != NULL);
+            fprintf(plist, "<plist version=\"1.0\"><dict><key>CFBundleShortVersionString</key><string>6.5</string>"
+                           "</dict></plist>\n");
+            fclose(plist);
+            EXPECT(ms_wine_runtime_outdated(home, "fex"));
+            EXPECT(!ms_wine_runtime_outdated(home, "regular"));
+            /* installed at this release: current */
+            plist = fopen(installed_plist, "w");
+            EXPECT(plist != NULL);
+            fprintf(plist,
+                    "<plist version=\"1.0\"><dict><key>CFBundleShortVersionString</key><string>%s</string>"
+                    "</dict></plist>\n",
+                    ms_wine_release_version());
+            fclose(plist);
+            EXPECT(!ms_wine_runtime_outdated(home, "fex"));
+            unlink(installed_plist);
+            snprintf(installed_plist, sizeof(installed_plist), "%s/Contents", installed);
+            rmdir(installed_plist);
+            rmdir(installed);
+            /* the download at this release again, for what follows */
+            plist = fopen(downloaded_plist, "w");
+            EXPECT(plist != NULL);
+            fprintf(plist,
+                    "<plist version=\"1.0\"><dict><key>CFBundleShortVersionString</key><string>%s</string>"
+                    "</dict></plist>\n",
+                    ms_wine_release_version());
+            fclose(plist);
+        }
         found = ms_app_resources_path("configs");
         snprintf(expected, sizeof(expected), "%s/configs", resources);
         EXPECT(found && !strcmp(found, expected));

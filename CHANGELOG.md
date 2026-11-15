@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **An earlier MetalSharp's downloaded runtime is replaced by this release's** — the runtime a MetalSharp.app doesn't carry (x86_64 on the FEX build, FEX on the x86_64 build) is downloaded into `~/.metalsharp/downloads`, and one from an earlier MetalSharp stayed there and in `runtime/`: after updating to 1.3.0, switching the FEX build to x86_64 kept MetalSharp Wine 6.5, with nothing downloading 7.0.
+  - A downloaded runtime counts as a source only when its version is the MetalSharp Wine release MetalSharp carries (`ms_wine_release_version`).
+  - An installed runtime from an earlier release with nothing of this one to install from is *outdated* (`outdated` in `/runtime/state`). Switching to it downloads this release first ("Update and switch"), as for a runtime that isn't installed, and the backend's next start installs it.
+  - An outdated runtime that is already the active one gets this release's download at the backend's start, then installed by the startup refresh.
+
 ## v1.3.0 — 2026-11-14
 
 MetalSharp 1.3.0 runs on [MetalSharp Wine 7.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v7.0) on both runtimes.
