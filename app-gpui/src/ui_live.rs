@@ -627,6 +627,17 @@ impl MetalSharpApp {
         cx.notify();
     }
 
+    /// Records the backend's runtime from a `/status` reply. The deck pages (Windows programs, GOG,
+    /// Epic, Game Jolt) copy their engine lists and saved lanes when the Sharp Library syncs, so a
+    /// runtime switch (the FEX | x86_64 toggle, or an update to the other build) rebuilds them.
+    fn apply_backend_variant(&mut self, status: &Value, cx: &mut Context<Self>) {
+        if crate::variant::set_from_reply(status)
+            && let Some(sharp) = self.sharp_preview.clone()
+        {
+            self.sync_deck_games(sharp, cx);
+        }
+    }
+
     pub(super) fn check_backend(&mut self, cx: &mut Context<Self>) {
         live::call(
             cx,
@@ -637,7 +648,7 @@ impl MetalSharpApp {
             |this, status, cx| {
                 this.live.backend_connected = status.as_ref().is_some_and(is_ok);
                 if let Some(status) = status.as_ref().filter(|s| is_ok(s)) {
-                    crate::variant::set_from_reply(status);
+                    this.apply_backend_variant(status, cx);
                 }
                 if let Some(version) = status
                     .as_ref()
@@ -820,7 +831,7 @@ impl MetalSharpApp {
             move |this, status, cx| {
                 let connected = alive || status.as_ref().is_some_and(is_ok);
                 if let Some(status) = status.as_ref().filter(|s| is_ok(s)) {
-                    crate::variant::set_from_reply(status);
+                    this.apply_backend_variant(status, cx);
                 }
                 this.live.backend_connected = connected;
                 this.live.backend_version = status
