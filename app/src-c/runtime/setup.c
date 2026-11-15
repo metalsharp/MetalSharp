@@ -2334,6 +2334,11 @@ static bool x86_64_runtime_staged(const char* home) {
 
 bool ms_setup_x86_64_refresh(const char* home, char* error, size_t error_size) {
     bool ok = true;
+    /* an x86_64 app from an earlier release with nothing of this one to install from (the FEX build downloads
+     * MetalSharp-Wine-x86_64.app): this release's download first, which the check below then finds newer */
+    if (!ms_wine_is_fex() && x86_64_runtime_from_app(home) &&
+        !ms_wine_fetch_outdated_runtime(home, "regular", error, error_size))
+        ms_log_event(home, "Could not download MetalSharp Wine (x86_64); keeping the installed one");
     if (!ms_wine_is_fex() && x86_64_runtime_from_app(home) &&
         (!ms_wine_x86_64_app_current(home) || !x86_64_runtime_staged(home))) {
         ms_log_event(home, "Updating MetalSharp Wine (x86_64) from MetalSharp.app...");

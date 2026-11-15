@@ -20,6 +20,9 @@ pub(super) struct RuntimeSwitch {
     pub target: &'static str,
     pub installed: bool,
     pub source: bool,
+    /// Installed from an earlier MetalSharp Wine release, with nothing of this one to install from: a switch
+    /// downloads this release first.
+    pub outdated: bool,
     pub stage: RuntimeStage,
     pub received: u64,
     pub total: u64,
@@ -66,6 +69,7 @@ impl MetalSharpApp {
                     target,
                     installed: flag("installed"),
                     source: flag("source"),
+                    outdated: flag("outdated"),
                     stage: RuntimeStage::Confirm,
                     received: 0,
                     total: 0,
@@ -101,7 +105,7 @@ impl MetalSharpApp {
             return;
         };
         switch.error = None;
-        if switch.installed || switch.source {
+        if (switch.installed && !switch.outdated) || switch.source {
             self.perform_runtime_switch(cx);
             return;
         }
@@ -317,7 +321,15 @@ impl MetalSharpApp {
         let theme = self.theme;
         let text_color = theme.control_text();
         let name = runtime_long_name(switch.target);
-        let (title, body, confirm) = if switch.installed {
+        let (title, body, confirm) = if switch.installed && switch.outdated {
+            (
+                format!("Update and switch to {name}?"),
+                format!(
+                    "The {name} you have is from an earlier MetalSharp. MetalSharp downloads this version's (about 1.5 GB) and switches to it. Steam and any running games close first; your Steam login, games, saves and prefixes carry over."
+                ),
+                "Update and switch",
+            )
+        } else if switch.installed {
             (
                 format!("Switch to {name}?"),
                 "Steam and any running games close first. Your Steam login, games, saves and prefixes carry over; the first start of each prefix after a switch takes a few seconds longer while Wine updates it.".to_owned(),

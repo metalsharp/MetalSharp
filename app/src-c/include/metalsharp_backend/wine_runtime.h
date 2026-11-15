@@ -151,6 +151,13 @@ char* ms_wine_x86_64_app_source(void);
 /* The MetalSharp Wine release this MetalSharp carries and downloads (e.g. "7.0"); a downloaded runtime counts as an
  * app source only when it is that release. */
 const char* ms_wine_release_version(void);
+/* Whether variant's ("fex", "regular") runtime is installed from another MetalSharp Wine release, with nothing of this
+ * one to install from (MetalSharp.app doesn't carry it, and no download of it is there): an earlier MetalSharp
+ * downloaded it. A runtime with no version (a local build) is not. */
+bool ms_wine_runtime_outdated(const char* home, const char* variant);
+/* When variant's runtime is outdated (ms_wine_runtime_outdated): this release's download, which the refreshes install.
+ * True when there was nothing to fetch or the download worked. */
+bool ms_wine_fetch_outdated_runtime(const char* home, const char* variant, char* error, size_t error_size);
 bool ms_wine_x86_64_app_contents(const char* home, char* out, size_t out_size);
 bool ms_wine_x86_64_install_app(const char* home, char* error, size_t error_size);
 
