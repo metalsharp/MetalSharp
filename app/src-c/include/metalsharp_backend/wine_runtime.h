@@ -148,6 +148,9 @@ unsigned ms_wine_restore_x86_64_prefixes(const char* home, unsigned* without_bac
  * (MetalSharp.app's Resources; $METALSHARP_WINE_X86_64_APP_SOURCE), its installed Contents in runtime/, and its
  * install there (copied while its signature differs, verified, read-only). */
 char* ms_wine_x86_64_app_source(void);
+/* The MetalSharp Wine release this MetalSharp carries and downloads (e.g. "7.0"); a downloaded runtime counts as an
+ * app source only when it is that release. */
+const char* ms_wine_release_version(void);
 bool ms_wine_x86_64_app_contents(const char* home, char* out, size_t out_size);
 bool ms_wine_x86_64_install_app(const char* home, char* error, size_t error_size);
 

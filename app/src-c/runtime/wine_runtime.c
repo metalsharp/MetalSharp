@@ -559,8 +559,35 @@ char* ms_app_resources_path(const char* name) {
     return NULL;
 }
 
+/* The MetalSharp Wine release this MetalSharp carries and downloads. */
+#define MS_WINE_RELEASE_VERSION "7.0"
+
+const char* ms_wine_release_version(void) {
+    return MS_WINE_RELEASE_VERSION;
+}
+
+/* Whether app's version (CFBundleShortVersionString) is version. */
+static bool app_version_is(const char* app, const char* version) {
+    char command[PATH_MAX * 2], found[64] = "";
+    size_t used;
+    FILE* pipe;
+    if ((size_t)snprintf(
+            command, sizeof(command),
+            "/usr/bin/plutil -extract CFBundleShortVersionString raw -o - '%s/Contents/Info.plist' 2>/dev/null",
+            app) >= sizeof(command) ||
+        !(pipe = popen(command, "r")))
+        return false;
+    used = fread(found, 1, sizeof(found) - 1, pipe);
+    found[used] = '\0';
+    while (used && (found[used - 1] == '\n' || found[used - 1] == '\r'))
+        found[--used] = '\0';
+    return pclose(pipe) == 0 && !strcmp(found, version);
+}
+
 /* <name> in MetalSharp.app's Resources, else the other build's runtime, which MetalSharp.app does not carry,
- * downloaded (ms_wine_runtime_download); $<override> names another. */
+ * downloaded (ms_wine_runtime_download); $<override> names another. A download from another MetalSharp Wine release
+ * (one an earlier MetalSharp got) is not this one's: it is downloaded again, rather than laid out over the newer
+ * runtime MetalSharp expects. */
 static char* app_source(const char* override_name, const char* name) {
     const char* override = existing_override(override_name);
     char candidate[PATH_MAX], home[PATH_MAX];
@@ -570,7 +597,8 @@ static char* app_source(const char* override_name, const char* name) {
     if ((found = ms_app_resources_path(name)))
         return found;
     if (metalsharp_home(home, sizeof(home)) &&
-        format_path(candidate, sizeof(candidate), "%s/downloads/%s", home, name) && access(candidate, R_OK) == 0)
+        format_path(candidate, sizeof(candidate), "%s/downloads/%s", home, name) && access(candidate, R_OK) == 0 &&
+        app_version_is(candidate, MS_WINE_RELEASE_VERSION))
         return strdup(candidate);
     return NULL;
 }
@@ -1789,7 +1817,6 @@ char* ms_wine_uninstall_runtime_json(const char* home, const char* body, size_t 
  * $METALSHARP_RUNTIME_URL_REGULAR override it), unpacked into <home>/downloads, where setup takes it from
  * (app_source). Never MetalSharp's old runtime bundles. */
 
-#define MS_WINE_RELEASE_VERSION "7.0"
 #define RUNTIME_RELEASE_URL "https://github.com/metalsharp/MetalSharp-Wine/releases/download/v" MS_WINE_RELEASE_VERSION "/"
 
 typedef struct {

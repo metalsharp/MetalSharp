@@ -391,6 +391,31 @@ int main(int argc, char** argv) {
         setenv("METALSHARP_HOME", home, 1);
         setenv("METALSHARP_APP_RESOURCES", resources, 1);
         unsetenv("METALSHARP_WINE_APP_SOURCE");
+        /* A download from another MetalSharp Wine release (an earlier MetalSharp's) is not a source: it is
+         * downloaded again. One without a version is not either. */
+        found = ms_wine_fex_app_source();
+        EXPECT(found == NULL);
+        snprintf(path, sizeof(path), "%s/Contents", downloaded);
+        mkdir(path, 0755);
+        snprintf(path, sizeof(path), "%s/Contents/Info.plist", downloaded);
+        {
+            FILE* plist = fopen(path, "w");
+            EXPECT(plist != NULL);
+            fprintf(plist, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict>"
+                           "<key>CFBundleShortVersionString</key><string>6.5</string></dict></plist>\n");
+            fclose(plist);
+        }
+        found = ms_wine_fex_app_source();
+        EXPECT(found == NULL);
+        {
+            FILE* plist = fopen(path, "w");
+            EXPECT(plist != NULL);
+            fprintf(plist,
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict>"
+                    "<key>CFBundleShortVersionString</key><string>%s</string></dict></plist>\n",
+                    ms_wine_release_version());
+            fclose(plist);
+        }
         found = ms_wine_fex_app_source();
         EXPECT(found && !strcmp(found, downloaded));
         free(found);
