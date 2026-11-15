@@ -2021,7 +2021,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_runtime.rs",
-          "line": 114,
+          "line": 118,
           "kind": "literal-candidate"
         }
       ],
@@ -2038,7 +2038,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_runtime.rs",
-          "line": 135,
+          "line": 139,
           "kind": "literal-candidate"
         }
       ],
@@ -2071,7 +2071,7 @@
         },
         {
           "file": "app-gpui/src/ui_runtime.rs",
-          "line": 50,
+          "line": 53,
           "kind": "literal-candidate"
         }
       ],
@@ -2088,7 +2088,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_runtime.rs",
-          "line": 189,
+          "line": 193,
           "kind": "literal-candidate"
         }
       ],
@@ -2122,7 +2122,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_runtime.rs",
-          "line": 244,
+          "line": 248,
           "kind": "literal-candidate"
         }
       ],
