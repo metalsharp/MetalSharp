@@ -115,7 +115,7 @@ jobs:
     runs-on: ${{ vars.METALSHARP_RELEASE_RUNNER == 'local' && fromJSON('["self-hosted","macOS","ARM64","metalsharp-release"]') || 'macos-26' }}
     env:
       METALSHARP_WINE_REPO: metalsharp/MetalSharp-Wine
-      METALSHARP_WINE_TAG: v6.5
+      METALSHARP_WINE_TAG: v7.0
     steps:
       - uses: actions/checkout@v7
         with:
@@ -316,7 +316,7 @@ jobs:
     runs-on: ${{ vars.METALSHARP_RELEASE_RUNNER == 'local' && fromJSON('["self-hosted","macOS","ARM64","metalsharp-release"]') || 'macos-26' }}
     env:
       METALSHARP_WINE_REPO: metalsharp/MetalSharp-Wine
-      METALSHARP_WINE_TAG: v6.5
+      METALSHARP_WINE_TAG: v7.0
       METALSHARP_VARIANT: fex
     steps:
       - uses: actions/checkout@v7
