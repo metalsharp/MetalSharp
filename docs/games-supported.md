@@ -9,7 +9,7 @@ Games confirmed playable by users or the developer, grouped by launch route. Man
 |---|---|---|
 | GOG | Fall of Porcupine: Prologue | Mullion |
 | GOG | SpaceEngine | OpenGL |
-| Ubisoft Connect | Assassin's Creed; Black Flag Resented | D3DMetal / Mullion |
+| Ubisoft Connect | Assassin's Creed; Black Flag Resynced | D3DMetal / Mullion |
 | Ubisoft Connect | Trackmania | D3DMetal / Mullion |
 | Ubisoft Connect | Far-Cry 5 | D3DMetal / Mullion |
 | Ubisoft Connect | Far-Cry 6 | D3DMetal / Mullion |
