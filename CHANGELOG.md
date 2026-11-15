@@ -9,6 +9,10 @@
   - An installed runtime from an earlier release with nothing of this one to install from is *outdated* (`outdated` in `/runtime/state`). Switching to it downloads this release first ("Update and switch"), as for a runtime that isn't installed, and the backend's next start installs it.
   - An outdated runtime that is already the active one gets this release's download at the backend's start, then installed by the startup refresh.
 
+### Removed
+
+- **The old C++/Objective-C engine** — MetalSharp's own D3D11/D3D12/DXGI-on-Metal layer, XAudio2/XInput, OpenGL bridge, PE loader and Win32 shims (`src/metal`, `src/d3d`, `src/dxgi`, `src/audio`, `src/input`, `src/opengl`, `src/loader`, `src/win32`, `src/perf`, `src/runtime/*.cpp`), the `metalsharp`, `metalsharp_launcher` and `MetalSharpMigrator` tools, the Wine D3D11/D3D9/Mono unix bridges in `src/wine`, the lsteamclient build in `src/steam`, their tests, and the SPIRV-Cross, glslang and MojoShader submodules. Games run on D3DMetal, DXMT, Mullion, DXVK and VKD3D-Proton, and nothing loaded what the engine built: its macOS `d3d11.dylib`-style libraries were never PE DLLs Wine could load, and release CI's copy of them failed silently, so apps carried zero-byte placeholders. `CMakeLists.txt` now builds only the host runtime ABI library, `install.sh` and the 0.1 `tools/dmg/create-dmg.sh` are gone, and CI drops the Metal job.
+
 ## v1.3.0 — 2026-11-14
 
 MetalSharp 1.3.0 runs on [MetalSharp Wine 7.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v7.0) on both runtimes.

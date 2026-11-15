@@ -17,16 +17,16 @@ Packaging the `.app` also needs full Xcode (`actool` compiles the Liquid Glass i
 ## Clone
 
 ```bash
-git clone --recurse-submodules https://github.com/metalsharp/MetalSharp.git
+git clone https://github.com/metalsharp/MetalSharp.git
 cd MetalSharp
 ```
 
 ## Build
 
 ```bash
-# Native engine (C++ D3D/Metal layer), x86_64 for Rosetta 2 PE translation
+# Host runtime ABI library -> build/libmetalsharp_host_runtime.dylib
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
-cmake --build build --parallel $(sysctl -n hw.ncpu)
+cmake --build build
 
 # C backend -> app/src-c/build/metalsharp-backend (the regular x86_64 build)
 make -C app/src-c

@@ -50,23 +50,6 @@ jobs:
       - name: Check doc freshness (warn-only)
         run: python3 tools/ci/check-doc-freshness.py
 
-  metal:
-    name: Metal CI
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: recursive
-
-      - name: Configure
-        run: cmake -S . -B build-metal -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
-
-      - name: Build
-        run: cmake --build build-metal --parallel $(sysctl -n hw.ncpu)
-
-      - name: Metal tests
-        run: ctest --test-dir build-metal --output-on-failure -R '^(metal_device|dxbc|format_translation|phase17)$'
-
   dmg-workflow:
     name: DMG Workflow CI
     runs-on: ubuntu-latest
@@ -87,8 +70,6 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Install native test tools
         run: brew install clang-format zstd unar
@@ -154,7 +135,7 @@ jobs:
         run: cmake --build build-native --parallel $(sysctl -n hw.ncpu)
 
       - name: Runtime tests
-        run: ctest --test-dir build-native --output-on-failure -E '^(metal_device|dxbc|format_translation|phase17)$'
+        run: ctest --test-dir build-native --output-on-failure
 
       - name: Host ABI package smoke
         run: |

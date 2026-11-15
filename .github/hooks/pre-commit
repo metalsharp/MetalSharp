@@ -10,9 +10,6 @@
 # Install with:
 #   ln -s ../../.github/hooks/pre-commit .git/hooks/pre-commit
 #   chmod +x .git/hooks/pre-commit
-#
-# Or run the helper:
-#   ./install.sh install-hooks
 
 set -euo pipefail
 

@@ -28,13 +28,8 @@ fi
 [ -x "$WINE_APP/Contents/MacOS/wine" ] || { echo "Not a MetalSharp-Wine.app: $WINE_APP" >&2; exit 1; }
 codesign --verify --deep --strict --verbose=2 "$WINE_APP"
 
-# The host runtime comes from the C++ engine build, as in release CI.
+# The host runtime comes from the CMake build, as in release CI.
 if ! ls "$BUILD_DIR"/libmetalsharp_host_runtime.* >/dev/null 2>&1; then
-  if [ ! -f "$ROOT/vendor/glslang/CMakeLists.txt" ]; then
-    echo "No host runtime in $BUILD_DIR and the C++ engine's submodules are not checked out." >&2
-    echo "Run 'git submodule update --init --recursive', or set METALSHARP_BUILD_DIR to a directory holding libmetalsharp_host_runtime.dylib." >&2
-    exit 1
-  fi
   cmake -S "$ROOT" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
   cmake --build "$BUILD_DIR" --target metalsharp_host_runtime --parallel "$(sysctl -n hw.ncpu)"
 fi
