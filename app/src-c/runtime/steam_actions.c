@@ -6,6 +6,7 @@
 #include "metalsharp_backend/host_os.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/ngx_core.h"
+#include "metalsharp_backend/game_registry.h"
 #include "metalsharp_backend/d3dmetal.h"
 #include "metalsharp_backend/config.h"
 #include "metalsharp_backend/game_executable.h"
@@ -6650,6 +6651,8 @@ static void set_direct_game_env(const char* home, const char* prefix, unsigned i
         setenv("SteamOverlayGameId", app_id, 1);
     }
     setenv("METALSHARP_PIPELINE", env_pipeline, 1);
+    /* Registry values the game needs in its prefix, which reach it whoever starts it (game_registry.c) */
+    (void)ms_game_registry_apply(home, prefix, id);
     set_route_paths(home, env_pipeline);
     set_route_default_env(home, env_pipeline);
     if (rockstar && rockstar->launcher_on_d3dmetal && !strcmp(pipeline, "vkd3d"))
