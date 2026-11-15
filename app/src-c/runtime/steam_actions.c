@@ -6740,6 +6740,12 @@ static void set_direct_game_env(const char* home, const char* prefix, unsigned i
      * with it off (METALSHARP_CONFINE_CURSOR=0); CS2 keeps the cursor in its window itself. */
     if (id == 730 && !strcmp(env_pipeline, "d3dmetal"))
         setenv("METALSHARP_CONFINE_CURSOR", "0", 1);
+    /* Overwatch 2 on Mullion with DLSS: it makes its motion vectors with the jittered projections and does not say so
+     * in its DLSS flags, so MetalFX read the jitter as motion and the player's character shook up and down. Mullion
+     * takes the jitter out when told (metalfx.jitteredMotionVectors, off unless set); MetalSharp Wine adds the DLSS
+     * adapter to the same variable. Other games' motion vectors are read as they are. */
+    if (id == 2357570 && !strcmp(env_pipeline, "dxmt") && ms_wine_dxmt_lane_is_mullion(home))
+        setenv("MULLION_CONFIG", "metalfx.jitteredMotionVectors=True", 1);
     if ((ms_wine_is_fex() || x86_64_metalsharp_wine()) && id == 2322010) {
         const char* overrides = getenv("WINEDLLOVERRIDES");
         char combined[1024];
