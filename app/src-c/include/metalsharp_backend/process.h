@@ -11,6 +11,8 @@ char* ms_process_force_quit_json(const char*, int*);
 char* ms_process_force_kill_json(const char*, int*);
 char* ms_process_prepare_json(const char*, const char*, size_t, int*);
 void ms_process_register_game(unsigned, pid_t);
+/* a Windows program other than Steam's own runs in the Steam prefix */
+bool ms_process_wine_program_running(const char* home);
 /* As ms_process_register_game, also recording the launched executable: once the
  * launched process and its group are gone, the game counts as running only while
  * a Wine process of that executable does. */

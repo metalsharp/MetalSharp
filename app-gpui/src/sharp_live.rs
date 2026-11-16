@@ -18,8 +18,10 @@ pub(super) fn engine_options() -> Vec<(String, String)> {
     } else {
         &crate::variant::X86_64_PIPELINE_OPTIONS
     };
+    // MetalVR is a Steam game's route (library_model::game_pipeline_options_for); store pages launch otherwise
     lanes
         .iter()
+        .filter(|(i, _)| *i != "metalvr")
         .map(|(i, l)| ((*i).to_owned(), (*l).to_owned()))
         .collect()
 }

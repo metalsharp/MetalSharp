@@ -56,6 +56,7 @@ fn crash_pipeline_for(raw: &str, fex: bool) -> &'static str {
         "d3d9" | "m9" | "dxvk" | "dxvk_32" => "D3D9",
         "dxmt" | "m10" | "m11" => "DXMT",
         "dxmt_32" | "m10_32" | "m11_32" => "DXMT(32)",
+        "metalvr" => "MetalVR",
         "fna_arm64" | "fna_x86" => "FNA/Mono",
         "d3dmetal" => "D3DMetal",
         "m13" => "M13",

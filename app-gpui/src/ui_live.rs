@@ -153,6 +153,10 @@ pub(super) struct LiveState {
     pub x87_busy: bool,
     pub steam_emu_active: bool,
     pub steam_emu_busy: bool,
+    /// MetalVR's VR server (`/metalvr/status`), which the hero's VR Server button starts and stops for a game on
+    /// the MetalVR route
+    pub vr_server_running: bool,
+    pub vr_server_busy: bool,
     pub tuning: GameTuning,
     /// The featured game's standalone app (`/pack-app/status`): its kind and id, and the app's path
     /// in Applications when it has one.
@@ -312,6 +316,8 @@ impl Default for LiveState {
             x87_busy: false,
             steam_emu_active: false,
             steam_emu_busy: false,
+            vr_server_running: false,
+            vr_server_busy: false,
             tuning: GameTuning::default(),
             packed_app: None,
             pack_app_busy: false,
@@ -1862,6 +1868,9 @@ impl MetalSharpApp {
         if !self.live.enabled {
             return;
         }
+        if self.live.selected_pipeline == "metalvr" {
+            self.load_vr_server_status(cx);
+        }
         self.load_game_settings(cx);
         if game.installed && game.page() == LibraryPage::Steam && !game.is_shortcut() {
             let appid = game.appid;
@@ -2351,6 +2360,73 @@ impl MetalSharpApp {
         );
     }
 
+    /// Whether MetalVR's VR server is running, for the hero's VR Server button.
+    pub(super) fn load_vr_server_status(&mut self, cx: &mut Context<Self>) {
+        if !self.live.enabled {
+            return;
+        }
+        live::call(
+            cx,
+            "GET",
+            "/metalvr/status",
+            None,
+            live::DEFAULT_TIMEOUT,
+            |this, result, cx| {
+                if let Some(running) = result
+                    .as_ref()
+                    .and_then(|r| r.get("running"))
+                    .and_then(Value::as_bool)
+                {
+                    this.live.vr_server_running = running;
+                    cx.notify();
+                }
+            },
+        );
+    }
+
+    /// The hero's VR Server button: starts MetalVR's server (the headset comes on, and SteamVR and OpenXR games find
+    /// it), or stops it.
+    pub(super) fn toggle_vr_server(&mut self, cx: &mut Context<Self>) {
+        if !self.live.enabled || self.live.vr_server_busy {
+            return;
+        }
+        let start = !self.live.vr_server_running;
+        self.live.vr_server_busy = true;
+        cx.notify();
+        live::call(
+            cx,
+            "POST",
+            if start { "/metalvr/start" } else { "/metalvr/stop" },
+            Some(json!({})),
+            std::time::Duration::from_secs(30),
+            move |this, result, cx| {
+                this.live.vr_server_busy = false;
+                if let Some(running) = result
+                    .as_ref()
+                    .and_then(|r| r.get("running"))
+                    .and_then(Value::as_bool)
+                {
+                    this.live.vr_server_running = running;
+                }
+                if result.as_ref().is_some_and(is_ok) {
+                    toast::success(cx, if start { "VR server started" } else { "VR server stopped" });
+                } else {
+                    toast::error(
+                        cx,
+                        error_text(result.as_ref()).unwrap_or_else(|| {
+                            if start {
+                                "The VR server could not be started".into()
+                            } else {
+                                "The VR server could not be stopped".into()
+                            }
+                        }),
+                    );
+                }
+                cx.notify();
+            },
+        );
+    }
+
     /// The featured game's standalone app, from `/pack-app/status`.
     fn load_packed_app_status(&mut self, cx: &mut Context<Self>) {
         let target = self
@@ -2637,6 +2713,9 @@ impl MetalSharpApp {
             }
             self.live.pipeline_saving = true;
             self.live.selected_pipeline = pipeline.clone();
+            if pipeline == "metalvr" {
+                self.load_vr_server_status(cx);
+            }
         }
         // Optimistic update, as the renderer mutates the game object.
         for list in [&mut self.games, &mut self.live.library] {

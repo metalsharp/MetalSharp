@@ -3382,7 +3382,39 @@ impl MetalSharpApp {
                                                     0xf0f0ee,
                                                 )),
                                         )
-                                    }),
+                                    })
+                                    // MetalVR's server, started and stopped here for a game on the MetalVR route
+                                    .children((self.live.selected_pipeline == "metalvr").then(|| {
+                                        let label = if self.live.vr_server_busy {
+                                            if self.live.vr_server_running {
+                                                "Stopping…"
+                                            } else {
+                                                "Starting…"
+                                            }
+                                        } else if self.live.vr_server_running {
+                                            "Exit VR Server"
+                                        } else {
+                                            "Start VR Server"
+                                        };
+                                        div()
+                                            .id("library-vr-server")
+                                            .h(px(layout.scaled(42.0)))
+                                            .px(px(layout.scaled(14.0)))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded(px(layout.scaled(8.0)))
+                                            .border_1()
+                                            .border_color(rgba(0xe7eaec4d))
+                                            .bg(rgba(0x0c0f10b8))
+                                            .text_size(px(layout.scaled(13.0)))
+                                            .text_color(rgb(0xf0f0ee))
+                                            .cursor_pointer()
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.toggle_vr_server(cx)
+                                            }))
+                                            .child(label)
+                                    })),
                             ),
                     ),
             );

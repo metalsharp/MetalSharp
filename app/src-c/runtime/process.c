@@ -701,6 +701,13 @@ char* ms_process_launch_auto_json(const char* home, const char* body, size_t len
     return ms_steam_launch_auto_json(home, body, len, status);
 }
 
+bool ms_process_wine_program_running(const char* home) {
+    wine_process_list processes = find_non_steam_wine_executables(home);
+    const bool running = processes.count > 0;
+    free(processes.pids);
+    return running;
+}
+
 char* ms_process_running_json(const char* home) {
     running_game* g;
     ms_json_writer w;
