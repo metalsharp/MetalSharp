@@ -520,6 +520,20 @@ static void set_debug_wine_env(const char* home) {
     fclose(f);
 }
 
+/* MULLION_METALVR turns on what only a VR runtime needs of Mullion (Direct3D 11 buffers and Direct3D 12 textures
+ * shared between processes, which SteamVR's compositor and its applications pass each other). It is set for every
+ * Wine program started here while MetalVR is installed (~/.metalsharp/metalvr-runtime), the Steam client included:
+ * SteamVR and the games Steam starts take their environment from it. Without MetalVR it is unset, and Mullion
+ * behaves as it does for everything else. */
+static void set_metalvr_env(const char* home) {
+    char server[PATH_MAX];
+    if (home && snprintf(server, sizeof(server), "%s/metalvr-runtime/bin/metalvrd", home) < (int)sizeof(server) &&
+        access(server, X_OK) == 0)
+        setenv("MULLION_METALVR", "1", 1);
+    else
+        unsetenv("MULLION_METALVR");
+}
+
 static void set_wine_msync(const char* home) {
     setenv("WINEMSYNC", ms_config_msync_enabled(home) ? "1" : "0", 1);
 }
@@ -563,6 +577,7 @@ void ms_steam_apply_launch_preferences(const char* home) {
         setenv("METALSHARP_WINE_LAUNCH_WRAPPER", wrapper, 1);
     else
         unsetenv("METALSHARP_WINE_LAUNCH_WRAPPER");
+    set_metalvr_env(home);
     set_wine_msync(home);
     set_debug_wine_env(home);
     set_x87_sidecar_env(home, ms_config_x87_enabled(home));
