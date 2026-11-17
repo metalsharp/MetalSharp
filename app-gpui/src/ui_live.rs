@@ -2396,7 +2396,11 @@ impl MetalSharpApp {
         live::call(
             cx,
             "POST",
-            if start { "/metalvr/start" } else { "/metalvr/stop" },
+            if start {
+                "/metalvr/start"
+            } else {
+                "/metalvr/stop"
+            },
             Some(json!({})),
             std::time::Duration::from_secs(30),
             move |this, result, cx| {
@@ -2409,7 +2413,14 @@ impl MetalSharpApp {
                     this.live.vr_server_running = running;
                 }
                 if result.as_ref().is_some_and(is_ok) {
-                    toast::success(cx, if start { "VR server started" } else { "VR server stopped" });
+                    toast::success(
+                        cx,
+                        if start {
+                            "VR server started"
+                        } else {
+                            "VR server stopped"
+                        },
+                    );
                 } else {
                     toast::error(
                         cx,
