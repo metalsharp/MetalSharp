@@ -79,7 +79,7 @@ readme = read("README.md")
 
 checks = [
     ("app/src-c/Makefile backend version", f"VERSION ?= {version}" in c_makefile),
-    ("CMakeLists.txt project version", f"project(metalsharp VERSION {version} LANGUAGES C CXX OBJC OBJCXX)" in cmake),
+    ("CMakeLists.txt project version", f"project(metalsharp VERSION {version} LANGUAGES CXX)" in cmake),
     ("C backend default version", f'MS_BACKEND_DEFAULT_VERSION "{version}"' in backend_header),
     ("migration version", f'MIGRATION_VERSION "{version}"' in migration),
     ("migration fallback version", f'\\"version\\":\\"{version}\\"' in migration),

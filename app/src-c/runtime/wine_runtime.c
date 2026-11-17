@@ -559,8 +559,42 @@ char* ms_app_resources_path(const char* name) {
     return NULL;
 }
 
+/* The MetalSharp Wine release this MetalSharp carries and downloads. */
+#define MS_WINE_RELEASE_VERSION "7.0"
+
+const char* ms_wine_release_version(void) {
+    return MS_WINE_RELEASE_VERSION;
+}
+
+/* app's version (CFBundleShortVersionString) into out; false when it has none. */
+static bool app_version(const char* app, char* out, size_t out_size) {
+    char command[PATH_MAX * 2];
+    size_t used;
+    FILE* pipe;
+    if (!out_size ||
+        (size_t)snprintf(
+            command, sizeof(command),
+            "/usr/bin/plutil -extract CFBundleShortVersionString raw -o - '%s/Contents/Info.plist' 2>/dev/null",
+            app) >= sizeof(command) ||
+        !(pipe = popen(command, "r")))
+        return false;
+    used = fread(out, 1, out_size - 1, pipe);
+    out[used] = '\0';
+    while (used && (out[used - 1] == '\n' || out[used - 1] == '\r'))
+        out[--used] = '\0';
+    return pclose(pipe) == 0 && used > 0;
+}
+
+/* Whether app's version is version. */
+static bool app_version_is(const char* app, const char* version) {
+    char found[64];
+    return app_version(app, found, sizeof(found)) && !strcmp(found, version);
+}
+
 /* <name> in MetalSharp.app's Resources, else the other build's runtime, which MetalSharp.app does not carry,
- * downloaded (ms_wine_runtime_download); $<override> names another. */
+ * downloaded (ms_wine_runtime_download); $<override> names another. A download from another MetalSharp Wine release
+ * (one an earlier MetalSharp got) is not this one's: it is downloaded again, rather than laid out over the newer
+ * runtime MetalSharp expects. */
 static char* app_source(const char* override_name, const char* name) {
     const char* override = existing_override(override_name);
     char candidate[PATH_MAX], home[PATH_MAX];
@@ -570,7 +604,8 @@ static char* app_source(const char* override_name, const char* name) {
     if ((found = ms_app_resources_path(name)))
         return found;
     if (metalsharp_home(home, sizeof(home)) &&
-        format_path(candidate, sizeof(candidate), "%s/downloads/%s", home, name) && access(candidate, R_OK) == 0)
+        format_path(candidate, sizeof(candidate), "%s/downloads/%s", home, name) && access(candidate, R_OK) == 0 &&
+        app_version_is(candidate, MS_WINE_RELEASE_VERSION))
         return strdup(candidate);
     return NULL;
 }
@@ -581,6 +616,32 @@ char* ms_wine_fex_app_source(void) {
 
 char* ms_wine_x86_64_app_source(void) {
     return app_source("METALSHARP_WINE_X86_64_APP_SOURCE", WINE_X86_64_APP);
+}
+
+bool ms_wine_runtime_outdated(const char* home, const char* variant) {
+    bool fex = variant && !strcmp(variant, "fex");
+    char app[PATH_MAX], version[64];
+    char* source;
+    bool outdated;
+    if (!home || !variant || (!fex && strcmp(variant, "regular")) ||
+        !format_path(app, sizeof(app), "%s/runtime/%s", home, fex ? "MetalSharp-Wine.app" : WINE_X86_64_APP) ||
+        access(app, F_OK) != 0 || !app_version(app, version, sizeof(version)) ||
+        !strcmp(version, MS_WINE_RELEASE_VERSION))
+        return false;
+    source = fex ? ms_wine_fex_app_source() : ms_wine_x86_64_app_source();
+    outdated = source == NULL;
+    free(source);
+    return outdated;
+}
+
+bool ms_wine_fetch_outdated_runtime(const char* home, const char* variant, char* error, size_t error_size) {
+    char message[160];
+    if (!ms_wine_runtime_outdated(home, variant))
+        return true;
+    snprintf(message, sizeof(message), "Downloading MetalSharp Wine %s (%s) over an earlier release's...",
+             MS_WINE_RELEASE_VERSION, !strcmp(variant, "fex") ? "FEX" : "x86_64");
+    ms_log_event(home, message);
+    return ms_wine_fetch_runtime_app(home, variant, error, error_size);
 }
 
 bool ms_wine_x86_64_app_contents(const char* home, char* out, size_t out_size) {
@@ -1159,7 +1220,11 @@ bool ms_wine_refresh_wait(unsigned seconds) {
 static void* refresh_thread(void* argument) {
     char* home = argument;
     char error[512] = "";
-    /* A pending or running migration swaps the app itself (ms_wine_fex_refresh_app). */
+    /* A pending or running migration swaps the app itself (ms_wine_fex_refresh_app). An app from an earlier
+     * release with nothing of this one to install from (the x86_64 build downloads MetalSharp Wine) gets this
+     * release's download first, which refresh_app then installs. */
+    if (!ms_wine_fex_refresh_blocked(home) && !ms_wine_fetch_outdated_runtime(home, "fex", error, sizeof(error)))
+        fprintf(stderr, "warning: could not download MetalSharp Wine: %s\n", error);
     if (!ms_wine_fex_refresh_blocked(home) && !refresh_app(home, false, error, sizeof(error)))
         fprintf(stderr, "warning: could not refresh MetalSharp Wine: %s\n", error);
     /* and the x86_64 runtime's app, when it is installed too */
@@ -1501,6 +1566,10 @@ static void write_runtime_state(ms_json_writer* writer, const char* home, const 
     ms_json_writer_bool(writer, ms_wine_runtime_installed(home, variant));
     ms_json_writer_key(writer, "source");
     ms_json_writer_bool(writer, runtime_source_available(variant));
+    /* installed from another MetalSharp Wine release, with nothing of this one to install from: switching to it
+     * downloads this release first, as for a runtime that isn't installed */
+    ms_json_writer_key(writer, "outdated");
+    ms_json_writer_bool(writer, ms_wine_runtime_outdated(home, variant));
     ms_json_writer_key(writer, "label");
     ms_json_writer_string(writer, !strcmp(variant, "fex") ? "FEX" : "x86_64");
     ms_json_writer_object_end(writer);
@@ -1789,7 +1858,6 @@ char* ms_wine_uninstall_runtime_json(const char* home, const char* body, size_t 
  * $METALSHARP_RUNTIME_URL_REGULAR override it), unpacked into <home>/downloads, where setup takes it from
  * (app_source). Never MetalSharp's old runtime bundles. */
 
-#define MS_WINE_RELEASE_VERSION "7.0"
 #define RUNTIME_RELEASE_URL "https://github.com/metalsharp/MetalSharp-Wine/releases/download/v" MS_WINE_RELEASE_VERSION "/"
 
 typedef struct {

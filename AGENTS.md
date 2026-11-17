@@ -6,7 +6,7 @@ Guide for AI agents working on MetalSharp.
 
 ## Project
 
-MetalSharp is a native macOS app (Rust/GPUI, in `app-gpui/`) that runs Windows games and programs through Wine and Metal translation. The application uses a C HTTP backend, a C/C++/Objective-C native graphics engine, runtime bottles, per-game MTSP routing, and packaged runtime assets.
+MetalSharp is a native macOS app (Rust/GPUI, in `app-gpui/`) that runs Windows games and programs through Wine and Metal translation. The application uses a C HTTP backend, runtime bottles, per-game MTSP routing, and packaged runtime assets.
 
 It ships two builds from one source tree:
 
@@ -32,13 +32,13 @@ app/
 
 app-gpui/                       GPUI desktop app: UI, backend supervision, packaging
 
-src/                            Native D3D/Metal, audio, input, runtime, Wine, and FNA code
-include/                        Native public headers
-tests/                          Native C/C++ tests
+src/                            Host runtime ABI, FNA shims, Wine shims, and the ntdll hook
+include/                        Host runtime ABI header
+tests/                          Host runtime ABI test
 tools/                          Packaging, runtime, CI, and D3D12 SDK tooling
 configs/                        Route rules and runtime configuration
 docs/                           Architecture, runtime, and compatibility docs
-CMakeLists.txt                  Native engine build
+CMakeLists.txt                  Host runtime build (and the app version)
 ```
 
 The C backend is the only backend. The GPUI app's packaging builds it from `app/src-c` and packages `app/src-c/build/metalsharp-backend` as `Contents/Resources/runtime/metalsharp-backend`; the app supervises it on `~/.metalsharp/run/backend.sock`.
@@ -102,7 +102,7 @@ ACTOOL=/path/to/Xcode.app/Contents/Developer/usr/bin/actool ./package-app.sh
 
 `package-app.sh` builds the C backend and the release GPUI app into `app-gpui/target/MetalSharp.app` (bundle id `com.metalsharp.app`). Release builds need a `CARGO_TARGET_DIR` on the internal disk. See [Development](docs/development.md).
 
-### Native engine
+### Host runtime
 
 ```bash
 cmake -S . -B build-native -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON

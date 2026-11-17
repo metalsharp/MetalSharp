@@ -1,23 +1,25 @@
 # Supported Games
 **Updated:** 2026-10-28
 
-Games confirmed playable by users or the developer, grouped by launch route. Many more likely work. Tested on an M4 MacBook Air (16 GB) from an external USB-C SSD. Routes are described in the [README](../README.md#graphics-routes).
+Games confirmed playable by users or the developer, grouped by launch route. Many more likely work. Tested on an M6 MacBook Mini (16 GB) from an external USB-C SSD. Routes are described in the [README](../README.md#graphics-routes).
 
-The tables are the x86_64 build's routes. The Arm64 FEX build (early access) runs the same games on its own lanes. D3DMetal titles move to VKD3D-Proton, DXMT titles to Mullion, and D3D9 titles to DXVK, as its rule set `configs/mtsp-rules-fex.toml` sets out.
-
-## Arm64 FEX Build — verified on MetalSharp Wine
-
-- Dragon's Dogma 2 (2054970): Mullion
-- Red Dead Redemption 2 (1174180): Mullion (runs best there)
-- God of War Ragnarök (2322010): Mullion and VKD3D-Proton
-- PEAK (3527290): VKD3D-Proton and Mullion
-
-## Sharp Library Sources
+## Sharp Library Sources (Working Launchers and Games)
 
 | Source | Tested game | Route |
 |---|---|---|
-| GameJolt | The Joy of Creation: Reborn | DXMT |
-| GOG | Fall of Porcupine: Prologue | DXMT |
+| GOG | Fall of Porcupine: Prologue | Mullion |
+| GOG | SpaceEngine | OpenGL |
+| Ubisoft Connect | Assassin's Creed; Black Flag Resynced | D3DMetal / Mullion |
+| Ubisoft Connect | Trackmania | D3DMetal / Mullion |
+| Ubisoft Connect | Far-Cry 5 | D3DMetal / Mullion |
+| Ubisoft Connect | Far-Cry 6 | D3DMetal / Mullion |
+| Ubisoft Connect | Watch Dogs 2; Legions | D3DMetal / Mullion |
+| Epic Games | Pixel Gun 3D | D3DMetal / Mullion |
+| Rockstar | GTA V | D3DMetal / Mullion |
+| Rockstar | Read Dead Redemption 2 | D3DMetal / Mullion | 
+| Windows Installers | Hesi Launcher | D3DMetal / Mullion |
+| Windows Installers | Moonscraper Chart Editor | Mullion |
+
 
 ---
 
@@ -45,7 +47,6 @@ The tables are the x86_64 build's routes. The Arm64 FEX build (early access) run
 | Yu-Gi-Oh! Master Duel | 1449850 | Online Play |
 | Palworld | 1623730 | Online Play|
 | Hogwarts Legacy | 990080 | Online Play |
-| HELLDIVERS 2 | 553850 | Online Play, Medium Settings |
 | Assassin's Creed Odyssey | 812140 | |
 | Eve Online | 8500 | Launches through steam with Specific Flags that enable the launcher to load |
 | Far Cry 5 | Ubisoft | |
@@ -54,21 +55,41 @@ The tables are the x86_64 build's routes. The Arm64 FEX build (early access) run
 | Marvel Rivals | 2767030 | Launches through Steam with -Windowed to avoid a mouse bug |
 | Baldur's Gate 3 | 1086940 | |
 | Watch Dogs Legions | Ubisoft | |
-| Red Dead Redemption 2 | 1174180 | Also runs on VKD3D (Vulkan). The first launch goes through Steam, which installs the Rockstar Games Launcher |
-| Grand Theft Auto V Enhanced | 3240220 | Story mode. Also runs on VKD3D |
+| Red Dead Redemption 2 | 1174180 | |
+| Grand Theft Auto V Enhanced | 3240220 | Story mode |
 | Deadlock | 1422450 | Online Play |
+| Assassins Creed - Black Flag Resented | 3751950 | Long First-Boot |
+| God of War ; Ragnorock | 2322010 | |
+| Control Resonant | 3669870 | |
+| Counter Strike 2 | 730 | |
+| Assetto Corsa | 244210 | |
+| Peak | 3527290 | |
+| Starfield | 716740 | |
+| God Of War | 1593500 | |
+| Inzoi | 2456740 | | 
+| Control Ultimate Edition | 870780 | |
+| Marvel Rivals | 2767030 | |
+| Eve Online | 8500 | |
+| Spider Man: Remastered | 1817070 | |
+| Dragon's Dogma 2 | 2054970 | |
+| Risk of Rain 2 | 632360 | |
+
+
 
 ---
 
-## VKD3D - D3D12, D3D11, D3D10, D3D9 -> Vulkan -> Metal
+## VKD3D/DXVK - D3D12, D3D11, D3D10, D3D9 -> WineVulkan -> MoltenVK -> Metal
 
 | Game | AppID | Notes |
 |---|---:|---|
-| PEAK | 3527290 | Working |
+| Limbus Company | 1973530 | |
+| PEAK | 3527290 | Working | |
+| Portal 2 | 620 | |
+| 7 Days to Die | 251570 | |
 | Hollow Knight: Silksong | 1030300 | |
+| Team Fortress 2 | 440 | |
 | Schedule I | 3164500 | |
 | Dark Deception | 332950 | |
-| Portal2 | 620 | Steam-Emu Required |
 | Mirror's Edge | 17410 | Sync-loading mitigation active. |
 | Half-Life 2 | 220 | |
 | Among Us | 945360 | Steam online play. |
@@ -78,7 +99,9 @@ The tables are the x86_64 build's routes. The Arm64 FEX build (early access) run
 
 ---
 
-## DXMT — D3D11, D3D10 to Metal
+## Mullion (DXMT) — D3D12, D3D11, D3D10 -> Metal (x64, x86)
+
+Plays most of the games D3DMetal can play alongside the following; 
 
 | Game | AppID | Notes |
 |---|---:|---|
@@ -105,42 +128,35 @@ The tables are the x86_64 build's routes. The Arm64 FEX build (early access) run
 | Nine Sols | 1809540 | |
 | Besiege | 346010 | |
 | AmongUs | 945360 | |
-| Team Fortress 2 | 440 | |
+| Team Fortress 2 | 440 | x87 acceleration |
 | Amid Evil | 673130 | |
 | Octopath Traveler II | 1971650 | |
 | Mind Scanners | 1389550 | |
 | Dredge | 1562430 | |
 | Blasphemous 2 | 2114740 | |
-| Dead Cells | 588650 | Runs under WineMetalGL |
-
----
-
-## DXMT (32-bit) — D3D11, D3D10 to Metal, 32-bit prefix route
-
-| Game | AppID | Notes |
-|---|---:|---|
-| Hades | 1145360 | |
-| The Binding Of Isaac: Rebirth | 250900 | |
-| Ori and the Blind Forest: Definitive Edition | 387290 | |
+| Ori and the Blind Forest; Definitive Edition | 387290 | x87 acceleration |
 | Nidhogg 2 | 535520 | |
-| Balatro | 2379780 | |
-| Mosa Lina | 2477090 | Runs under WineMetalGL |
-
----
-
-## D3D9 - Wine i386 D3D9 W/ x87 Acceleration
-
-| Game | AppID | Notes |
-|---|---|---|
-| Portal 2 | 620 | Steam-Emu Required |
-| Half Life 2 | 220 | |
+| Hades | 1145360 | |
 | Undertale | 391540 | |
 
+
 ---
 
-## Mono/FNA — XNA/FNA/MonoGame
+## OpenGL - OpenGL 1.0 -> 4.6 through WineMetalGL -> Metal
 
 | Game | AppID | Notes |
 |---|---:|---|
-| Celeste | 504230 | FNA/XNA assets, FMOD shims, Steamworks shim. x86_64 Mono. Install wizard fallback paths for `steam_api` detection. |
-| Terraria | 105600 | TerrariaLauncher/patcher support, x86_64 Mono, XNA/FNA assemblies. |
+| Doom (2016) | 379720 | |
+| Doom 3, Doom 3: BFG Edition | 208200 | |
+| Quake 4 | 2210 | |
+| Wolfenstein; The New Order | 201810 | |
+| The Elder Scrolls III; Morrowind with OpenMW | 22320 | |
+| Soma | 282140 | |
+| Portal | 400 | |
+| Eduke 32 | | |
+| Star Wars Jedi Knight; Jedi Academy | 6020 | |
+| Cassette Beasts | 1321440 | |
+| Foundation | 690830 | |
+| Minecraft | Prism, Modrinth, and Base Launchers | Supports Shaders up to 4.6 Context |
+
+---

@@ -31,15 +31,21 @@ pub fn app_name() -> &'static str {
 
 /// Records the active runtime (`variant`) and the app's build (`app_variant`) from a `/status`
 /// reply. A reply without them (an older backend) is the regular build, whose runtime is its own.
-pub fn set_from_reply(reply: &Value) {
+/// Returns whether the active runtime changed, so lane lists built for the old one get rebuilt.
+pub fn set_from_reply(reply: &Value) -> bool {
+    store_reply(&FEX, &APP_FEX, reply)
+}
+
+fn store_reply(fex_flag: &AtomicBool, app_flag: &AtomicBool, reply: &Value) -> bool {
     let fex = reply_is(reply, "variant");
-    FEX.store(fex, Ordering::Relaxed);
+    let was_fex = fex_flag.swap(fex, Ordering::Relaxed);
     let app = if reply.get("app_variant").is_some() {
         reply_is(reply, "app_variant")
     } else {
         fex
     };
-    APP_FEX.store(app, Ordering::Relaxed);
+    app_flag.store(app, Ordering::Relaxed);
+    was_fex != fex
 }
 
 fn reply_is(reply: &Value, key: &str) -> bool {
@@ -143,6 +149,23 @@ mod tests {
         ));
         assert!(!reply_is(&json!({"ok": true, "variant": null}), "variant"));
         assert!(reply_is(&json!({"ok": true, "variant": "fex"}), "variant"));
+    }
+
+    #[test]
+    fn store_reply_reports_a_runtime_switch() {
+        let fex = AtomicBool::new(true);
+        let app = AtomicBool::new(true);
+        let regular = json!({"ok": true, "variant": "regular", "app_variant": "regular"});
+        assert!(store_reply(&fex, &app, &regular));
+        assert!(!fex.load(Ordering::Relaxed));
+        assert!(!app.load(Ordering::Relaxed));
+        assert!(!store_reply(&fex, &app, &regular));
+        assert!(store_reply(
+            &fex,
+            &app,
+            &json!({"ok": true, "variant": "fex"})
+        ));
+        assert!(app.load(Ordering::Relaxed));
     }
 
     #[test]
