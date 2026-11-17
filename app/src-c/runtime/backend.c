@@ -31,6 +31,7 @@
 #include "metalsharp_backend/mono.h"
 #include "metalsharp_backend/mtsp.h"
 #include "metalsharp_backend/ob_callbacks.h"
+#include "metalsharp_backend/metalvr.h"
 #include "metalsharp_backend/packed_app.h"
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/rockstar.h"
@@ -1313,6 +1314,23 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         int status = 500;
         body = ms_game_tuning_save_json(context->metalsharp_home, (const char*)request->body, request->body_length,
                                         &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/metalvr/status") == 0) {
+        body = ms_metalvr_status_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 &&
+        (strcmp(request->path, "/metalvr/start") == 0 || strcmp(request->path, "/metalvr/stop") == 0)) {
+        int status = 500;
+        body = strcmp(request->path, "/metalvr/start") == 0 ? ms_metalvr_start_json(context->metalsharp_home, &status)
+                                                            : ms_metalvr_stop_json(context->metalsharp_home, &status);
         if (body == NULL)
             return false;
         set_json_response(response, status, body);

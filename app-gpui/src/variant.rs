@@ -57,10 +57,12 @@ fn reply_is(reply: &Value, key: &str) -> bool {
 
 /// The x86_64 runtime's lanes: MetalSharp Wine's (Mullion, VKD3D / DXVK, OpenGL on WineMetalGL) and D3DMetal,
 /// which runs only under Rosetta. VKD3D / DXVK is one lane: VKD3D-Proton's D3D12 with the full DXVK (D3D11 to D3D8).
-pub const X86_64_PIPELINE_OPTIONS: [(&str, &str); 4] = [
+pub const X86_64_PIPELINE_OPTIONS: [(&str, &str); 5] = [
     ("d3dmetal", "D3DMetal"),
     ("vkd3d", "VKD3D / DXVK"),
     ("dxmt", "Mullion (DXMT)"),
+    // Mullion with MetalVR: the VR server starts before the game, and SteamVR and OpenXR find the headset
+    ("metalvr", "MetalVR"),
     // Wine's own Direct3D on OpenGL, which WineMetalGL runs on Metal
     ("wine_bare", "OpenGL"),
 ];
@@ -79,8 +81,10 @@ pub fn x86_64_pipeline(id: &str) -> &str {
 
 /// The pipelines a game can pick on FEX. D3DMetal, GPTK and the D3D9 route are not part of it
 /// (DXVK covers D3D9), nor Mono/FNA (FNA games run as Windows programs under FEX).
-pub const FEX_PIPELINE_OPTIONS: [(&str, &str); 4] = [
+pub const FEX_PIPELINE_OPTIONS: [(&str, &str); 5] = [
     ("dxmt", "Mullion (DXMT)"),
+    // Mullion with MetalVR: the VR server starts before the game, and SteamVR and OpenXR find the headset
+    ("metalvr", "MetalVR"),
     ("vkd3d", "VKD3D-Proton"),
     ("dxvk", "DXVK"),
     // Wine's own Direct3D on OpenGL (WineMetalGL), with the game asked for its OpenGL renderer.

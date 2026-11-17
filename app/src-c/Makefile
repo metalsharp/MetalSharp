@@ -88,6 +88,7 @@ SOURCES := \
 	runtime/d3dmetal.c \
 	runtime/migration.c \
 	runtime/streaming.c \
+	runtime/metalvr.c \
 	runtime/http_server.c \
 	runtime/local_socket.c \
 	runtime/json.c \

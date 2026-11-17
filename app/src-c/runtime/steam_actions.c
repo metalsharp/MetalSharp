@@ -18,6 +18,7 @@
 #include "metalsharp_backend/metalfx.h"
 #include "metalsharp_backend/mtsp.h"
 #include "metalsharp_backend/process.h"
+#include "metalsharp_backend/metalvr.h"
 #include "metalsharp_backend/rosetta.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam.h"
@@ -115,6 +116,14 @@ static char* join(const char* a, const char* b);
  * D3DMetal on the x86_64 runtime, Mullion on MetalSharp Wine (the fex build). */
 static const char* d3dmetal_lane(void) {
     return ms_wine_is_fex() ? "dxmt" : "d3dmetal";
+}
+
+/* The lane the Wine Steam client itself starts on. Where the runtime routes each game's lane from its launch.env
+ * (MetalSharp Wine, and the x86_64 Wine app), Steam runs on Mullion, so what Steam starts by itself - SteamVR, and
+ * games started from Steam's own library - runs on Mullion too. An x86_64 runtime still from the bundles keeps
+ * D3DMetal, as games there inherit the client's environment. */
+static const char* wine_steam_client_lane(void) {
+    return ms_wine_is_fex() || ms_wine_routes_lane("dxmt") ? "dxmt" : "d3dmetal";
 }
 
 /* The fex build launches Rockstar titles like any Steam game: Steam starts Play*.exe and the
@@ -432,6 +441,9 @@ void ms_steam_deploy_controller_input_shims_as(const char* home, const char* gam
 static const char* canonical_pipeline_any(const char* requested) {
     if (!requested || !requested[0] || !strcasecmp(requested, "auto") || !strcasecmp(requested, "dxmt"))
         return requested && !strcasecmp(requested, "dxmt") ? "dxmt" : "auto";
+    /* Mullion, with MetalVR made ready before the game (metalvr.c); launched as "dxmt" from there */
+    if (!strcasecmp(requested, "metalvr"))
+        return "metalvr";
     if (!strcasecmp(requested, "d3d12") || !strcasecmp(requested, "dx12"))
         return "vkd3d";
     if (!strcasecmp(requested, "vkd3d") || !strcasecmp(requested, "vkd3d_proton") ||
@@ -485,6 +497,43 @@ static bool pipeline_needs_legacy_game_args(const char* pipeline) {
     return pipeline && (!strcmp(pipeline, "vkd3d") || pipeline_is_d3d9(pipeline));
 }
 
+/* ~/.metalsharp/debug/wine-env: KEY=VALUE lines put in the environment of the Wine programs started here, for
+ * looking at a problem (a Metal capture of SteamVR's compositor needs MTL_CAPTURE_ENABLED in the process's own
+ * environment). Only Metal's and Mullion's own variables (MTL_*, MULLION_*) are taken; the file's absence turns it
+ * all off. */
+static void set_debug_wine_env(const char* home) {
+    char* path = join(home, "debug/wine-env");
+    FILE* f = path ? fopen(path, "r") : NULL;
+    char line[1024];
+    free(path);
+    if (!f)
+        return;
+    while (fgets(line, sizeof(line), f)) {
+        char* eq;
+        line[strcspn(line, "\r\n")] = '\0';
+        eq = strchr(line, '=');
+        if (!eq || eq == line || (strncmp(line, "MTL_", 4) && strncmp(line, "MULLION_", 8)))
+            continue;
+        *eq = '\0';
+        setenv(line, eq + 1, 1);
+    }
+    fclose(f);
+}
+
+/* MULLION_METALVR turns on what only a VR runtime needs of Mullion (Direct3D 11 buffers and Direct3D 12 textures
+ * shared between processes, which SteamVR's compositor and its applications pass each other). It is set for every
+ * Wine program started here while MetalVR is installed (~/.metalsharp/metalvr-runtime), the Steam client included:
+ * SteamVR and the games Steam starts take their environment from it. Without MetalVR it is unset, and Mullion
+ * behaves as it does for everything else. */
+static void set_metalvr_env(const char* home) {
+    char server[PATH_MAX];
+    if (home && snprintf(server, sizeof(server), "%s/metalvr-runtime/bin/metalvrd", home) < (int)sizeof(server) &&
+        access(server, X_OK) == 0)
+        setenv("MULLION_METALVR", "1", 1);
+    else
+        unsetenv("MULLION_METALVR");
+}
+
 static void set_wine_msync(const char* home) {
     setenv("WINEMSYNC", ms_config_msync_enabled(home) ? "1" : "0", 1);
 }
@@ -528,7 +577,9 @@ void ms_steam_apply_launch_preferences(const char* home) {
         setenv("METALSHARP_WINE_LAUNCH_WRAPPER", wrapper, 1);
     else
         unsetenv("METALSHARP_WINE_LAUNCH_WRAPPER");
+    set_metalvr_env(home);
     set_wine_msync(home);
+    set_debug_wine_env(home);
     set_x87_sidecar_env(home, ms_config_x87_enabled(home));
     unsetenv("METALSHARP_GAME_WINDOW_MODE");
     unsetenv("METALSHARP_GAME_RESOLUTION");
@@ -4345,6 +4396,7 @@ static char* spawn_wine_for_pipeline(const char* home, const char* pipeline, uns
         setenv("WINEDEBUGGER", "none", 1);
         setenv("STEAM_RUNTIME", "0", 1);
         setenv("MS_FWD_COMPAT_GL_CTX", "1", 1);
+        set_debug_wine_env(home);
         if (overrides_ready && !plain_client)
             setenv("WINEDLLOVERRIDES", overrides, 1);
         else
@@ -4656,8 +4708,8 @@ char* ms_steam_launch_json(const char* home, int* status) {
     if (ms_wine_is_fex() && !ms_steam_process_running(home))
         request_wine_folder_access(home);
     if (ms_steam_process_running(home)) {
-        if (wine_steam_route_marker_is_pending(home, d3dmetal_lane()))
-            (void)write_wine_steam_route_marker(home, d3dmetal_lane());
+        if (wine_steam_route_marker_is_pending(home, wine_steam_client_lane()))
+            (void)write_wine_steam_route_marker(home, wine_steam_client_lane());
         errtext = NULL;
         if (activate_wine_steam(home, steam, &pid, &errtext)) {
             free(steam);
@@ -4680,15 +4732,15 @@ char* ms_steam_launch_json(const char* home, int* status) {
          * launch that never shows Steam. */
         terminate_wine_steam_session(home);
     }
-    /* Start the shared Wine Steam client with D3DMetal available so Steam-
+    /* Start the shared Wine Steam client on its lane (wine_steam_client_lane) so Steam-
      * launched games inherit the same verified environment. Never restart a
      * responsive client here; the branch above only activates it.
      * spawn_wine_for_pipeline prepares the webhelper wrappers and registry. */
     bool ui_never_initialized = !steam_ui_initialized(home);
-    errtext = spawn_wine_for_pipeline(home, d3dmetal_lane(), 0, steam, "-no-cef-sandbox", "-cef-single-process",
+    errtext = spawn_wine_for_pipeline(home, wine_steam_client_lane(), 0, steam, "-no-cef-sandbox", "-cef-single-process",
                                       "-noverifyfiles", "-no-dwrite", &pid);
     if (!errtext) {
-        (void)write_wine_steam_route_pending(home, d3dmetal_lane());
+        (void)write_wine_steam_route_pending(home, wine_steam_client_lane());
         for (int i = 0; i < WINE_STEAM_READY_POLLS && !ms_steam_process_running(home); i++)
             usleep(100000);
     }
@@ -4702,9 +4754,10 @@ char* ms_steam_launch_json(const char* home, int* status) {
     }
     if (!ms_steam_process_running(home))
         return err("Wine Steam was started but did not become ready");
-    if (!write_wine_steam_route_marker(home, d3dmetal_lane()))
-        return err(ms_wine_is_fex() ? "Wine Steam is running, but its Mullion launch environment could not be verified"
-                                    : "Wine Steam is running, but its D3DMetal launch environment could not be verified");
+    if (!write_wine_steam_route_marker(home, wine_steam_client_lane()))
+        return err(!strcmp(wine_steam_client_lane(), "dxmt")
+                       ? "Wine Steam is running, but its Mullion launch environment could not be verified"
+                       : "Wine Steam is running, but its D3DMetal launch environment could not be verified");
     if (ui_never_initialized)
         watch_steam_ui_first_run(home);
     if (status)
@@ -4723,12 +4776,17 @@ static char* ensure_wine_steam_pipeline(const char* home, const char* pipeline) 
             return NULL;
         if (wine_steam_route_marker_is_pending(home, pipeline) && write_wine_steam_route_marker(home, pipeline))
             return NULL;
-        return strdup(ms_wine_is_fex() ? "Wine Steam is already running without MetalSharp's verified Mullion "
-                                         "environment. Stop Wine Steam, then relaunch it from MetalSharp before "
-                                         "starting this game."
-                                       : "Wine Steam is already running without MetalSharp's verified D3DMetal "
-                                         "environment. Stop Wine Steam, then relaunch it from MetalSharp before "
-                                         "starting this game.");
+        /* The client runs on another lane (since Steam starts on Mullion where lanes are routed, a title that needs
+         * D3DMetal finds it there). With nothing else running in the prefix it is started again on this lane;
+         * a running game is never stopped for it. */
+        if (ms_process_wine_program_running(home))
+            return strdup(!strcmp(pipeline, "dxmt")
+                              ? "Wine Steam is running on another graphics route while a game runs. Close the game, "
+                                "then start this one: Steam is restarted on Mullion for it."
+                              : "Wine Steam is running on another graphics route while a game runs. Close the game, "
+                                "then start this one: Steam is restarted on D3DMetal for it.");
+        terminate_wine_steam_session(home);
+        clear_wine_steam_route_marker(home);
     }
     steam = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/Steam.exe");
     ui = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamui.dll");
@@ -7430,8 +7488,17 @@ char* ms_steam_launch_d3dmetal_json(const char* home, unsigned id, const char* b
     return ms_json_writer_take(&writer);
 }
 
+/* Set while a game starts on the MetalVR route: Steam then runs the game's VR launch entry, as SteamVR's own library
+ * does (steam://launch/<id>/VR). A game with a desktop and a VR entry (Subnautica: Below Zero passes -vrmode none or
+ * -vrmode openvr) otherwise starts on its desktop one. */
+static _Thread_local bool launching_vr = false;
+
 static bool format_steam_run_url(char* url, size_t url_size, unsigned id, const char* encoded_args) {
     /* A non-Steam shortcut runs by its 64-bit game id; it takes no store arguments. */
+    if (launching_vr && !ms_steam_appid_is_shortcut(id) && !(encoded_args && encoded_args[0])) {
+        int vr = snprintf(url, url_size, "steam://launch/%u/VR", id);
+        return vr >= 0 && (size_t)vr < url_size;
+    }
     int written = ms_steam_appid_is_shortcut(id)    ? snprintf(url, url_size, "steam://rungameid/%llu",
                                                                ((unsigned long long)id << 32) | 0x02000000ULL)
                   : encoded_args && encoded_args[0] ? snprintf(url, url_size, "steam://run/%u//%s", id, encoded_args)
@@ -8426,6 +8493,18 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         } else {
             snprintf(pipeline, sizeof(pipeline), "%s", canonical);
         }
+    }
+    if (!strcmp(pipeline, "metalvr")) {
+        char* vr_error = ms_metalvr_prepare(home);
+        if (vr_error) {
+            char* o = err(vr_error);
+            free(vr_error);
+            return o;
+        }
+        snprintf(pipeline, sizeof(pipeline), "dxmt");
+        launching_vr = true;
+    } else {
+        launching_vr = false;
     }
     if (!ms_steam_ensure_bottle_manifest(home, id, pipeline)) {
         if (status)

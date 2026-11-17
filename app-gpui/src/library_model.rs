@@ -519,7 +519,7 @@ pub fn playtime_label(minutes: u64) -> Option<String> {
 }
 
 /// The x86_64 runtime's lanes (`variant::X86_64_PIPELINE_OPTIONS`).
-pub const PIPELINE_OPTIONS: [(&str, &str); 4] = crate::variant::X86_64_PIPELINE_OPTIONS;
+pub const PIPELINE_OPTIONS: [(&str, &str); 5] = crate::variant::X86_64_PIPELINE_OPTIONS;
 
 pub fn pipeline_label(id: &str) -> String {
     if crate::variant::is_fex() {
@@ -563,6 +563,16 @@ pub fn game_pipeline_options(game: &LibGame) -> Vec<(String, String)> {
 }
 
 fn game_pipeline_options_for(game: &LibGame, fex: bool) -> Vec<(String, String)> {
+    let mut options = runtime_pipeline_options_for(game, fex);
+    // MetalVR readies the VR server, SteamVR and the prefix's OpenXR runtime before a Steam game; other games keep
+    // their own launch paths, so it is a Steam game's choice alone
+    if game.page() != LibraryPage::Steam {
+        options.retain(|(id, _)| id != "metalvr");
+    }
+    options
+}
+
+fn runtime_pipeline_options_for(game: &LibGame, fex: bool) -> Vec<(String, String)> {
     if let Some(options) = &game.deck_engine_options {
         return options.clone();
     }
@@ -642,6 +652,7 @@ pub fn is_wine_steam_route(launch_method: &str) -> bool {
         "d3d9",
         "dxmt",
         "dxmt_32",
+        "metalvr",
         "steam",
         "wine_steam",
     ]
@@ -1081,7 +1092,7 @@ mod tests {
             .into_iter()
             .map(|(id, _)| id)
             .collect();
-        assert_eq!(ids, ["dxmt", "vkd3d", "dxvk", "wine_bare"]);
+        assert_eq!(ids, ["dxmt", "metalvr", "vkd3d", "dxvk", "wine_bare"]);
         assert_eq!(effective_pipeline_for(&g, true), "vkd3d");
         assert_eq!(effective_pipeline_for(&g, false), "d3dmetal");
         for (saved, lane) in [("m13", "vkd3d"), ("dxmt_32", "dxmt"), ("d3d9", "dxvk")] {
