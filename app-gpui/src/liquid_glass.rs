@@ -146,6 +146,16 @@ pub fn mark_turned(
             move |bounds, (), window, _| {
                 #[cfg(target_os = "macos")]
                 if let Some(view) = gpui_view(window).filter(|_| !COVERED.get()) {
+                    // glass stays inside what clips its element (a scrolling page), as the element's own
+                    // painting does; a turned frame is left whole
+                    let bounds = if degrees == 0.0 {
+                        bounds.intersect(&window.content_mask().bounds)
+                    } else {
+                        bounds
+                    };
+                    if bounds.size.width <= gpui::px(0.0) || bounds.size.height <= gpui::px(0.0) {
+                        return;
+                    }
                     let (x, y, width, height) = rect(bounds);
                     // SAFETY: as in begin.
                     unsafe {

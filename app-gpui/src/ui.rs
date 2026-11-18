@@ -4081,7 +4081,10 @@ impl MetalSharpApp {
             .when(glass, |dock| {
                 // the shelf on a pane of glass from one edge of the page to the other (the sidebar's edge, when
                 // that is open): a rim along its top, where it meets the art
-                dock.pb(px(layout.scaled(12.0)))
+                // it takes what height the hero leaves, so its bottom always meets the footer's top
+                dock.flex_grow()
+                    .flex_shrink_0()
+                    .pb(px(layout.scaled(12.0)))
                     .border_t_1()
                     .border_color(chrome_rim)
                     .child(crate::liquid_glass::mark(
