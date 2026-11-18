@@ -1673,6 +1673,21 @@ impl MetalSharpApp {
         }
     }
 
+    /// A dropdown's fill: the theme's menu color, or under Liquid Glass a veil of it over the menu's own glass.
+    fn menu_fill(&self) -> gpui::Rgba {
+        if self.glass() {
+            rgba((self.theme.menu_bg() << 8) | 0x8c)
+        } else {
+            rgba((self.theme.menu_bg() << 8) | 0xff)
+        }
+    }
+
+    /// Under Liquid Glass, the deep glass under a dropdown (a child of the menu, which is positioned).
+    fn menu_glass(&self, id: &'static str) -> Option<impl IntoElement + use<>> {
+        self.glass()
+            .then(|| crate::liquid_glass::mark(id, crate::liquid_glass::Glass::Sheet, 10.0))
+    }
+
     /// The fill and rim of the controls that sit on the hero art (the header's, the hero's): dark and smoky, or
     /// frosted glass.
     fn chrome(&self) -> (gpui::Rgba, gpui::Rgba) {
@@ -1840,7 +1855,8 @@ impl MetalSharpApp {
                 .rounded(px(layout.scaled(8.0)))
                 .border_1()
                 .border_color(control_border)
-                .bg(rgb(theme.menu_bg()))
+                .bg(self.menu_fill())
+                .children(self.menu_glass("theme-menu"))
                 .shadow_lg()
                 .p(px(6.0));
             for (index, option) in PreviewTheme::ALL.iter().copied().enumerate() {
@@ -1900,7 +1916,8 @@ impl MetalSharpApp {
                 .rounded(px(layout.scaled(8.0)))
                 .border_1()
                 .border_color(control_border)
-                .bg(rgb(theme.menu_bg()))
+                .bg(self.menu_fill())
+                .children(self.menu_glass("steam-menu"))
                 .shadow_lg()
                 .p(px(5.0))
                 .child(
@@ -4147,7 +4164,7 @@ impl MetalSharpApp {
                     .max_w(px(layout.content_width))
                     .relative()
                     // the arrows are drawn after the cards, so a tilted card never covers one
-                    .child(div().flex_none().w(px(layout.scaled(38.0))))
+                    .child(div().flex_none().w(px(layout.scaled(46.0))))
                     .child(cards)
                     .child(
                         div()
@@ -4157,8 +4174,8 @@ impl MetalSharpApp {
                             .top_0()
                             .bottom_0()
                             .my_auto()
-                            .w(px(layout.scaled(38.0)))
-                            .h(px(layout.scaled(66.0)))
+                            .w(px(layout.scaled(46.0)))
+                            .h(px(layout.scaled(80.0)))
                             .flex()
                             .items_center()
                             .justify_center()
@@ -4199,8 +4216,8 @@ impl MetalSharpApp {
                     .child(
                         div()
                             .id("dock-next")
-                            .w(px(layout.scaled(38.0)))
-                            .h(px(layout.scaled(66.0)))
+                            .w(px(layout.scaled(46.0)))
+                            .h(px(layout.scaled(80.0)))
                             .flex()
                             .items_center()
                             .justify_center()
@@ -4750,7 +4767,8 @@ impl MetalSharpApp {
             .rounded(px(layout.scaled(8.0)))
             .border_1()
             .border_color(rgba(theme.page_palette().control_border))
-            .bg(rgb(theme.menu_bg()))
+            .bg(self.menu_fill())
+            .children(self.menu_glass("art-menu"))
             .shadow_lg()
             .p(px(5.0))
             .occlude()
@@ -4973,7 +4991,8 @@ impl MetalSharpApp {
             .rounded(px(8.0))
             .border_1()
             .border_color(rgb(self.theme.button_border()))
-            .bg(rgb(self.theme.menu_bg()))
+            .bg(self.menu_fill())
+            .children(self.menu_glass("pipeline-menu"))
             .shadow_lg()
             .text_size(px(12.0))
             .text_color(rgb(self.theme.control_text()));
@@ -5142,7 +5161,8 @@ impl MetalSharpApp {
             .rounded(px(7.0))
             .border_1()
             .border_color(rgb(self.theme.button_border()))
-            .bg(rgb(self.theme.menu_bg()))
+            .bg(self.menu_fill())
+            .children(self.menu_glass("collection-menu"))
             .shadow_lg()
             .text_size(px(11.5))
             .text_color(rgb(self.theme.control_text()));
