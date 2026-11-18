@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v1.4.0 — 2026-11-17
+
+MetalSharp 1.4.0 runs on [MetalSharp Wine 8.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v8.0) on both runtimes, with one game settings panel for every library, MetalVR headsets and Liquid Glass.
 
 ### Added
 
