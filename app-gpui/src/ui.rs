@@ -1468,7 +1468,19 @@ impl Render for MetalSharpApp {
         div()
             .relative()
             .size_full()
-            .children(glass.then(|| crate::liquid_glass::begin(dark)))
+            .children(glass.then(|| {
+                crate::liquid_glass::begin(
+                    dark,
+                    self.theme.page_bg(),
+                    self.theme.accent(),
+                    // the default theme's selection is electric blue; the others glow their accent
+                    if self.theme == PreviewTheme::Dark {
+                        0x5cc8ff
+                    } else {
+                        self.theme.accent()
+                    },
+                )
+            }))
             .child(body)
             .children(
                 glass.then(|| gpui::deferred(crate::liquid_glass::end()).with_priority(usize::MAX)),
@@ -1735,7 +1747,8 @@ impl MetalSharpApp {
         let show_search = self.page != LibraryPage::Logs
             && matches!(self.active_tab, LibraryTab::Play | LibraryTab::Collection);
         // Narrow enough to end left of the header's launcher button.
-        let sidebar_full = layout.scaled(186.0);
+        // under Liquid Glass it reaches past the header's launcher button, around it
+        let sidebar_full = layout.scaled(if self.glass() { 318.0 } else { 186.0 });
         let sidebar_width = sidebar_full * self.sidebar_slide_fraction();
         // In a narrow window the sidebar slides over the page instead of
         // squeezing the hero and the dock's cards.
@@ -2091,8 +2104,8 @@ impl MetalSharpApp {
                 .child(self.sharp_preview.clone().unwrap()),
         };
 
-        self.glass_sidebar_inset = if self.glass() && !sidebar_overlay {
-            sidebar_width
+        self.glass_sidebar_inset = if self.glass() && sidebar_width > 0.5 {
+            sidebar_width + layout.scaled(8.0)
         } else {
             0.0
         };
@@ -2417,7 +2430,8 @@ impl MetalSharpApp {
 
     /// Below this width the sidebar covers the page rather than narrowing it.
     fn sidebar_overlays(&self, viewport: gpui::Size<gpui::Pixels>) -> bool {
-        f32::from(viewport.width) < 1180.0
+        // under Liquid Glass it is a pane floating over the page, at any width
+        self.glass() || f32::from(viewport.width) < 1180.0
     }
 
     fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
@@ -2459,18 +2473,21 @@ impl MetalSharpApp {
         let theme = self.theme;
         let accent = theme.accent();
         let (ink, _) = theme.chrome_ink();
+        let glass = self.glass();
+        // the wider glass pane has larger rows and text
+        let k = if glass { 1.22 } else { 1.0 };
         let item = |page: LibraryPage, index: usize, cx: &mut Context<Self>| {
             let selected = page == self.page;
             div()
                 .id(("sidebar-page", index))
                 .relative()
-                .h(px(layout.scaled(38.0)))
+                .h(px(layout.scaled(38.0 * k)))
                 .flex()
                 .items_center()
-                .gap(px(layout.scaled(11.0)))
-                .px(px(layout.scaled(12.0)))
-                .rounded(px(layout.scaled(8.0)))
-                .text_size(px(layout.scaled(13.5)))
+                .gap(px(layout.scaled(11.0 * k)))
+                .px(px(layout.scaled(12.0 * k)))
+                .rounded(px(layout.scaled(8.0 * k)))
+                .text_size(px(layout.scaled(13.5 * k)))
                 .font_weight(if selected {
                     FontWeight::SEMIBOLD
                 } else {
@@ -2485,15 +2502,15 @@ impl MetalSharpApp {
                     div()
                         .absolute()
                         .left(px(0.0))
-                        .top(px(layout.scaled(9.0)))
-                        .bottom(px(layout.scaled(9.0)))
+                        .top(px(layout.scaled(9.0 * k)))
+                        .bottom(px(layout.scaled(9.0 * k)))
                         .w(px(3.0))
                         .rounded(px(2.0))
                         .when(selected, |d| d.bg(rgb(accent))),
                 )
                 .child(control_icon(
                     page.icon(),
-                    layout.scaled(18.0),
+                    layout.scaled(18.0 * k),
                     if selected { 0xffffff } else { 0xc3cbd8 },
                 ))
                 .child(page.label())
@@ -2525,25 +2542,38 @@ impl MetalSharpApp {
                     .pt(px(layout.header_height + layout.scaled(8.0)))
                     .pb(px(layout.scaled(12.0)))
                     .px(px(layout.scaled(10.0)))
-                    // over the page in a narrow window it stays solid: glass would show the page's text through it
-                    .when(!self.glass() || self.sidebar_is_overlay, |panel| {
-                        panel.bg(rgba((ink << 8) | 0xf0))
-                    })
-                    .when(self.glass() && !self.sidebar_is_overlay, |panel| {
-                        // its glass runs under the footer's row to the window's bottom, one pane
-                        panel.child(
-                            div()
-                                .absolute()
-                                .top_0()
-                                .left_0()
-                                .right_0()
-                                .bottom(px(-(layout.footer_height + layout.scaled(10.0))))
-                                .child(crate::liquid_glass::mark(
-                                    "library-sidebar",
-                                    crate::liquid_glass::Glass::Panel,
-                                    0.0,
-                                )),
-                        )
+                    .when(!glass, |panel| panel.bg(rgba((ink << 8) | 0xf0)))
+                    .when(glass, |panel| {
+                        // a pane of deep glass floating over the page, down to the window's bottom beside the
+                        // footer; its fill keeps the page's own text from showing through it
+                        let inset = layout.scaled(8.0);
+                        panel
+                            .pl(px(layout.scaled(10.0) + inset))
+                            .child(
+                                div()
+                                    .absolute()
+                                    .top(px(inset))
+                                    .left(px(inset))
+                                    .right_0()
+                                    .bottom_0()
+                                    .rounded_t(px(layout.scaled(22.0)))
+                                    .bg(rgba((theme.page_bg() << 8) | 0xb8)),
+                            )
+                            .child(
+                                div()
+                                    .absolute()
+                                    .top(px(inset))
+                                    .left(px(inset))
+                                    .right_0()
+                                    .bottom(px(
+                                        -(layout.footer_height + layout.scaled(10.0) - inset)
+                                    ))
+                                    .child(crate::liquid_glass::mark(
+                                        "library-sidebar",
+                                        crate::liquid_glass::Glass::Sheet,
+                                        layout.scaled(22.0),
+                                    )),
+                            )
                     })
                     .child(pages)
                     .child(div().flex_1())
@@ -4008,181 +4038,179 @@ impl MetalSharpApp {
 
         let can_scroll_back = dock_start > 0;
         let can_scroll_forward = dock_start + DOCK_VISIBLE_CARDS < matches.len();
-        let dock =
-            div()
-                .relative()
-                .w_full()
-                .flex_none()
-                .px(px(layout.page_padding))
-                .pt(px(layout.scaled(if layout.compact { 8.0 } else { 12.0 })))
-                .when(glass, |dock| {
-                    // the shelf on a pane of glass, as the hero's controls
-                    dock.mx(px(layout.page_padding))
-                        // an open sidebar and the shelf meet edge to edge
-                        .when(self.sidebar_open && !self.sidebar_is_overlay, |dock| {
-                            dock.ml(px(0.0))
-                        })
-                        .w_auto()
-                        .pb(px(layout.scaled(12.0)))
-                        .rounded(px(layout.scaled(24.0)))
-                        .border_1()
-                        .border_color(chrome_rim)
-                        .child(crate::liquid_glass::mark(
-                            "library-shelf",
-                            crate::liquid_glass::Glass::Panel,
-                            layout.scaled(24.0),
-                        ))
-                })
-                .child(
-                    div()
-                        .w_full()
-                        .max_w(px(layout.content_width))
-                        .mx_auto()
-                        .h(px(layout.scaled(if layout.compact { 28.0 } else { 32.0 })))
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(layout.scaled(10.0)))
-                                .child(
-                                    div()
-                                        .text_size(px(layout.scaled(17.0)))
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(rgb(0xf0f3f8))
-                                        .child("Your library"),
-                                )
-                                .child(
-                                    div()
-                                        .text_size(px(layout.scaled(12.0)))
-                                        .text_color(rgb(0x96a1b2))
-                                        .child(format!("{} games", matches.len())),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .id("library-view-all")
-                                .h_full()
-                                .flex()
-                                .items_center()
-                                .text_size(px(layout.scaled(13.0)))
-                                .text_color(rgb(0xbfc8d7))
-                                .cursor_pointer()
-                                .hover(|style| style.text_color(rgb(0xffffff)))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.set_page_collection(true, cx);
-                                }))
-                                .child("View collection  →"),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(layout.scaled(10.0)))
-                        .mx_auto()
-                        .w_full()
-                        .max_w(px(layout.content_width))
-                        .relative()
-                        // the arrows are drawn after the cards, so a tilted card never covers one
-                        .child(div().flex_none().w(px(layout.scaled(38.0))))
-                        .child(cards)
-                        .child(
-                            div()
-                                .id("dock-previous")
-                                .absolute()
-                                .left_0()
-                                .top_0()
-                                .bottom_0()
-                                .my_auto()
-                                .w(px(layout.scaled(38.0)))
-                                .h(px(layout.scaled(66.0)))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .flex_none()
-                                .rounded(px(layout.scaled(8.0)))
-                                .border_1()
-                                .when(glass, |arrow| {
-                                    arrow.relative().rounded_full().child(
-                                        crate::liquid_glass::mark(
-                                            ("dock-arrow", 0usize),
-                                            crate::liquid_glass::Glass::Control,
-                                            999.0,
-                                        ),
-                                    )
-                                })
-                                .border_color(if glass {
-                                    chrome_rim
-                                } else {
-                                    rgb(accent).into()
-                                })
-                                .bg(if glass {
-                                    chrome_fill
-                                } else {
-                                    rgb(0x292d2f).into()
-                                })
-                                .opacity(if can_scroll_back { 1.0 } else { 0.28 })
-                                .text_size(px(layout.scaled(20.0)))
-                                .text_color(rgb(0xffffff))
-                                .cursor_pointer()
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.scroll_dock(-1, cx);
-                                    cx.notify();
-                                }))
-                                .child(control_icon(
-                                    "icon-chevron-left.svg",
-                                    layout.scaled(22.0),
-                                    0xffffff,
-                                )),
-                        )
-                        .child(
-                            div()
-                                .id("dock-next")
-                                .w(px(layout.scaled(38.0)))
-                                .h(px(layout.scaled(66.0)))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .flex_none()
-                                .rounded(px(layout.scaled(8.0)))
-                                .border_1()
-                                .when(glass, |arrow| {
-                                    arrow.relative().rounded_full().child(
-                                        crate::liquid_glass::mark(
-                                            ("dock-arrow", 1usize),
-                                            crate::liquid_glass::Glass::Control,
-                                            999.0,
-                                        ),
-                                    )
-                                })
-                                .border_color(if glass {
-                                    chrome_rim
-                                } else {
-                                    rgb(accent).into()
-                                })
-                                .bg(if glass {
-                                    chrome_fill
-                                } else {
-                                    rgb(0x292d2f).into()
-                                })
-                                .opacity(if can_scroll_forward { 1.0 } else { 0.28 })
-                                .text_size(px(layout.scaled(20.0)))
-                                .text_color(rgb(0xffffff))
-                                .cursor_pointer()
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.scroll_dock(1, cx);
-                                    cx.notify();
-                                }))
-                                .child(control_icon(
-                                    "icon-chevron-right.svg",
-                                    layout.scaled(22.0),
-                                    0xffffff,
-                                )),
-                        ),
-                );
+        let dock = div()
+            .relative()
+            .w_full()
+            .flex_none()
+            .px(px(layout.page_padding))
+            .pt(px(layout.scaled(if layout.compact { 8.0 } else { 12.0 })))
+            .when(glass, |dock| {
+                // the shelf on a pane of glass, as the hero's controls
+                dock.mx(px(layout.page_padding))
+                    // an open sidebar and the shelf meet edge to edge
+                    .when(self.sidebar_open && !self.sidebar_is_overlay, |dock| {
+                        dock.ml(px(0.0))
+                    })
+                    .w_auto()
+                    .pb(px(layout.scaled(12.0)))
+                    .rounded(px(layout.scaled(24.0)))
+                    .border_1()
+                    .border_color(chrome_rim)
+                    .child(crate::liquid_glass::mark(
+                        "library-shelf",
+                        crate::liquid_glass::Glass::Panel,
+                        layout.scaled(24.0),
+                    ))
+            })
+            .child(
+                div()
+                    .w_full()
+                    .max_w(px(layout.content_width))
+                    .mx_auto()
+                    .h(px(layout.scaled(if layout.compact { 28.0 } else { 32.0 })))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(layout.scaled(10.0)))
+                            .child(
+                                div()
+                                    .text_size(px(layout.scaled(17.0)))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(rgb(0xf0f3f8))
+                                    .child("Your library"),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(layout.scaled(12.0)))
+                                    .text_color(rgb(0x96a1b2))
+                                    .child(format!("{} games", matches.len())),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("library-view-all")
+                            .h_full()
+                            .flex()
+                            .items_center()
+                            .text_size(px(layout.scaled(13.0)))
+                            .text_color(rgb(0xbfc8d7))
+                            .cursor_pointer()
+                            .hover(|style| style.text_color(rgb(0xffffff)))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.set_page_collection(true, cx);
+                            }))
+                            .child("View collection  →"),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(layout.scaled(10.0)))
+                    .mx_auto()
+                    .w_full()
+                    .max_w(px(layout.content_width))
+                    .relative()
+                    // the arrows are drawn after the cards, so a tilted card never covers one
+                    .child(div().flex_none().w(px(layout.scaled(38.0))))
+                    .child(cards)
+                    .child(
+                        div()
+                            .id("dock-previous")
+                            .absolute()
+                            .left_0()
+                            .top_0()
+                            .bottom_0()
+                            .my_auto()
+                            .w(px(layout.scaled(38.0)))
+                            .h(px(layout.scaled(66.0)))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .flex_none()
+                            .rounded(px(layout.scaled(8.0)))
+                            .border_1()
+                            .when(glass, |arrow| {
+                                arrow.rounded_full().child(crate::liquid_glass::mark(
+                                    ("dock-arrow", 0usize),
+                                    crate::liquid_glass::Glass::Control,
+                                    999.0,
+                                ))
+                            })
+                            .border_color(if glass {
+                                chrome_rim
+                            } else {
+                                rgb(accent).into()
+                            })
+                            .bg(if glass {
+                                chrome_fill
+                            } else {
+                                rgb(0x292d2f).into()
+                            })
+                            .opacity(if can_scroll_back { 1.0 } else { 0.28 })
+                            .text_size(px(layout.scaled(20.0)))
+                            .text_color(rgb(0xffffff))
+                            .cursor_pointer()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.scroll_dock(-1, cx);
+                                cx.notify();
+                            }))
+                            .child(control_icon(
+                                "icon-chevron-left.svg",
+                                layout.scaled(22.0),
+                                0xffffff,
+                            )),
+                    )
+                    .child(
+                        div()
+                            .id("dock-next")
+                            .w(px(layout.scaled(38.0)))
+                            .h(px(layout.scaled(66.0)))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .flex_none()
+                            .rounded(px(layout.scaled(8.0)))
+                            .border_1()
+                            .when(glass, |arrow| {
+                                arrow
+                                    .relative()
+                                    .rounded_full()
+                                    .child(crate::liquid_glass::mark(
+                                        ("dock-arrow", 1usize),
+                                        crate::liquid_glass::Glass::Control,
+                                        999.0,
+                                    ))
+                            })
+                            .border_color(if glass {
+                                chrome_rim
+                            } else {
+                                rgb(accent).into()
+                            })
+                            .bg(if glass {
+                                chrome_fill
+                            } else {
+                                rgb(0x292d2f).into()
+                            })
+                            .opacity(if can_scroll_forward { 1.0 } else { 0.28 })
+                            .text_size(px(layout.scaled(20.0)))
+                            .text_color(rgb(0xffffff))
+                            .cursor_pointer()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.scroll_dock(1, cx);
+                                cx.notify();
+                            }))
+                            .child(control_icon(
+                                "icon-chevron-right.svg",
+                                layout.scaled(22.0),
+                                0xffffff,
+                            )),
+                    ),
+            );
 
         // The art runs from the top of the window down behind the dock's
         // heading and fades out across the cards, so it frames the page

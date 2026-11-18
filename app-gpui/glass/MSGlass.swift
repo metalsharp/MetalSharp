@@ -57,6 +57,32 @@ private final class Host {
     var glows: [UInt64: NSView] = [:]
     var painted = Set<UInt64>()
     var dark = true
+    /// the theme: its page color (the veil and the deep glass), its accent (the tint of panels and controls) and
+    /// the color a selected surface glows
+    var page: UInt32 = 0x080a0d
+    var accent: UInt32 = 0xe8d6b7
+    var glowColor: UInt32 = 0x5cc8ff
+
+    func color(_ rgb: UInt32, alpha: CGFloat, towardWhite mix: CGFloat = 0) -> NSColor {
+        let r = CGFloat((rgb >> 16) & 0xff) / 255, g = CGFloat((rgb >> 8) & 0xff) / 255, b = CGFloat(rgb & 0xff) / 255
+        return NSColor(
+            calibratedRed: r + (1 - r) * mix, green: g + (1 - g) * mix, blue: b + (1 - b) * mix, alpha: alpha)
+    }
+
+    /// A new theme: every surface is made again in its colors.
+    func retheme(dark: Bool, page: UInt32, accent: UInt32, glow: UInt32) {
+        guard dark != self.dark || page != self.page || accent != self.accent || glow != glowColor else { return }
+        self.dark = dark
+        self.page = page
+        self.accent = accent
+        glowColor = glow
+        windowGlass?.removeFromSuperview()
+        windowGlass = nil
+        for view in regions.values { view.removeFromSuperview() }
+        for view in glows.values { view.removeFromSuperview() }
+        regions.removeAll()
+        glows.removeAll()
+    }
 
     init(gpuiView: NSView) {
         self.gpuiView = gpuiView
@@ -97,8 +123,7 @@ private final class Host {
             container.addSubview(base, positioned: .below, relativeTo: veil)
             windowGlass = base
             veil.frame = container.bounds
-            veil.layer?.backgroundColor =
-                (dark ? NSColor(calibratedRed: 0.03, green: 0.05, blue: 0.09, alpha: 0.50) : NSColor(white: 1.0, alpha: 0.35)).cgColor
+            veil.layer?.backgroundColor = color(page, alpha: dark ? 0.52 : 0.40).cgColor
         }
     }
 
@@ -127,11 +152,21 @@ private final class Host {
     /// Each kind its own strength, so surfaces contrast: panels the quietest, then controls, then the primary action.
     func tint(for kind: Kind) -> NSColor? {
         switch kind {
-        case .panel: return NSColor(white: 1.0, alpha: dark ? 0.07 : 0.30)
-        case .control: return NSColor(white: 1.0, alpha: dark ? 0.24 : 0.45)
+        case .panel: return color(accent, alpha: dark ? 0.10 : 0.22, towardWhite: 0.35)
+        case .control: return color(accent, alpha: dark ? 0.26 : 0.45, towardWhite: 0.55)
         case .primary: return NSColor(white: 1.0, alpha: 0.80)
-        case .selected: return NSColor(calibratedRed: 0.30, green: 0.66, blue: 1.0, alpha: 0.50)
-        case .sheet: return dark ? NSColor(calibratedRed: 0.03, green: 0.04, blue: 0.07, alpha: 0.55) : NSColor(white: 1.0, alpha: 0.55)
+        case .selected: return color(glowColor, alpha: 0.50)
+        case .sheet: return color(page, alpha: dark ? 0.62 : 0.55)
+        }
+    }
+
+    /// Deep glass (panels over the page) stays over every other surface, whichever was made first.
+    var sheets = Set<ObjectIdentifier>()
+    func addBelowSheets(_ view: NSView) {
+        if let sheet = container.subviews.first(where: { sheets.contains(ObjectIdentifier($0)) }) {
+            container.addSubview(view, positioned: .below, relativeTo: sheet)
+        } else {
+            container.addSubview(view)
         }
     }
 
@@ -157,21 +192,36 @@ private final class Host {
             view = existing
         } else {
             view = makeGlass(kind: kind, radius: radius, tint: tint(for: kind))
-            container.addSubview(view)
             regions[id] = view
-            if kind == .selected {
-                let glow = FlippedView()
-                glow.wantsLayer = true
-                let electric = NSColor(calibratedRed: 0.36, green: 0.78, blue: 1.0, alpha: 1.0)
-                glow.layer?.borderColor = electric.cgColor
-                glow.layer?.borderWidth = 2.5
-                glow.layer?.shadowColor = electric.cgColor
-                glow.layer?.shadowOpacity = 1.0
-                glow.layer?.shadowRadius = 26
-                glow.layer?.shadowOffset = .zero
-                glow.layer?.masksToBounds = false
-                container.addSubview(glow)
-                glows[id] = glow
+            if kind == .sheet {
+                sheets.insert(ObjectIdentifier(view))
+                container.addSubview(view)
+            } else {
+                addBelowSheets(view)
+            }
+            if kind == .selected || kind == .primary {
+                // over the glass: a selected surface's electric rim and glow, or the primary action's light, which
+                // glass alone loses over bright art (it darkens itself there)
+                let over = FlippedView()
+                over.wantsLayer = true
+                if kind == .selected {
+                    let electric = color(glowColor, alpha: 1.0, towardWhite: 0.15)
+                    over.layer?.borderColor = electric.cgColor
+                    over.layer?.borderWidth = 2.5
+                    over.layer?.shadowColor = electric.cgColor
+                    over.layer?.shadowOpacity = 1.0
+                    over.layer?.shadowRadius = 26
+                    over.layer?.shadowOffset = .zero
+                } else {
+                    over.layer?.backgroundColor = NSColor(white: 1.0, alpha: 0.86).cgColor
+                    over.layer?.shadowColor = NSColor.white.cgColor
+                    over.layer?.shadowOpacity = 0.35
+                    over.layer?.shadowRadius = 14
+                    over.layer?.shadowOffset = .zero
+                }
+                over.layer?.masksToBounds = false
+                addBelowSheets(over)
+                glows[id] = over
             }
         }
         place(view, rect: rect, rotation: rotation)
@@ -208,6 +258,7 @@ private final class Host {
     func end() {
         for (id, view) in regions where !painted.contains(id) {
             view.removeFromSuperview()
+            sheets.remove(ObjectIdentifier(view))
             regions[id] = nil
             glows.removeValue(forKey: id)?.removeFromSuperview()
         }
@@ -230,14 +281,12 @@ private final class Host {
 }
 
 @_cdecl("ms_glass_begin")
-public func ms_glass_begin(_ view: UnsafeMutableRawPointer, _ dark: Bool) {
+public func ms_glass_begin(
+    _ view: UnsafeMutableRawPointer, _ dark: Bool, _ page: UInt32, _ accent: UInt32, _ glow: UInt32
+) {
     MainActor.assumeIsolated {
         guard let host = host(view) else { return }
-        if host.dark != dark, let glass = host.windowGlass {
-            glass.removeFromSuperview()
-            host.windowGlass = nil
-        }
-        host.dark = dark
+        host.retheme(dark: dark, page: page, accent: accent, glow: glow)
         host.begin()
     }
 }
