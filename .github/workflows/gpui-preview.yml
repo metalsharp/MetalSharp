@@ -25,7 +25,8 @@ concurrency:
 jobs:
   preview:
     name: Format, test and package offline GPUI preview
-    runs-on: macos-latest
+    # macos-26: Liquid Glass (app-gpui/glass/MSGlass.swift) needs the macOS 26 SDK, as the release build does
+    runs-on: macos-26
     timeout-minutes: 30
     env:
       MACOSX_DEPLOYMENT_TARGET: '13.0'
