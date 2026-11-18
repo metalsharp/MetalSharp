@@ -15,6 +15,8 @@ use std::path::PathBuf;
 mod data_location_impl;
 #[path = "ui_drive.rs"]
 mod drive_impl;
+#[path = "ui_game_settings.rs"]
+mod game_settings_impl;
 #[path = "ui_live.rs"]
 mod live_impl;
 #[path = "ui_runtime.rs"]
@@ -23,12 +25,10 @@ mod runtime_impl;
 mod steamcmd_impl;
 #[path = "ui_welcome.rs"]
 mod welcome_impl;
+use game_settings_impl::GameSettingsTab;
 use live_impl::{LiveState, LogClass, MigrationViewState, SteamPending, UpdateDialog};
 use steamcmd_impl::{CollectionView, SteamcmdModal};
 
-const GAME_SETTINGS_WIDTH: f32 = 600.0;
-/// The game settings panel's width on the regular build (one setting per line).
-const GAME_SETTINGS_SINGLE_WIDTH: f32 = 380.0;
 const PAGE_BG: u32 = 0x080a0d;
 const PANEL_BG: u32 = 0x101316;
 const TEXT: u32 = 0xf2efe6;
@@ -431,6 +431,7 @@ impl PreviewTheme {
             menu_bg: self.menu_bg(),
             menu_hover: self.menu_hover(),
             light: self == Self::Light,
+            glass: false,
         }
     }
 
@@ -513,6 +514,16 @@ impl PreviewTheme {
 
 /// Website-style bar surface: deep ink, a hue wash from each end, and a
 /// spectrum hairline on the edge that meets the page.
+/// The soft shadow under a Liquid Glass surface.
+fn glass_shadow() -> Vec<gpui::BoxShadow> {
+    vec![gpui::BoxShadow {
+        color: rgba(0x00000052).into(),
+        offset: gpui::point(px(0.), px(14.)),
+        blur_radius: px(38.),
+        spread_radius: px(0.),
+    }]
+}
+
 fn chrome_bar(theme: PreviewTheme, hairline_at_bottom: bool) -> gpui::Div {
     let [first, middle, last] = theme.spectrum();
     let (light, deep) = theme.chrome_ink();
@@ -690,7 +701,14 @@ pub struct MetalSharpApp {
     tuning_inputs: Option<[gpui::Entity<crate::search_input::SearchInput>; 2]>,
     /// Whether Game Settings shows its Advanced Settings (collapsed whenever the popup opens or the
     /// game changes)
-    advanced_settings_open: bool,
+    game_settings_tab: GameSettingsTab,
+    /// The Metal HUD's metric list, opened under its row
+    hud_metrics_open: bool,
+    /// The Headset tab's list of headsets, and the guided setup of the chosen one over the settings
+    headset_menu_open: bool,
+    vr_setup_open: bool,
+    /// The ALVR client name a streamed headset is trusted by, in the guided setup
+    vr_trust_input: Option<gpui::Entity<crate::search_input::SearchInput>>,
     game_settings_open: bool,
     /// The game settings' Name and Launch arguments fields for a Windows program or Game Jolt game.
     sharp_setting_inputs: Option<SharpSettingInputs>,
@@ -717,6 +735,10 @@ pub struct MetalSharpApp {
     copy: SetupCopy,
     developer_mode: bool,
     low_performance: bool,
+    /// Liquid Glass, Settings > General (macOS 26 and later; off in Low Performance Mode)
+    liquid_glass: bool,
+    /// The window background last set (blurred for Liquid Glass)
+    window_glass: Option<bool>,
     /// The library's layout, and the tab it opens on: Grid (Collection) or Steam Deck (Play).
     library_grid: bool,
     window_size: crate::window_layout::WindowSize,
@@ -768,7 +790,11 @@ impl MetalSharpApp {
             steamcmd_modal: None,
             steamcmd_inputs: None,
             tuning_inputs: None,
-            advanced_settings_open: false,
+            game_settings_tab: GameSettingsTab::Graphics,
+            hud_metrics_open: false,
+            headset_menu_open: false,
+            vr_setup_open: false,
+            vr_trust_input: None,
             game_settings_open: false,
             sharp_setting_inputs: None,
             game_settings_scroll: gpui::ScrollHandle::new(),
@@ -787,6 +813,8 @@ impl MetalSharpApp {
             copy,
             developer_mode: false,
             low_performance: false,
+            liquid_glass: true,
+            window_glass: None,
             library_grid: false,
             window_size: crate::window_layout::WindowSize::default(),
             startup_video_seen: false,
@@ -1341,6 +1369,16 @@ impl MetalSharpApp {
 impl Render for MetalSharpApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.ensure_inputs(cx);
+        // Liquid Glass: the desktop shows through the window, blurred, under the translucent page.
+        let glass = self.glass();
+        if self.window_glass != Some(glass) {
+            window.set_background_appearance(if glass {
+                gpui::WindowBackgroundAppearance::Blurred
+            } else {
+                gpui::WindowBackgroundAppearance::Opaque
+            });
+            self.window_glass = Some(glass);
+        }
         if self.live.intro_pending {
             self.show_startup_video(window, cx);
         }
@@ -1581,6 +1619,29 @@ fn render_steps(labels: Vec<String>, current_step: usize) -> gpui::Div {
 }
 
 impl MetalSharpApp {
+    /// Liquid Glass is on: chosen in Settings, on macOS 26 or later, and not in Low Performance Mode.
+    fn glass(&self) -> bool {
+        self.liquid_glass && !self.low_performance && game_settings_impl::macos_major() >= 26
+    }
+
+    /// The theme's palette, with Liquid Glass when it is on.
+    fn palette(&self) -> crate::page_palette::PagePalette {
+        crate::page_palette::PagePalette {
+            glass: self.glass(),
+            ..self.theme.page_palette()
+        }
+    }
+
+    /// The fill and rim of the controls that sit on the hero art (the header's, the hero's): dark and smoky, or
+    /// frosted glass.
+    fn chrome(&self) -> (gpui::Rgba, gpui::Rgba) {
+        if self.glass() {
+            (rgba(0xffffff26), rgba(0xffffff5c))
+        } else {
+            (rgba(0x0c0f10b8), rgba(0xe7eaec4d))
+        }
+    }
+
     fn render_library(
         &mut self,
         viewport: gpui::Size<gpui::Pixels>,
@@ -1588,7 +1649,7 @@ impl MetalSharpApp {
     ) -> gpui::Div {
         let layout = LibraryLayout::for_viewport(viewport.width.into(), viewport.height.into());
         if let Some(settings) = &self.settings_preview {
-            let palette = self.theme.page_palette();
+            let palette = self.palette();
             let language = self.selected_language;
             let app_state = self.settings_app_state();
             settings.update(cx, |settings, cx| {
@@ -1620,7 +1681,7 @@ impl MetalSharpApp {
             self.sync_sharp_source(cx);
         }
         if let Some(sharp) = &self.sharp_preview {
-            let palette = self.theme.page_palette();
+            let palette = self.palette();
             // The GOG, Epic and Windows Programs decks also need its data.
             let active =
                 self.active_tab == LibraryTab::SharpLibrary || self.page.sharp_source().is_some();
@@ -1647,7 +1708,7 @@ impl MetalSharpApp {
             }));
         }
         if let Some(logs) = &self.logs_preview {
-            let palette = self.theme.page_palette();
+            let palette = self.palette();
             let active = self.active_tab == LibraryTab::Logs;
             logs.update(cx, |logs, cx| {
                 if logs.palette != palette {
@@ -1816,6 +1877,8 @@ impl MetalSharpApp {
 
         // The header has no fill or divider: the sidebar toggle, search and the theme
         // and settings icons sit directly on the page's hero art.
+        let glass = self.glass();
+        let (chrome_fill, chrome_rim) = self.chrome();
         let plain_icon = |id: &'static str| {
             div()
                 .id(id)
@@ -1823,7 +1886,14 @@ impl MetalSharpApp {
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(px(layout.scaled(8.0)))
+                .rounded(px(if glass {
+                    layout.control_height / 2.0
+                } else {
+                    layout.scaled(8.0)
+                }))
+                .when(glass, |icon| {
+                    icon.border_1().border_color(chrome_rim).bg(chrome_fill)
+                })
                 .text_color(rgb(0xffffff))
                 .cursor_pointer()
                 .hover(|style| style.bg(rgba(0xffffff1f)))
@@ -1888,10 +1958,14 @@ impl MetalSharpApp {
                             .items_center()
                             .gap(px(layout.scaled(11.0)))
                             .px(px(layout.scaled(12.0)))
-                            .rounded(px(layout.scaled(8.0)))
+                            .rounded(px(if glass {
+                                layout.control_height / 2.0
+                            } else {
+                                layout.scaled(8.0)
+                            }))
                             .border_1()
-                            .border_color(rgba(0xe7eaec40))
-                            .bg(rgba(0x0c0f10a6))
+                            .border_color(chrome_rim)
+                            .bg(chrome_fill)
                             .text_size(px(layout.scaled(14.0)))
                             .text_color(rgb(0xaaaaaa))
                             .cursor(gpui::CursorStyle::IBeam)
@@ -1995,7 +2069,11 @@ impl MetalSharpApp {
             .flex_col()
             .overflow_hidden()
             .font_family("Rethink Sans")
-            .bg(rgb(self.theme.page_bg()))
+            .bg(if self.glass() {
+                rgba((self.theme.page_bg() << 8) | 0x99)
+            } else {
+                rgba((self.theme.page_bg() << 8) | 0xff)
+            })
             .children(update_banner)
             .child(
                 div()
@@ -2030,6 +2108,10 @@ impl MetalSharpApp {
             .children(
                 self.render_game_settings_overlay(viewport, cx)
                     .map(|overlay| gpui::deferred(overlay).with_priority(140)),
+            )
+            .children(
+                self.render_vr_setup_overlay(viewport, cx)
+                    .map(|overlay| gpui::deferred(overlay).with_priority(145)),
             )
             .children(
                 self.render_game_uninstall_prompt(viewport, cx)
@@ -2271,19 +2353,23 @@ impl MetalSharpApp {
         sharp.update(cx, |sharp, cx| sharp.show_source(source, cx));
     }
 
-    const SIDEBAR_SLIDE: std::time::Duration = std::time::Duration::from_millis(200);
+    const SIDEBAR_SLIDE: std::time::Duration = std::time::Duration::from_millis(260);
 
     /// How far the sidebar is out, 0–1, eased; 1 when open and still.
     fn sidebar_slide_fraction(&mut self) -> f32 {
         let Some((started, opening)) = self.sidebar_slide else {
             return if self.sidebar_open { 1.0 } else { 0.0 };
         };
-        let t = (started.elapsed().as_secs_f32() / Self::SIDEBAR_SLIDE.as_secs_f32()).min(1.0);
+        let t = if self.low_performance {
+            1.0
+        } else {
+            (started.elapsed().as_secs_f32() / Self::SIDEBAR_SLIDE.as_secs_f32()).min(1.0)
+        };
         if t >= 1.0 {
             self.sidebar_slide = None;
         }
-        // Ease-out cubic: quick start, soft landing.
-        let eased = 1.0 - (1.0 - t).powi(3);
+        // Ease-out quint, as the rest of MetalSharp's motion: quick start, long soft landing.
+        let eased = 1.0 - (1.0 - t).powi(5);
         if opening { eased } else { 1.0 - eased }
     }
 
@@ -2414,8 +2500,7 @@ impl MetalSharpApp {
         cx: &mut Context<Self>,
     ) -> Option<gpui::Div> {
         let (action, label, icon, busy) = self.page_launcher(cx)?;
-        let border = rgba(0xe7eaec4d);
-        let fill = rgba(0x0c0f10b8);
+        let (fill, border) = self.chrome();
         let is_steam = self.page_has_options();
         Some(
             div()
@@ -2647,8 +2732,22 @@ impl MetalSharpApp {
             )
         };
         let stream_hue = theme.spectrum()[0];
-        chrome_bar(theme, false)
-            .h(px(layout.footer_height))
+        let bar = if self.glass() {
+            // a floating glass bar, as the shelf above it
+            let (fill, rim) = self.chrome();
+            div()
+                .relative()
+                .mx(px(layout.page_padding))
+                .mb(px(layout.scaled(10.0)))
+                .rounded(px(layout.scaled(20.0)))
+                .border_1()
+                .border_color(rim)
+                .bg(fill)
+                .shadow(glass_shadow())
+        } else {
+            chrome_bar(theme, false)
+        };
+        bar.h(px(layout.footer_height))
             .min_h(px(layout.footer_height))
             .flex()
             .items_center()
@@ -3027,6 +3126,8 @@ impl MetalSharpApp {
             return self.render_empty_hero(viewport, cx);
         }
         let layout = LibraryLayout::for_viewport(viewport.width.into(), viewport.height.into());
+        let glass = self.glass();
+        let (chrome_fill, chrome_rim) = self.chrome();
         // The hero runs up under the transparent header; its content starts
         // below the header and the page's launcher row.
         let top_inset = self.page_top_inset;
@@ -3163,8 +3264,8 @@ impl MetalSharpApp {
                             .py(px(3.0))
                             .rounded(px(5.0))
                             .border_1()
-                            .border_color(rgba(0xe7eaec4d))
-                            .bg(rgba(0x0c0f10b8))
+                            .border_color(chrome_rim)
+                            .bg(chrome_fill)
                             .text_size(px(layout.scaled(11.0)))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(rgb(0xf0f0ee))
@@ -3261,8 +3362,8 @@ impl MetalSharpApp {
                                                     .justify_center()
                                                     .rounded(px(layout.scaled(8.0)))
                                                     .border_1()
-                                                    .border_color(rgba(0xe7eaec4d))
-                                                    .bg(rgba(0x0c0f10b8))
+                                                    .border_color(chrome_rim)
+                                                    .bg(chrome_fill)
                                                     .cursor_pointer()
                                                     .on_click(cx.listener(|this, _, _, cx| {
                                                         let open = this.art_menu
@@ -3290,8 +3391,8 @@ impl MetalSharpApp {
                                             .justify_center()
                                             .rounded(px(layout.scaled(8.0)))
                                             .border_1()
-                                            .border_color(rgba(0xe7eaec4d))
-                                            .bg(rgba(0x0c0f10b8))
+                                            .border_color(chrome_rim)
+                                            .bg(chrome_fill)
                                             .text_size(px(layout.scaled(16.0)))
                                             .text_color(rgb(0xf0f0ee))
                                             .cursor_pointer()
@@ -3318,8 +3419,8 @@ impl MetalSharpApp {
                                                     .px(px(layout.scaled(13.0)))
                                                     .rounded(px(layout.scaled(8.0)))
                                                     .border_1()
-                                                    .border_color(rgba(0xe7eaec4d))
-                                                    .bg(rgba(0x0c0f10b8))
+                                                    .border_color(chrome_rim)
+                                                    .bg(chrome_fill)
                                                     .text_size(px(layout.scaled(12.0)))
                                                     .text_color(rgb(0xf0f0ee))
                                                     .cursor_pointer()
@@ -3356,15 +3457,14 @@ impl MetalSharpApp {
                                                 .justify_center()
                                                 .rounded(px(layout.scaled(8.0)))
                                                 .border_1()
-                                                .border_color(rgba(0xe7eaec4d))
-                                                .bg(rgba(0x0c0f10b8))
+                                                .border_color(chrome_rim)
+                                                .bg(chrome_fill)
                                                 .text_size(px(layout.scaled(17.0)))
                                                 .text_color(rgb(0xf0f0ee))
                                                 .cursor_pointer()
                                                 .on_click(cx.listener(|this, _, _, cx| {
                                                     let open = !this.game_settings_open;
                                                     this.close_library_menus();
-                                                    this.advanced_settings_open = false;
                                                     if open {
                                                         this.open_game_settings(cx);
                                                         this.load_game_tuning(cx);
@@ -3401,8 +3501,8 @@ impl MetalSharpApp {
                                                 .justify_center()
                                                 .rounded(px(layout.scaled(8.0)))
                                                 .border_1()
-                                                .border_color(rgba(0xe7eaec4d))
-                                                .bg(rgba(0x0c0f10b8))
+                                                .border_color(chrome_rim)
+                                                .bg(chrome_fill)
                                                 .text_size(px(layout.scaled(13.0)))
                                                 .text_color(rgb(0xf0f0ee))
                                                 .cursor_pointer()
@@ -3504,8 +3604,8 @@ impl MetalSharpApp {
                                 .justify_center()
                                 .rounded(px(layout.scaled(7.0)))
                                 .border_1()
-                                .border_color(rgba(0xe7eaec4d))
-                                .bg(rgba(0x0c0f10d0))
+                                .border_color(chrome_rim)
+                                .bg(chrome_fill)
                                 .cursor_pointer()
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
@@ -3707,6 +3807,17 @@ impl MetalSharpApp {
             .flex_none()
             .px(px(layout.page_padding))
             .pt(px(layout.scaled(if layout.compact { 8.0 } else { 12.0 })))
+            .when(glass, |dock| {
+                // the shelf on a pane of glass, as the hero's controls
+                dock.mx(px(layout.page_padding))
+                    .w_auto()
+                    .pb(px(layout.scaled(12.0)))
+                    .rounded(px(layout.scaled(24.0)))
+                    .border_1()
+                    .border_color(chrome_rim)
+                    .bg(chrome_fill)
+                    .shadow(glass_shadow())
+            })
             .child(
                 div()
                     .w_full()
@@ -3770,8 +3881,17 @@ impl MetalSharpApp {
                             .flex_none()
                             .rounded(px(layout.scaled(8.0)))
                             .border_1()
-                            .border_color(rgb(accent))
-                            .bg(rgb(0x292d2f))
+                            .when(glass, |arrow| arrow.rounded(px(layout.scaled(19.0))))
+                            .border_color(if glass {
+                                chrome_rim
+                            } else {
+                                rgb(accent).into()
+                            })
+                            .bg(if glass {
+                                chrome_fill
+                            } else {
+                                rgb(0x292d2f).into()
+                            })
                             .opacity(if can_scroll_back { 1.0 } else { 0.28 })
                             .text_size(px(layout.scaled(20.0)))
                             .text_color(rgb(0xffffff))
@@ -3798,8 +3918,17 @@ impl MetalSharpApp {
                             .flex_none()
                             .rounded(px(layout.scaled(8.0)))
                             .border_1()
-                            .border_color(rgb(accent))
-                            .bg(rgb(0x292d2f))
+                            .when(glass, |arrow| arrow.rounded(px(layout.scaled(19.0))))
+                            .border_color(if glass {
+                                chrome_rim
+                            } else {
+                                rgb(accent).into()
+                            })
+                            .bg(if glass {
+                                chrome_fill
+                            } else {
+                                rgb(0x292d2f).into()
+                            })
                             .opacity(if can_scroll_forward { 1.0 } else { 0.28 })
                             .text_size(px(layout.scaled(20.0)))
                             .text_color(rgb(0xffffff))
@@ -3828,16 +3957,22 @@ impl MetalSharpApp {
             .top(px(0.0))
             .left(px(0.0))
             .right(px(0.0))
-            .h(px(art_height))
+            .when(!glass, |backdrop| backdrop.h(px(art_height)))
+            .when(glass, |backdrop| backdrop.bottom(px(0.0)))
             .overflow_hidden()
             .bg(rgb(0x242629))
             .children(hero_art.map(|art| {
-                crate::artwork::art_img(art)
-                    .absolute()
-                    .top(px(0.0))
-                    .left(px(0.0))
-                    .size_full()
-                    .object_fit(ObjectFit::Cover)
+                // a new game's art fades in over the page
+                crate::motion::fade(
+                    crate::artwork::art_img(art)
+                        .absolute()
+                        .top(px(0.0))
+                        .left(px(0.0))
+                        .size_full()
+                        .object_fit(ObjectFit::Cover),
+                    ("hero-art-in", self.selected_game),
+                    self.low_performance,
+                )
             }))
             .child(
                 div()
@@ -3846,11 +3981,21 @@ impl MetalSharpApp {
                     .right(px(0.0))
                     .bottom(px(0.0))
                     .h(px(art_height * 0.45))
-                    .bg(linear_gradient(
-                        180.0,
-                        linear_color_stop(rgba(page_bg << 8), 0.0),
-                        linear_color_stop(rgb(page_bg), 1.0),
-                    )),
+                    .when(!glass, |fade| {
+                        fade.bg(linear_gradient(
+                            180.0,
+                            linear_color_stop(rgba(page_bg << 8), 0.0),
+                            linear_color_stop(rgb(page_bg), 1.0),
+                        ))
+                    })
+                    .when(glass, |fade| {
+                        // under glass the art stays, darkened toward the shelf so its text reads
+                        fade.h_full().bg(linear_gradient(
+                            180.0,
+                            linear_color_stop(rgba(0x00000000), 0.35),
+                            linear_color_stop(rgba(0x0000008c), 1.0),
+                        ))
+                    }),
             );
 
         let focus = self
@@ -3863,7 +4008,7 @@ impl MetalSharpApp {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
-            .bg(rgb(page_bg))
+            .when(!glass, |page| page.bg(rgb(page_bg)))
             .flex()
             .flex_col()
             .track_focus(&focus)
@@ -4084,7 +4229,8 @@ impl MetalSharpApp {
 
     fn select_game(&mut self, index: usize, cx: &mut Context<Self>) {
         if index != self.selected_game {
-            self.advanced_settings_open = false;
+            self.game_settings_tab = GameSettingsTab::Graphics;
+            self.hud_metrics_open = false;
         }
         self.selected_game = index.min(self.games.len().saturating_sub(1));
         let matches = self.matching_games();
@@ -4183,6 +4329,11 @@ impl MetalSharpApp {
                         this.low_performance = *value;
                         this.save_ui_state(cx);
                     }
+                    E::LiquidGlass(value) => {
+                        this.liquid_glass = *value;
+                        this.save_ui_state(cx);
+                        cx.notify();
+                    }
                     E::LibraryLayout(grid) => {
                         this.library_grid = *grid;
                         // The library behind Settings switches now too.
@@ -4207,7 +4358,7 @@ impl MetalSharpApp {
             .detach();
             self.settings_preview = Some(settings);
         }
-        let palette = self.theme.page_palette();
+        let palette = self.palette();
         let language = self.selected_language;
         let app_state = self.settings_app_state();
         self.settings_preview
@@ -4240,6 +4391,8 @@ impl MetalSharpApp {
             update_message: self.live.update_message.clone(),
             developer_mode: self.developer_mode,
             low_performance: self.low_performance,
+            liquid_glass: self.liquid_glass,
+            liquid_glass_available: game_settings_impl::macos_major() >= 26,
             library_grid: self.library_grid,
             window_size: self.window_size,
         }
@@ -4570,660 +4723,21 @@ impl MetalSharpApp {
         menu
     }
 
-    /// The selected game's settings, centered over the window: the × or a click around the panel
-    /// closes it.
-    fn render_game_settings_overlay(
-        &self,
-        viewport: gpui::Size<gpui::Pixels>,
-        cx: &mut Context<Self>,
-    ) -> Option<gpui::Stateful<gpui::Div>> {
-        if !self.game_settings_open {
-            return None;
-        }
-        let game = self.games.get(self.selected_game)?.clone();
-        // FEX lays the settings out two per line when the window has room; otherwise one per line.
-        let room = f32::from(viewport.width) - 32.0;
-        let (width, two_columns) = if crate::variant::is_fex() && room >= GAME_SETTINGS_WIDTH {
-            (GAME_SETTINGS_WIDTH, true)
-        } else {
-            (GAME_SETTINGS_SINGLE_WIDTH.min(room.max(260.0)), false)
-        };
-        Some(
-            div()
-                .id("game-settings-overlay")
-                .absolute()
-                .top(px(0.0))
-                .left(px(0.0))
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .occlude()
-                .child(
-                    div()
-                        .id("game-settings-backdrop")
-                        .absolute()
-                        .top(px(0.0))
-                        .left(px(0.0))
-                        .size_full()
-                        .bg(rgba(0x000000a0))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.game_settings_open = false;
-                            cx.notify();
-                        })),
-                )
-                .child({
-                    // a small window: the popup fits it, and scrolls
-                    let max_height = (f32::from(viewport.height) - 48.0).max(160.0);
-                    div()
-                        .relative()
-                        .w(px(width))
-                        .max_h(px(max_height))
-                        .flex()
-                        .flex_col()
-                        .child(
-                            div()
-                                .id("game-settings-scroll")
-                                .max_h(px(max_height))
-                                .overflow_y_scroll()
-                                .track_scroll(&self.game_settings_scroll)
-                                .on_scroll_wheel(crate::scrollbar::refresh_on_scroll)
-                                .child(self.render_game_settings(&game, width, two_columns, cx)),
-                        )
-                        .children(crate::scrollbar::vertical(
-                            "game-settings-scrollbar",
-                            &self.game_settings_scroll,
-                            (self.theme.control_text() << 8) | 0x66,
-                        ))
-                }),
-        )
-    }
-
-    fn render_game_settings(
-        &self,
-        game: &LibGame,
-        width: f32,
-        two_columns: bool,
-        cx: &mut Context<Self>,
-    ) -> gpui::Stateful<gpui::Div> {
-        let muted = if self.theme == PreviewTheme::Light {
-            0x000000
-        } else {
-            0x939a9b
-        };
-        let mut menu = div()
-            .id("game-settings-popover")
-            .occlude()
-            .relative()
-            .w(px(width))
-            .flex()
-            .flex_col()
-            .gap(px(12.0))
-            .rounded(px(10.0))
-            .border_1()
-            .border_color(rgb(self.theme.button_border()))
-            .bg(rgb(self.theme.menu_bg()))
-            .shadow_lg()
-            .p(px(14.0))
-            .text_size(px(12.0))
-            .text_color(rgb(self.theme.control_text()))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(4.0))
-                            .child(
-                                div()
-                                    .text_size(px(10.0))
-                                    .text_color(rgb(muted))
-                                    .child("GAME SETTINGS"),
-                            )
-                            .child(game.name.clone()),
-                    )
-                    .child(
-                        div()
-                            .id("close-game-settings")
-                            .cursor_pointer()
-                            .px(px(8.0))
-                            .child("×")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.game_settings_open = false;
-                                cx.notify();
-                            })),
-                    ),
-            );
-        if let Some(section) = self.render_sharp_game_settings(game, cx) {
-            menu = menu.child(section);
-        }
-        let theme = self.theme;
-        let option = move |id: (&'static str, usize), text: &'static str, active: bool| {
-            div()
-                .id(id)
-                .px(px(8.0))
-                .py(px(6.0))
-                .rounded(px(5.0))
-                .border_1()
-                .border_color(rgb(if active {
-                    theme.button_border()
-                } else {
-                    theme.border()
-                }))
-                .bg(rgb(if active {
-                    theme.menu_hover()
-                } else {
-                    theme.menu_bg()
-                }))
-                .cursor_pointer()
-                .child(text)
-        };
-
-        let row = |label: &'static str, options: gpui::Div| {
-            div()
-                .when(two_columns, |cell| cell.flex_1().min_w_0())
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap(px(10.0))
-                .child(label)
-                .child(options)
-        };
-        let mut cells: Vec<gpui::Div> = Vec::new();
-        let mut metal_fx = div().flex().gap(px(4.0));
-        for (index, (mode, text)) in [
-            ("1.5", "1.5×"),
-            ("1.75", "1.75×"),
-            ("2.0", "2×"),
-            ("off", "Off"),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            metal_fx = metal_fx.child(
-                option(
-                    ("game-setting-metalfx", index),
-                    text,
-                    self.live.metal_fx_mode == mode,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| this.set_metal_fx(mode, cx))),
-            );
-        }
-        let mut controller = div().flex().gap(px(4.0));
-        for (index, (mode, text)) in [("off", "Off"), ("x", "XInput"), ("d", "DInput")]
-            .into_iter()
-            .enumerate()
-        {
-            controller = controller.child(
-                option(
-                    ("game-setting-controller", index),
-                    text,
-                    self.live.controller_input == mode,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| this.set_controller(mode, cx))),
-            );
-        }
-        let msync = self.live.msync;
-        let metal_hud = self.live.metal_hud;
-        let x87 = self.live.x87;
-        // A Windows program has its own controller input (above) and isn't launched with the Metal
-        // HUD switch.
-        let windows_program = game.source.as_deref() == Some("windows");
-        cells.push(row("MetalFX", metal_fx));
-        // MetalSharp Wine's own xinput/dinput see controllers through SDL; the FEX build stages no
-        // input shims, so the choice would do nothing there.
-        if !crate::variant::is_fex() && !windows_program {
-            cells.push(row("Controller input", controller));
-        }
-        // The Metal HUD switch (both Wine runtimes).
-        if !windows_program {
-            cells.push(row(
-                "Metal HUD",
-                div().flex().child(
-                    option(
-                        ("game-setting-metal-hud", 0),
-                        if metal_hud { "On" } else { "Off" },
-                        metal_hud,
-                    )
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.set_metal_hud(!metal_hud, cx)),
-                    ),
-                ),
-            ));
-        }
-        cells.push(row(
-            "msync",
-            div().flex().child(
-                option(
-                    ("game-setting-msync", 0),
-                    if msync { "On" } else { "Off" },
-                    msync,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| this.set_msync(!msync, cx))),
-            ),
-        ));
-        // The frame rate limit, for the lane the game runs on: Mullion's mullion.conf or
-        // VKD3D-Proton's VKD3D_FRAME_RATE. Applies at the game's next start.
-        {
-            if let Some(limit) = self.frame_rate_limit() {
-                let mut frame_rate = div().flex().gap(px(4.0));
-                for (index, (fps, text)) in
-                    [(30, "30"), (60, "60"), (0, "Off")].into_iter().enumerate()
-                {
-                    frame_rate = frame_rate.child(
-                        option(("game-setting-frame-rate", index), text, limit == fps).on_click(
-                            cx.listener(move |this, _, _, cx| this.set_frame_rate(fps, cx)),
-                        ),
-                    );
-                }
-                cells.push(row("Limit framerate", frame_rate));
-            }
-        }
-        // Rosetta's x87 sidecar for every pipeline; the D3D9 route always has it. The FEX build
-        // has no Rosetta, so no toggle.
-        if !crate::variant::is_fex() {
-            cells.push(row(
-                "x87 acceleration",
-                div().flex().child(
-                    option(("game-setting-x87", 0), if x87 { "On" } else { "Off" }, x87)
-                        .on_click(cx.listener(move |this, _, _, cx| this.set_x87(!x87, cx))),
-                ),
-            ));
-        }
-        // Windows programs and Game Jolt games keep their executable in the Sharp Library.
-        let sharp_app = matches!(game.source.as_deref(), Some("windows" | "gamejolt"));
-        if game.installed && !game.needs_install && !game.has_native_build && !sharp_app {
-            let executable_name = game
-                .executable_path
-                .as_deref()
-                .filter(|p| !p.is_empty())
-                .and_then(|path| path.rsplit(['/', '\\']).next())
-                .map(str::to_owned)
-                .unwrap_or_else(|| "Automatically detected".to_string());
-            cells.push(
-                div()
-                    .when(two_columns, |cell| cell.flex_1().min_w_0())
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap(px(12.0))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .flex()
-                            .flex_col()
-                            .gap(px(4.0))
-                            .child("Launch executable")
-                            .child(
-                                div()
-                                    .text_size(px(10.0))
-                                    .text_color(rgb(muted))
-                                    .child(executable_name),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .id("choose-game-executable")
-                            .flex_none()
-                            .cursor_pointer()
-                            .px(px(9.0))
-                            .py(px(6.0))
-                            .rounded(px(5.0))
-                            .border_1()
-                            .border_color(rgb(self.theme.border()))
-                            .bg(rgb(self.theme.menu_bg()))
-                            .child("Choose EXE")
-                            .on_click(
-                                cx.listener(|this, _, _, cx| this.choose_featured_executable(cx)),
-                            ),
-                    ),
-            );
-        }
-        // Goldberg stands in for a Steam app; a non-Steam shortcut has none.
-        if game.page() == LibraryPage::Steam && !game.is_shortcut() {
-            let active = self.live.steam_emu_active;
-            let enabled = game.installed && !self.live.steam_emu_busy;
-            cells.push(row(
-                "Steam Emu",
-                div().flex().child(
-                    option(
-                        ("game-setting-steam-emu", 0),
-                        if active { "On" } else { "Off" },
-                        active,
-                    )
-                    .opacity(if enabled { 1.0 } else { 0.45 })
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_steam_emu(!active, cx))),
-                ),
-            ));
-        }
-        if !two_columns {
-            menu = cells.into_iter().fold(menu, |menu, cell| menu.child(cell));
-        } else {
-            // Two settings per line (label and choices), with a rule between the columns.
-            let divider = theme.border();
-            let mut cells = cells.into_iter();
-            while let Some(left) = cells.next() {
-                let mut line = div().flex().items_center().gap(px(12.0)).child(left);
-                match cells.next() {
-                    Some(right) => {
-                        line = line
-                            .child(div().w(px(1.0)).h(px(26.0)).flex_none().bg(rgb(divider)))
-                            .child(right);
-                    }
-                    None => line = line.child(div().flex_1()),
-                }
-                menu = menu.child(line);
-            }
-        }
-        if let Some(advanced) = self.render_game_tuning(game, muted, cx) {
-            menu = menu.child(advanced);
-        }
-        menu
-    }
-
-    /// Game Settings > Advanced Settings: the game as its own app in Applications, which starts it
-    /// (and its launcher) and quits with it.
-    fn render_packed_app_row(
-        &self,
-        game: &LibGame,
-        muted: u32,
-        cx: &mut Context<Self>,
-    ) -> Option<gpui::Div> {
-        let (_, packed) = self
-            .live
-            .packed_app
-            .as_ref()
-            .filter(|(target, _)| game.packed_app_ref().as_ref() == Some(target))?;
-        let theme = self.theme;
-        let busy = self.live.pack_app_busy;
-        let detail = match packed {
-            Some(path) => path
-                .rsplit('/')
-                .next()
-                .map(|name| format!("In Applications as {name}"))
-                .unwrap_or_else(|| "In Applications".to_string()),
-            None => "Opens from Applications or the Dock".to_string(),
-        };
-        let button = |id: &'static str, text: &'static str| {
-            div()
-                .id(id)
-                .flex_none()
-                .cursor_pointer()
-                .px(px(9.0))
-                .py(px(6.0))
-                .rounded(px(5.0))
-                .border_1()
-                .border_color(rgb(theme.border()))
-                .bg(rgb(theme.menu_bg()))
-                .opacity(if busy { 0.45 } else { 1.0 })
-                .child(text)
-        };
-        let mut buttons = div().flex_none().flex().gap(px(4.0)).child(
-            button(
-                "pack-game-app",
-                if packed.is_some() {
-                    "Update .app"
-                } else {
-                    "Pack as .app"
-                },
-            )
-            .on_click(cx.listener(|this, _, _, cx| this.pack_featured_app(cx))),
-        );
-        if packed.is_some() {
-            buttons = buttons.child(
-                button("remove-game-app", "Remove .app")
-                    .on_click(cx.listener(|this, _, _, cx| this.remove_featured_app(cx))),
-            );
-        }
-        Some(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap(px(12.0))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .flex()
-                        .flex_col()
-                        .gap(px(4.0))
-                        .child("Standalone app")
-                        .child(
-                            div()
-                                .text_size(px(10.0))
-                                .text_color(rgb(muted))
-                                .child(detail),
-                        ),
-                )
-                .child(buttons),
-        )
-    }
-
-    /// Game Settings > Advanced: the game's own environment variables, DLL overrides, Windows version,
-    /// CPU cores and priority (`/game-tuning`), for an installed Windows game.
-    fn render_game_tuning(
-        &self,
-        game: &LibGame,
-        muted: u32,
-        cx: &mut Context<Self>,
-    ) -> Option<gpui::Div> {
-        if !game.installed || game.needs_install || game.has_native_build {
-            return None;
-        }
-        game.tuning_key()?;
-        let inputs = self.tuning_inputs.clone()?;
-        let theme = self.theme;
-        let tuning = &self.live.tuning;
-        let busy = tuning.busy || !tuning.loaded;
-        let option = move |id: (&'static str, usize), text: &'static str, active: bool| {
-            div()
-                .id(id)
-                .px(px(7.0))
-                .py(px(5.0))
-                .rounded(px(5.0))
-                .border_1()
-                .border_color(rgb(if active {
-                    theme.button_border()
-                } else {
-                    theme.border()
-                }))
-                .bg(rgb(if active {
-                    theme.menu_hover()
-                } else {
-                    theme.menu_bg()
-                }))
-                .opacity(if busy { 0.55 } else { 1.0 })
-                .cursor_pointer()
-                .child(text)
-        };
-        let row = |label: &'static str, options: gpui::Div| {
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap(px(10.0))
-                .child(label)
-                .child(options)
-        };
-        let open = self.advanced_settings_open;
-        let mut section = div()
-            .flex()
-            .flex_col()
-            .gap(px(10.0))
-            .pt(px(10.0))
-            .border_t_1()
-            .border_color(rgb(theme.border()))
-            .child(
-                div()
-                    .id("advanced-settings-toggle")
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .cursor_pointer()
-                    .child("Advanced Settings")
-                    .child(
-                        div()
-                            .text_size(px(10.0))
-                            .text_color(rgb(muted))
-                            .child(if open { "▾" } else { "▸" }),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.advanced_settings_open = !this.advanced_settings_open;
-                        cx.notify();
-                    })),
-            );
-        if !open {
-            return Some(section);
-        }
-        if let Some(row) = self.render_packed_app_row(game, muted, cx) {
-            section = section.child(row);
-        }
-        for (field, (label, hint)) in [
-            (
-                "Environment variables",
-                "NAME=value, separated by spaces; quotes keep spaces in a value, -NAME removes one",
-            ),
-            (
-                "DLL overrides",
-                "for this game's executable: name=n (native), b (builtin), n,b, b,n or d (disabled)",
-            ),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let input = inputs[field].clone();
-            input.update(cx, |input, _| {
-                input.text_color = theme.control_text();
-                input.placeholder_color = if theme == PreviewTheme::Light {
-                    0x7a7a7a
-                } else {
-                    0x6f7778
-                };
-            });
-            let handle = gpui::Focusable::focus_handle(input.read(cx), cx);
-            section = section.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(5.0))
-                    .child(label)
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.0))
-                            .child(
-                                div()
-                                    .id(("game-tuning-field", field))
-                                    .flex_1()
-                                    .min_w_0()
-                                    .h(px(28.0))
-                                    .px(px(8.0))
-                                    .flex()
-                                    .items_center()
-                                    .rounded(px(5.0))
-                                    .border_1()
-                                    .border_color(rgb(theme.border()))
-                                    .bg(rgb(theme.control_bg()))
-                                    .cursor(gpui::CursorStyle::IBeam)
-                                    .on_click(cx.listener(move |_, _, window, _| {
-                                        window.focus(&handle);
-                                    }))
-                                    .child(div().flex_1().min_w_0().child(input)),
-                            )
-                            .child(
-                                option(("game-tuning-save", field), "Save", false).on_click(
-                                    cx.listener(move |this, _, _, cx| {
-                                        this.save_tuning_text(field, cx)
-                                    }),
-                                ),
-                            ),
-                    )
-                    .child(div().text_size(px(10.0)).text_color(rgb(muted)).child(hint)),
-            );
-        }
-        let mut versions = div().flex().gap(px(4.0));
-        for (index, (version, text)) in [
-            ("default", "Default"),
-            ("winxp", "XP"),
-            ("win7", "7"),
-            ("win81", "8.1"),
-            ("win10", "10"),
-            ("win11", "11"),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            versions = versions.child(
-                option(
-                    ("game-tuning-windows", index),
-                    text,
-                    tuning.windows_version == version,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.save_game_tuning(serde_json::json!({"windowsVersion": version}), None, cx)
-                })),
-            );
-        }
-        section = section.child(row("Windows version", versions));
-        let mut cores = div().flex().gap(px(4.0));
-        for (index, (count, text)) in [
-            (0, "Auto"),
-            (1, "1"),
-            (2, "2"),
-            (4, "4"),
-            (6, "6"),
-            (8, "8"),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            cores = cores.child(
-                option(
-                    ("game-tuning-cores", index),
-                    text,
-                    tuning.cpu_cores == count,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.save_game_tuning(serde_json::json!({"cpuCores": count}), None, cx)
-                })),
-            );
-        }
-        section = section.child(row("CPU cores", cores));
-        let low = tuning.low_priority;
-        section = section.child(row(
-            "Low priority",
-            div().flex().child(
-                option(
-                    ("game-tuning-priority", 0),
-                    if low { "On" } else { "Off" },
-                    low,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.save_game_tuning(serde_json::json!({"lowPriority": !low}), None, cx)
-                })),
-            ),
-        ));
-        Some(
-            section.child(div().text_size(px(10.0)).text_color(rgb(muted)).child(
-                "These apply when the game next starts. The CPU core limit needs MetalSharp to \
-                     start the game itself, not the Steam client or another launcher; low priority \
-                     also finds a game a launcher starts.",
-            )),
-        )
-    }
+    // The game settings popup: crate::ui_game_settings.
 
     /// Open the selected game's settings; a Windows program or Game Jolt game gets its Name (and a
     /// program its Launch arguments) as fields filled with what is saved.
     fn open_game_settings(&mut self, cx: &mut Context<Self>) {
         self.game_settings_open = true;
+        self.hud_metrics_open = false;
+        self.headset_menu_open = false;
+        self.vr_setup_open = false;
+        self.game_settings_tab = if self.live.selected_pipeline == "metalvr" {
+            self.load_vr_headset(cx);
+            GameSettingsTab::Headset
+        } else {
+            GameSettingsTab::Graphics
+        };
         self.sharp_setting_inputs = None;
         let Some(game) = self.games.get(self.selected_game).cloned() else {
             return;
@@ -5314,226 +4828,6 @@ impl MetalSharpApp {
         sharp.update(cx, |sharp, cx| {
             sharp.deck_set_preference(&id, key, value, cx)
         });
-    }
-
-    /// A Windows program's or Game Jolt game's own settings, over the shared ones below: its name, and
-    /// a program's launch arguments, display mode, resolution and controller input.
-    fn render_sharp_game_settings(
-        &self,
-        game: &LibGame,
-        cx: &mut Context<Self>,
-    ) -> Option<gpui::Div> {
-        let inputs = self
-            .sharp_setting_inputs
-            .as_ref()
-            .filter(|inputs| inputs.key == game.key())?;
-        let theme = self.theme;
-        let muted = if theme == PreviewTheme::Light {
-            0x5d6366
-        } else {
-            0x939a9b
-        };
-        let button = move |id: &'static str, label: &'static str| {
-            div()
-                .id(id)
-                .flex_none()
-                .cursor_pointer()
-                .px(px(9.0))
-                .py(px(6.0))
-                .rounded(px(5.0))
-                .border_1()
-                .border_color(rgb(theme.border()))
-                .bg(rgb(theme.menu_bg()))
-                .hover(move |style| style.bg(rgb(theme.menu_hover())))
-                .child(label)
-        };
-        let field = |id: &'static str, input: &gpui::Entity<crate::search_input::SearchInput>| {
-            let focus_input = input.clone();
-            div()
-                .id(id)
-                .flex_1()
-                .min_w_0()
-                .h(px(28.0))
-                .px(px(8.0))
-                .overflow_hidden()
-                .flex()
-                .items_center()
-                .rounded(px(5.0))
-                .border_1()
-                .border_color(rgb(theme.border()))
-                .bg(rgb(theme.page_bg_raised()))
-                .cursor(gpui::CursorStyle::IBeam)
-                .on_click(move |_, window, cx| {
-                    window.focus(&focus_input.read(cx).focus_handle(cx));
-                })
-                .child(input.clone())
-        };
-        let label = |text: &'static str| div().w(px(104.0)).flex_none().child(text);
-        let mut section = div()
-            .flex()
-            .flex_col()
-            .gap(px(10.0))
-            .pb(px(12.0))
-            .border_b_1()
-            .border_color(rgb(theme.border()))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .child(label("Name"))
-                    .child(
-                        field("sharp-setting-name", &inputs.name).on_key_down(cx.listener(
-                            |this, event: &gpui::KeyDownEvent, _, cx| {
-                                if event.keystroke.key == "enter" {
-                                    this.save_sharp_name(cx);
-                                    cx.stop_propagation();
-                                }
-                            },
-                        )),
-                    )
-                    .child(
-                        button("sharp-setting-name-save", "Rename")
-                            .on_click(cx.listener(|this, _, _, cx| this.save_sharp_name(cx))),
-                    ),
-            );
-        let Some(settings) = game.sharp_settings.as_ref() else {
-            // A Game Jolt game: its name only.
-            return Some(section);
-        };
-        section = section.child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(8.0))
-                .child(label("Launch arguments"))
-                .child(
-                    field("sharp-setting-args", &inputs.args).on_key_down(cx.listener(
-                        |this, event: &gpui::KeyDownEvent, _, cx| {
-                            if event.keystroke.key == "enter" {
-                                this.save_sharp_launch_args(cx);
-                                cx.stop_propagation();
-                            }
-                        },
-                    )),
-                )
-                .child(
-                    button("sharp-setting-args-save", "Save")
-                        .on_click(cx.listener(|this, _, _, cx| this.save_sharp_launch_args(cx))),
-                ),
-        );
-        let choices = |id: &'static str,
-                       key: &'static str,
-                       current: Option<&str>,
-                       options: &[(&'static str, Option<&'static str>)],
-                       cx: &mut Context<Self>| {
-            let mut row = div().flex_1().flex().flex_wrap().justify_end().gap(px(4.0));
-            for (index, (text, value)) in options.iter().copied().enumerate() {
-                let active = current == value;
-                row = row.child(
-                    div()
-                        .id((id, index))
-                        .px(px(8.0))
-                        .py(px(6.0))
-                        .rounded(px(5.0))
-                        .border_1()
-                        .border_color(rgb(if active {
-                            theme.button_border()
-                        } else {
-                            theme.border()
-                        }))
-                        .bg(rgb(if active {
-                            theme.menu_hover()
-                        } else {
-                            theme.menu_bg()
-                        }))
-                        .cursor_pointer()
-                        .child(text)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if !active {
-                                this.set_sharp_preference(key, value, cx);
-                            }
-                        })),
-                );
-            }
-            row
-        };
-        let display = choices(
-            "sharp-setting-window-mode",
-            "window_mode",
-            settings.window_mode.as_deref(),
-            &[
-                ("Shared", None),
-                ("Game default", Some("default")),
-                ("Windowed", Some("windowed")),
-                ("Fullscreen", Some("fullscreen")),
-            ],
-            cx,
-        );
-        let resolution = choices(
-            "sharp-setting-resolution",
-            "game_resolution",
-            settings.game_resolution.as_deref(),
-            &[
-                ("Shared", None),
-                ("Game default", Some("default")),
-                ("720p", Some("1280x720")),
-                ("1080p", Some("1920x1080")),
-                ("1440p", Some("2560x1440")),
-                ("4K", Some("3840x2160")),
-            ],
-            cx,
-        );
-        section = section
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .child(label("Display mode"))
-                    .child(display),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .child(label("Resolution"))
-                    .child(resolution),
-            );
-        // The FEX build stages no controller input shims (MetalSharp Wine's own xinput/dinput).
-        if !crate::variant::is_fex() {
-            let controller = choices(
-                "sharp-setting-controller",
-                "controller_input",
-                settings.controller_input.as_deref(),
-                &[
-                    ("Shared", None),
-                    ("Off", Some("off")),
-                    ("XInput", Some("x")),
-                    ("DInput", Some("d")),
-                ],
-                cx,
-            );
-            section = section.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .child(label("Controller input"))
-                    .child(controller),
-            );
-        }
-        Some(section.child(
-            div()
-                .text_size(px(10.5))
-                .line_height(px(15.0))
-                .text_color(rgb(muted))
-                .child(
-                    "Shared uses the Windows Programs collection's launch preferences. Windowed and a \
-                     resolution use a Wine virtual desktop. Applies on next launch.",
-                ),
-        ))
     }
 
     fn render_collection_menu(

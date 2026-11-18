@@ -143,6 +143,15 @@ pub(super) struct LiveState {
     pub msync_busy: bool,
     pub metal_hud: bool,
     pub metal_hud_busy: bool,
+    /// The Metal HUD's metrics (`metalHudElements`: MTL_HUD_ELEMENTS); empty for the HUD's own choice
+    pub metal_hud_elements: Vec<String>,
+    /// MoltenVK's ray tracing pipelines on the VKD3D-Proton lane (`rayTracing`): DXR 1.1 and feature level 12_2
+    pub ray_tracing: bool,
+    pub ray_tracing_busy: bool,
+    /// The shared display mode and resolution games start with (`windowMode`, `gameResolution`): "default",
+    /// "windowed" or "fullscreen", and "default" or a WxH
+    pub window_mode: String,
+    pub game_resolution: String,
     /// The frame rate limit (0 for none) of each FEX graphics lane: Mullion ("dxmt", in mullion.conf) and
     /// VKD3D-Proton ("vkd3d", VKD3D_FRAME_RATE at launch), from the backend's /framerate.
     pub frame_rate_dxmt: u32,
@@ -157,6 +166,8 @@ pub(super) struct LiveState {
     /// the MetalVR route
     pub vr_server_running: bool,
     pub vr_server_busy: bool,
+    /// MetalVR's headset (`/metalvr/headset`), chosen in a MetalVR game's settings
+    pub vr_headset: VrHeadset,
     pub tuning: GameTuning,
     /// The featured game's standalone app (`/pack-app/status`): its kind and id, and the app's path
     /// in Applications when it has one.
@@ -197,6 +208,12 @@ pub(super) struct GameTuning {
     /// 0 for every core.
     pub cpu_cores: u32,
     pub low_priority: bool,
+    /// "default" (Settings' Retina), "on" or "off": a game in a bottle of its own
+    pub retina: String,
+    /// "winemetalgl" or "zink" (SharpGL_Switch)
+    pub opengl_renderer: String,
+    /// "moltenvk" or "kosmickrisp" (SharpVK_Switch)
+    pub vulkan_renderer: String,
     pub busy: bool,
 }
 
@@ -223,8 +240,81 @@ impl GameTuning {
             },
             cpu_cores: value.get("cpuCores").and_then(Value::as_u64).unwrap_or(0) as u32,
             low_priority: value.get("lowPriority").and_then(Value::as_bool) == Some(true),
+            retina: or_default(text("retina"), "default"),
+            opengl_renderer: or_default(text("openglRenderer"), "winemetalgl"),
+            vulkan_renderer: or_default(text("vulkanRenderer"), "moltenvk"),
             busy: false,
         }
+    }
+}
+
+fn or_default(value: String, fallback: &str) -> String {
+    if value.is_empty() {
+        fallback.to_owned()
+    } else {
+        value
+    }
+}
+
+/// One headset MetalVR supports, as `/metalvr/headset` lists it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct VrHeadsetModel {
+    pub key: String,
+    pub name: String,
+    /// "rift", "alvr", "lighthouse" or "psvr2"
+    pub driver: String,
+    /// streamed with ALVR (trusted by its client's name)
+    pub streamed: bool,
+    /// macOS hides its display until `metalvr display` lifts that
+    pub display: bool,
+}
+
+/// The chosen headset, the ALVR client it trusts, MetalVR's state, and the headsets to choose from.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct VrHeadset {
+    pub loaded: bool,
+    pub busy: bool,
+    pub headset: String,
+    pub trust: String,
+    pub installed: bool,
+    pub models: Vec<VrHeadsetModel>,
+}
+
+impl VrHeadset {
+    fn from_response(value: &Value) -> Self {
+        let text = |value: &Value, name: &str| {
+            value
+                .get(name)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned()
+        };
+        Self {
+            loaded: true,
+            busy: false,
+            headset: text(value, "headset"),
+            trust: text(value, "trust"),
+            installed: value.get("installed").and_then(Value::as_bool) == Some(true),
+            models: value
+                .get("headsets")
+                .and_then(Value::as_array)
+                .map(|list| {
+                    list.iter()
+                        .map(|model| VrHeadsetModel {
+                            key: text(model, "key"),
+                            name: text(model, "name"),
+                            driver: text(model, "driver"),
+                            streamed: model.get("streamed").and_then(Value::as_bool) == Some(true),
+                            display: model.get("display").and_then(Value::as_bool) == Some(true),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
+    }
+
+    pub(super) fn model(&self, key: &str) -> Option<&VrHeadsetModel> {
+        self.models.iter().find(|model| model.key == key)
     }
 }
 
@@ -309,6 +399,11 @@ impl Default for LiveState {
             msync_busy: false,
             metal_hud: false,
             metal_hud_busy: false,
+            metal_hud_elements: Vec::new(),
+            ray_tracing: false,
+            ray_tracing_busy: false,
+            window_mode: "default".into(),
+            game_resolution: "default".into(),
             frame_rate_dxmt: 0,
             frame_rate_vkd3d: 0,
             frame_rate_busy: false,
@@ -318,6 +413,7 @@ impl Default for LiveState {
             steam_emu_busy: false,
             vr_server_running: false,
             vr_server_busy: false,
+            vr_headset: VrHeadset::default(),
             tuning: GameTuning::default(),
             packed_app: None,
             pack_app_busy: false,
@@ -452,6 +548,10 @@ impl MetalSharpApp {
             .get("lowPerformanceMode")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        self.liquid_glass = value
+            .get("liquidGlass")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
         self.library_grid = value.get("libraryLayout").and_then(Value::as_str) == Some("grid");
         self.window_size = value
             .get("windowSize")
@@ -508,6 +608,7 @@ impl MetalSharpApp {
             "language": self.selected_language,
             "developerMode": self.developer_mode,
             "lowPerformanceMode": self.low_performance,
+            "liquidGlass": self.liquid_glass,
             "libraryLayout": if self.library_grid { "grid" } else { "steamDeck" },
             "windowSize": self.window_size,
             "libraryPage": self.page.storage_id(),
@@ -1929,6 +2030,26 @@ impl MetalSharpApp {
                     this.live.msync = config.get("msync").and_then(Value::as_bool) != Some(false);
                     this.live.metal_hud =
                         config.get("metalHud").and_then(Value::as_bool) == Some(true);
+                    this.live.metal_hud_elements = config
+                        .get("metalHudElements")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .split(',')
+                        .filter(|name| !name.is_empty())
+                        .map(str::to_owned)
+                        .collect();
+                    this.live.ray_tracing =
+                        config.get("rayTracing").and_then(Value::as_bool) == Some(true);
+                    this.live.window_mode = config
+                        .get("windowMode")
+                        .and_then(Value::as_str)
+                        .unwrap_or("default")
+                        .to_owned();
+                    this.live.game_resolution = config
+                        .get("gameResolution")
+                        .and_then(Value::as_str)
+                        .unwrap_or("default")
+                        .to_owned();
                     this.live.x87 =
                         config.get("x87Acceleration").and_then(Value::as_bool) == Some(true);
                     cx.notify();
@@ -2292,6 +2413,199 @@ impl MetalSharpApp {
                     toast::error(cx, "Failed to update the Metal HUD");
                 }
                 this.live.metal_hud_busy = false;
+                cx.notify();
+            },
+        );
+    }
+
+    /// Shows or hides one of the Metal HUD's metrics. None chosen leaves the HUD's own selection.
+    pub(super) fn toggle_metal_hud_element(
+        &mut self,
+        element: &'static str,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.live.enabled || self.live.metal_hud_busy {
+            return;
+        }
+        let mut elements = self.live.metal_hud_elements.clone();
+        if let Some(index) = elements.iter().position(|name| name == element) {
+            elements.remove(index);
+        } else {
+            elements.push(element.to_owned());
+        }
+        self.live.metal_hud_busy = true;
+        live::call(
+            cx,
+            "POST",
+            "/config",
+            Some(json!({"metalHudElements": elements.join(",")})),
+            live::DEFAULT_TIMEOUT,
+            move |this, result, cx| {
+                match result.filter(is_ok) {
+                    Some(config) => {
+                        this.live.metal_hud_elements = config
+                            .get("metalHudElements")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .split(',')
+                            .filter(|name| !name.is_empty())
+                            .map(str::to_owned)
+                            .collect();
+                    }
+                    None => toast::error(cx, "Failed to update the Metal HUD"),
+                }
+                this.live.metal_hud_busy = false;
+                cx.notify();
+            },
+        );
+    }
+
+    /// The display mode ("windowMode") or resolution ("gameResolution") every game starts with, unless a Windows
+    /// program has its own.
+    pub(super) fn set_shared_display(
+        &mut self,
+        key: &'static str,
+        value: &'static str,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.live.enabled {
+            return;
+        }
+        live::call(
+            cx,
+            "POST",
+            "/config",
+            Some(json!({ key: value })),
+            live::DEFAULT_TIMEOUT,
+            move |this, result, cx| {
+                if result.as_ref().is_some_and(is_ok) {
+                    if key == "windowMode" {
+                        this.live.window_mode = value.to_owned();
+                    } else {
+                        this.live.game_resolution = value.to_owned();
+                    }
+                } else {
+                    toast::error(cx, "Failed to update the display settings");
+                }
+                cx.notify();
+            },
+        );
+    }
+
+    pub(super) fn set_ray_tracing(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if !self.live.enabled || self.live.ray_tracing_busy {
+            return;
+        }
+        self.live.ray_tracing_busy = true;
+        live::call(
+            cx,
+            "POST",
+            "/config",
+            Some(json!({"rayTracing": enabled})),
+            live::DEFAULT_TIMEOUT,
+            move |this, result, cx| {
+                if result.as_ref().is_some_and(is_ok) {
+                    this.live.ray_tracing = enabled;
+                } else {
+                    toast::error(cx, "Failed to update ray tracing");
+                }
+                this.live.ray_tracing_busy = false;
+                cx.notify();
+            },
+        );
+    }
+
+    pub(super) fn load_vr_headset(&mut self, cx: &mut Context<Self>) {
+        live::call(
+            cx,
+            "GET",
+            "/metalvr/headset",
+            None,
+            live::DEFAULT_TIMEOUT,
+            |this, result, cx| {
+                if let Some(result) = result.filter(is_ok) {
+                    this.live.vr_headset = VrHeadset::from_response(&result);
+                    cx.notify();
+                }
+            },
+        );
+    }
+
+    /// Saves the headset (and, for a streamed one, the ALVR client it trusts) for the VR server's next start.
+    pub(super) fn save_vr_headset(
+        &mut self,
+        headset: String,
+        trust: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.live.enabled || self.live.vr_headset.busy {
+            return;
+        }
+        let mut body = json!({"headset": headset});
+        if let Some(trust) = trust {
+            body["trust"] = json!(trust);
+        }
+        self.live.vr_headset.busy = true;
+        cx.notify();
+        live::call(
+            cx,
+            "POST",
+            "/metalvr/headset",
+            Some(body),
+            live::DEFAULT_TIMEOUT,
+            |this, result, cx| {
+                this.live.vr_headset.busy = false;
+                match result {
+                    Some(result) if is_ok(&result) => {
+                        this.live.vr_headset = VrHeadset::from_response(&result);
+                        if this.live.vr_server_running {
+                            toast::success(cx, "Headset saved: restart the VR server to use it");
+                        }
+                    }
+                    other => toast::error(
+                        cx,
+                        format!(
+                            "Could not save the headset: {}",
+                            other
+                                .as_ref()
+                                .and_then(|value| value.get("error"))
+                                .and_then(Value::as_str)
+                                .unwrap_or("the backend did not answer")
+                        ),
+                    ),
+                }
+                cx.notify();
+            },
+        );
+    }
+
+    /// A step of the headset's setup: install, display and steamvr open in Terminal (they may ask for a password),
+    /// bluetooth and displays open their System Settings panes.
+    pub(super) fn run_vr_setup_step(&mut self, step: &'static str, cx: &mut Context<Self>) {
+        if !self.live.enabled {
+            return;
+        }
+        live::call(
+            cx,
+            "POST",
+            "/metalvr/setup",
+            Some(json!({"step": step})),
+            Duration::from_secs(20),
+            |this, result, cx| {
+                match result {
+                    Some(result) if is_ok(&result) => {
+                        this.live.vr_headset = VrHeadset::from_response(&result);
+                    }
+                    other => toast::error(
+                        cx,
+                        other
+                            .as_ref()
+                            .and_then(|value| value.get("error"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("The setup step did not start")
+                            .to_owned(),
+                    ),
+                }
                 cx.notify();
             },
         );

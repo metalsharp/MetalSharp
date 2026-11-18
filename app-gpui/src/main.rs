@@ -19,6 +19,7 @@ mod logs_preview;
 mod markdown;
 #[allow(dead_code)]
 mod mini_browser;
+mod motion;
 mod page_palette;
 mod process_manager;
 mod scrollbar;

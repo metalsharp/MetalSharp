@@ -36,6 +36,7 @@ const LANGUAGES: [(&str, &str); 20] = [
 
 #[derive(Clone, Debug)]
 pub enum SettingsPreviewEvent {
+    LiquidGlass(bool),
     Close,
     ReopenSetup,
     LanguageChanged(&'static str),
@@ -81,6 +82,9 @@ pub struct AppState {
     pub update_message: String,
     pub developer_mode: bool,
     pub low_performance: bool,
+    /// Liquid Glass, and whether this Mac has it (macOS 26 and later)
+    pub liquid_glass: bool,
+    pub liquid_glass_available: bool,
     pub library_grid: bool,
     pub window_size: WindowSize,
 }
@@ -185,6 +189,8 @@ pub struct SettingsPreview {
     graphics_logs: bool,
     retina: bool,
     retina_busy: bool,
+    /// Retina changed while Wine Steam was running: it applies once Wine Steam restarts (metalsharp/MetalSharp#797)
+    retina_restart: bool,
     ray_tracing: bool,
     ray_tracing_busy: bool,
     exclude_native: bool,
@@ -357,6 +363,7 @@ impl SettingsPreview {
             graphics_logs: false,
             retina: false,
             retina_busy: false,
+            retina_restart: false,
             ray_tracing: false,
             ray_tracing_busy: false,
             exclude_native: false,
@@ -787,6 +794,49 @@ impl SettingsPreview {
         cx.notify();
     }
 
+    /// Stops Wine Steam and starts it again, so a changed Retina setting reaches it and its games.
+    fn restart_wine_steam(&mut self, cx: &mut Context<Self>) {
+        self.retina_restart = false;
+        cx.notify();
+        toast::success(cx, "Restarting Wine Steam...");
+        live::call(
+            cx,
+            "POST",
+            "/steam/stop",
+            None,
+            live::DEFAULT_TIMEOUT,
+            |_, r, cx| {
+                if !r.as_ref().is_some_and(is_ok) {
+                    toast::error(
+                        cx,
+                        error_text(r.as_ref()).unwrap_or_else(|| "Wine Steam did not stop".into()),
+                    );
+                    cx.emit(SettingsPreviewEvent::RefreshLaunchers);
+                    return;
+                }
+                live::call(
+                    cx,
+                    "POST",
+                    "/steam/launch",
+                    None,
+                    live::STEAM_LAUNCH_TIMEOUT,
+                    |_, r, cx| {
+                        if r.as_ref().is_some_and(is_ok) {
+                            toast::success(cx, "Wine Steam restarted with the new Retina setting");
+                        } else {
+                            toast::error(
+                                cx,
+                                error_text(r.as_ref())
+                                    .unwrap_or_else(|| "Failed to start Steam".into()),
+                            );
+                        }
+                        cx.emit(SettingsPreviewEvent::RefreshLaunchers);
+                    },
+                );
+            },
+        );
+    }
+
     fn toggle_wine_steam(&mut self, cx: &mut Context<Self>) {
         if self.app.wine_steam_running {
             live::call(
@@ -1075,10 +1125,13 @@ impl SettingsPreview {
             move |this, r, cx| {
                 if let Some(r) = r.filter(is_ok) {
                     this.apply_config(&r);
+                    // Steam games and the Steam client take it at Wine Steam's next start; say so where it stays
+                    // in sight, with the restart beside it.
+                    this.retina_restart = this.app.wine_steam_running;
                     toast::success(
                         cx,
                         format!(
-                            "Retina rendering {} — restart Wine Steam to apply",
+                            "Retina rendering {}",
                             if enabled { "enabled" } else { "disabled" }
                         ),
                     );
@@ -1397,46 +1450,18 @@ impl SettingsPreview {
         for category in SettingsCategory::ALL {
             let active = self.category == category;
             navigation = navigation.child(
-                div()
-                    .id(("settings-category", category as usize))
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .h(px(42.0))
-                    .px(px(13.0))
-                    .rounded(px(9.0))
-                    .border_1()
-                    .border_color(rgba(if active {
-                        (p.accent << 8) | 0x45
-                    } else {
-                        0x00000000
-                    }))
-                    .bg(rgba(if active {
-                        (p.accent << 8) | 0x19
-                    } else {
-                        0x00000000
-                    }))
-                    .text_size(px(14.0))
-                    .font_weight(if active {
-                        FontWeight::SEMIBOLD
-                    } else {
-                        FontWeight::NORMAL
-                    })
-                    .text_color(rgb(if active && !p.light {
-                        p.accent
-                    } else {
-                        p.control_text
-                    }))
-                    .cursor_pointer()
-                    .hover(move |style| style.bg(rgb(p.hover)))
-                    .child(self.tr(category.label_key()))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.category = category;
-                        this.category_scroll
-                            .set_offset(gpui::point(px(0.0), px(0.0)));
-                        this.language_menu = false;
-                        cx.notify();
-                    })),
+                p.nav_item(
+                    ("settings-category", category as usize),
+                    self.tr(category.label_key()),
+                    active,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.category = category;
+                    this.category_scroll
+                        .set_offset(gpui::point(px(0.0), px(0.0)));
+                    this.language_menu = false;
+                    cx.notify();
+                })),
             );
         }
         navigation
@@ -1811,58 +1836,7 @@ impl SettingsPreview {
         desc: impl IntoElement,
         control: impl IntoElement,
     ) -> gpui::Div {
-        let p = self.palette;
-        div()
-            .w_full()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .gap(px(7.0))
-            .py(px(16.0))
-            .border_b_1()
-            .border_color(rgba(
-                (p.control_border & 0xffffff00)
-                    | (((p.control_border & 0xff) as f32 * 0.35) as u32),
-            ))
-            .child(
-                div()
-                    .w_full()
-                    .min_w_0()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap(px(12.0))
-                    .when(self.narrow, |d| d.flex_col().items_start())
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_color(rgb(p.control_text))
-                            .text_size(px(14.0))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(title.into()),
-                    )
-                    .child(
-                        div()
-                            .flex_none()
-                            .min_w_0()
-                            .max_w_full()
-                            .flex()
-                            .flex_wrap()
-                            .items_center()
-                            .gap(px(8.0))
-                            .child(control),
-                    ),
-            )
-            .child(
-                div()
-                    .w_full()
-                    .min_w_0()
-                    .text_color(rgba((p.control_text << 8) | 0xad))
-                    .text_size(px(13.0))
-                    .line_height(px(20.0))
-                    .child(desc),
-            )
+        self.palette.setting_row(title, desc, control, self.narrow)
     }
 
     fn credential_row(
@@ -1973,38 +1947,9 @@ impl SettingsPreview {
         cx: &mut Context<Self>,
         f: impl Fn(&mut Self, &mut Context<Self>) + 'static,
     ) -> gpui::Stateful<gpui::Div> {
-        let p = self.palette;
-        div()
-            .id(id)
-            .flex()
-            .items_center()
-            .w(px(40.))
-            .h(px(24.))
-            .px(px(2.))
-            .rounded(px(999.))
-            .border_1()
-            .border_color(rgba(if enabled {
-                (p.accent << 8) | 0xff
-            } else {
-                p.control_border
-            }))
-            .bg(if enabled {
-                rgba((p.accent << 8) | 0x4d)
-            } else {
-                rgba((p.control_bg << 8) | 0xff)
-            })
-            .cursor_pointer()
+        self.palette
+            .switch(id, enabled)
             .on_click(cx.listener(move |this, _, _, cx| f(this, cx)))
-            .child(
-                div()
-                    .size(px(18.))
-                    .rounded(px(999.))
-                    .bg(rgba(
-                        ((if enabled { p.accent } else { p.control_text }) << 8)
-                            | if enabled { 0xff } else { 0xb8 },
-                    ))
-                    .when(enabled, |d| d.ml(px(16.))),
-            )
     }
     fn text_control(&self, text: impl Into<gpui::SharedString>) -> gpui::Div {
         div()
@@ -2153,11 +2098,29 @@ impl Render for SettingsPreview {
         );
         let retina = self.row(
             "High Resolution (Retina)",
-            self.tr("ui.settingsDesc.retina"),
-            self.toggle("retina-toggle", self.retina, cx, |s, cx| {
-                let next = !s.retina;
-                s.set_retina(next, cx)
-            }),
+            if self.retina_restart {
+                "Wine Steam is running with the previous setting: restart it to apply Retina to Steam and its \
+                 games. Other games take it at their next start; each game can also have its own in its settings."
+                    .into()
+            } else {
+                self.tr("ui.settingsDesc.retina")
+            },
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .when(self.retina_restart, |row| {
+                    row.child(
+                        self.action_button("retina-restart-steam", "Restart Wine Steam", true)
+                            .h(px(30.))
+                            .text_size(px(12.5))
+                            .on_click(cx.listener(|this, _, _, cx| this.restart_wine_steam(cx))),
+                    )
+                })
+                .child(self.toggle("retina-toggle", self.retina, cx, |s, cx| {
+                    let next = !s.retina;
+                    s.set_retina(next, cx)
+                })),
         );
         // The VKD3D-Proton lane (both Wine runtimes): MoltenVK's experimental ray tracing pipelines, for DXR 1.1
         // and feature level 12_2.
@@ -2254,6 +2217,30 @@ impl Render for SettingsPreview {
                         cx.notify();
                     }),
                 ),
+        );
+        let glass_row = self.row(
+            "Liquid Glass",
+            if app.liquid_glass_available {
+                "macOS 26's translucent look: the window and its panels are frosted glass over your desktop and the \
+                 game's art. Off keeps the classic look; Low Performance Mode also turns it off."
+            } else {
+                "macOS 26's translucent look. This Mac has an earlier macOS, so MetalSharp keeps its classic look."
+            },
+            self.toggle(
+                "liquid-glass",
+                app.liquid_glass && app.liquid_glass_available,
+                cx,
+                |s, cx| {
+                    if !s.app.liquid_glass_available {
+                        return;
+                    }
+                    let next = !s.app.liquid_glass;
+                    s.app.liquid_glass = next;
+                    cx.emit(SettingsPreviewEvent::LiquidGlass(next));
+                    cx.notify();
+                },
+            )
+            .opacity(if app.liquid_glass_available { 1.0 } else { 0.45 }),
         );
         let library_layout = self.row(
             self.tr("ui.settings.libraryLayout"),
@@ -2611,6 +2598,7 @@ impl Render for SettingsPreview {
                         .child(library_layout)
                         .child(window_size)
                         .child(perf)
+                        .child(glass_row)
                         .child(retina.border_b_0()),
                     false,
                 ),
@@ -2768,8 +2756,8 @@ impl Render for SettingsPreview {
             .h(px(layout.height))
             .rounded(px(18.0))
             .border_1()
-            .border_color(rgba((p.control_text << 8) | 0x24))
-            .bg(rgb(p.control_bg))
+            .border_color(p.panel_border())
+            .bg(p.panel_bg())
             .text_color(rgb(p.control_text))
             .shadow(vec![gpui::BoxShadow {
                 color: rgba(0x0000008c).into(),
@@ -2854,7 +2842,7 @@ impl Render for SettingsPreview {
             .pb(px(layout.gutter))
             .bg(rgba(0x06080a94))
             .on_click(cx.listener(|this, _, _, cx| this.dismiss(cx)))
-            .child(
+            .child(crate::motion::appear(
                 panel
                     .track_focus(&self.focus.get_or_insert_with(|| cx.focus_handle()).clone())
                     .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
@@ -2869,7 +2857,10 @@ impl Render for SettingsPreview {
                             cx.notify();
                         }
                     })),
-            )
+                "settings-panel-in",
+                12.0,
+                self.app.low_performance,
+            ))
             .children(language_menu)
             .children(confirmation)
     }
