@@ -16,6 +16,8 @@ pub enum Glass {
     Primary = 2,
     /// Clear glass with an accent tint: the selected card.
     Selected = 3,
+    /// Deep glass: a panel over the art (settings), whose text must read over anything.
+    Sheet = 4,
 }
 
 #[cfg(target_os = "macos")]

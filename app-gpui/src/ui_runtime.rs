@@ -288,7 +288,7 @@ impl MetalSharpApp {
                 .rounded(px(if glass { 999.0 } else { layout.scaled(6.0) }))
                 .text_size(px(layout.scaled(12.5)))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(if on { 0xffffff } else { 0xaab4c4 }))
+                .text_color(rgb(if on || glass { 0xffffff } else { 0xaab4c4 }))
                 .when(on, |d| {
                     d.bg(rgba(if glass { 0xffffff4d } else { 0xffffff26 }))
                 })

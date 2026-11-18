@@ -20,11 +20,27 @@ private final class FlippedView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
+/// The hero's art: as wide as the window while it is resized (GPUI sets its frame a frame later), its fade kept to
+/// its bounds.
+private final class HeroView: NSView {
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.mask?.frame = bounds
+        CATransaction.commit()
+    }
+}
+
 private enum Kind: Int32 {
     case panel = 0
     case control = 1
     case primary = 2
     case selected = 3
+    /// a panel over the art (settings): deeper, so its text reads over anything
+    case sheet = 4
 }
 
 @MainActor
@@ -32,7 +48,9 @@ private final class Host {
     weak var gpuiView: NSView?
     let container = FlippedView()
     var windowGlass: NSView?
-    let hero = FlippedView()
+    let hero = HeroView()
+    /// evens the desktop behind the window toward the theme, so text reads over a bright or a dark desktop alike
+    let veil = FlippedView()
     var heroPath: String?
     var regions: [UInt64: NSView] = [:]
     /// the electric rim and glow of a selected surface, over its glass
@@ -55,6 +73,10 @@ private final class Host {
         fade.endPoint = CGPoint(x: 0.5, y: 1.0)
         hero.layer?.mask = fade
         hero.alphaValue = 0
+        hero.autoresizingMask = [.width]
+        veil.wantsLayer = true
+        veil.autoresizingMask = [.width, .height]
+        container.addSubview(veil)
         container.addSubview(hero)
     }
 
@@ -72,8 +94,11 @@ private final class Host {
             base.state = .active
             base.frame = container.bounds
             base.autoresizingMask = [.width, .height]
-            container.addSubview(base, positioned: .below, relativeTo: hero)
+            container.addSubview(base, positioned: .below, relativeTo: veil)
             windowGlass = base
+            veil.frame = container.bounds
+            veil.layer?.backgroundColor =
+                (dark ? NSColor(calibratedRed: 0.03, green: 0.05, blue: 0.09, alpha: 0.50) : NSColor(white: 1.0, alpha: 0.35)).cgColor
         }
     }
 
@@ -106,6 +131,7 @@ private final class Host {
         case .control: return NSColor(white: 1.0, alpha: dark ? 0.24 : 0.45)
         case .primary: return NSColor(white: 1.0, alpha: 0.80)
         case .selected: return NSColor(calibratedRed: 0.30, green: 0.66, blue: 1.0, alpha: 0.50)
+        case .sheet: return dark ? NSColor(calibratedRed: 0.03, green: 0.04, blue: 0.07, alpha: 0.55) : NSColor(white: 1.0, alpha: 0.55)
         }
     }
 
@@ -161,7 +187,6 @@ private final class Host {
     func setHero(path: String?, rect: NSRect) {
         if hero.frame != rect {
             hero.frame = rect
-            hero.layer?.mask?.frame = hero.bounds
         }
         guard path != heroPath else { return }
         heroPath = path

@@ -294,7 +294,7 @@ impl MetalSharpApp {
             .when(p.glass, |panel| {
                 panel.relative().child(crate::liquid_glass::mark(
                     "game-settings-glass",
-                    crate::liquid_glass::Glass::Panel,
+                    crate::liquid_glass::Glass::Sheet,
                     18.0,
                 ))
             })
@@ -1382,7 +1382,7 @@ impl MetalSharpApp {
             .when(p.glass, |panel| {
                 panel.relative().child(crate::liquid_glass::mark(
                     "vr-setup-glass",
-                    crate::liquid_glass::Glass::Panel,
+                    crate::liquid_glass::Glass::Sheet,
                     18.0,
                 ))
             })

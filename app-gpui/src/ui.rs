@@ -739,6 +739,8 @@ pub struct MetalSharpApp {
     liquid_glass: bool,
     /// The window background last set (blurred for Liquid Glass)
     window_glass: Option<bool>,
+    /// The docked sidebar's width under Liquid Glass (0 without one): the footer starts beside it
+    glass_sidebar_inset: f32,
     /// The library's layout, and the tab it opens on: Grid (Collection) or Steam Deck (Play).
     library_grid: bool,
     window_size: crate::window_layout::WindowSize,
@@ -815,6 +817,7 @@ impl MetalSharpApp {
             low_performance: false,
             liquid_glass: true,
             window_glass: None,
+            glass_sidebar_inset: 0.0,
             library_grid: false,
             window_size: crate::window_layout::WindowSize::default(),
             startup_video_seen: false,
@@ -1772,11 +1775,16 @@ impl MetalSharpApp {
             input.placeholder = library_search_placeholder(f32::from(viewport.width)).into();
             input.text_color = theme.control_text();
             input.font_size = layout.scaled(14.0);
-            input.placeholder_color = if theme == PreviewTheme::Light {
+            input.placeholder_color = if self.glass() {
+                0xeef1f5
+            } else if theme == PreviewTheme::Light {
                 0x000000
             } else {
                 0xaaaaaa
             };
+            if self.glass() {
+                input.text_color = 0xffffff;
+            }
         });
         let control_text = theme.control_text();
         let control_border = rgba(theme.page_palette().control_border);
@@ -2003,7 +2011,7 @@ impl MetalSharpApp {
                             .child(control_icon(
                                 "icon-search.svg",
                                 layout.scaled(20.0),
-                                0xaab4c4,
+                                if glass { 0xffffff } else { 0xaab4c4 },
                             ))
                             .child(div().flex_1().min_w_0().child(search_input)),
                     )
@@ -2083,6 +2091,11 @@ impl MetalSharpApp {
                 .child(self.sharp_preview.clone().unwrap()),
         };
 
+        self.glass_sidebar_inset = if self.glass() && !sidebar_overlay {
+            sidebar_width
+        } else {
+            0.0
+        };
         let footer = self.render_footer(layout, cx);
         let covered = self.glass() && (self.game_settings_open || self.settings_open);
         let update_banner = self.render_update_banner(cx);
@@ -2517,11 +2530,20 @@ impl MetalSharpApp {
                         panel.bg(rgba((ink << 8) | 0xf0))
                     })
                     .when(self.glass() && !self.sidebar_is_overlay, |panel| {
-                        panel.child(crate::liquid_glass::mark(
-                            "library-sidebar",
-                            crate::liquid_glass::Glass::Panel,
-                            0.0,
-                        ))
+                        // its glass runs under the footer's row to the window's bottom, one pane
+                        panel.child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .left_0()
+                                .right_0()
+                                .bottom(px(-(layout.footer_height + layout.scaled(10.0))))
+                                .child(crate::liquid_glass::mark(
+                                    "library-sidebar",
+                                    crate::liquid_glass::Glass::Panel,
+                                    0.0,
+                                )),
+                        )
                     })
                     .child(pages)
                     .child(div().flex_1())
@@ -2547,6 +2569,15 @@ impl MetalSharpApp {
                 .relative()
                 .flex()
                 .flex_none()
+                .when(glass, |group| {
+                    group.rounded_full().border_1().border_color(border).child(
+                        crate::liquid_glass::mark(
+                            "launcher-group",
+                            crate::liquid_glass::Glass::Control,
+                            999.0,
+                        ),
+                    )
+                })
                 .child(
                     div()
                         .id("library-launcher-button")
@@ -2560,16 +2591,7 @@ impl MetalSharpApp {
                         .border_1()
                         .border_color(border)
                         .bg(fill)
-                        .when(glass, |d| {
-                            d.relative()
-                                .rounded_full()
-                                .mr(px(layout.scaled(6.0)))
-                                .child(crate::liquid_glass::mark(
-                                    "launcher-button",
-                                    crate::liquid_glass::Glass::Control,
-                                    999.0,
-                                ))
-                        })
+                        .when(glass, |d| d.border_0())
                         .text_size(px(layout.scaled(13.0)))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(rgb(0xffffff))
@@ -2598,13 +2620,8 @@ impl MetalSharpApp {
                         .when(!glass, |d| d.border_l_0())
                         .border_color(border)
                         .bg(fill)
-                        .when(glass, |d| {
-                            d.relative().rounded_full().child(crate::liquid_glass::mark(
-                                "launcher-options",
-                                crate::liquid_glass::Glass::Control,
-                                999.0,
-                            ))
-                        })
+                        // one capsule with the launcher's button: a hairline between them
+                        .when(glass, |d| d.border_0().border_l_1())
                         .cursor_pointer()
                         .hover(|style| style.bg(rgba(0x1a1e22d0)))
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -2789,6 +2806,9 @@ impl MetalSharpApp {
             )
         };
         let stream_hue = theme.spectrum()[0];
+        let glass = self.glass();
+        // on glass the quiet text is white: gray would sink into it
+        let muted = if glass { 0xf1f4f7 } else { 0x969b9a };
         let bar = if self.glass() {
             // a floating glass bar, as the shelf above it
             let (fill, rim) = self.chrome();
@@ -2796,6 +2816,10 @@ impl MetalSharpApp {
                 .relative()
                 .mx(px(layout.page_padding))
                 .mb(px(layout.scaled(10.0)))
+                // beside a docked sidebar, whose glass runs to the window's bottom
+                .when(self.glass_sidebar_inset > 0.0, |bar| {
+                    bar.ml(px(self.glass_sidebar_inset))
+                })
                 .rounded(px(layout.scaled(20.0)))
                 .border_1()
                 .border_color(rim)
@@ -2851,7 +2875,7 @@ impl MetalSharpApp {
                             .child(
                                 div()
                                     .text_size(px(layout.scaled(11.0)))
-                                    .text_color(rgb(0x969b9a))
+                                    .text_color(rgb(muted))
                                     .truncate()
                                     .child(ready_detail),
                             ),
@@ -2920,7 +2944,7 @@ impl MetalSharpApp {
                             .child(
                                 div()
                                     .text_size(px(layout.scaled(10.5)))
-                                    .text_color(rgb(0x8b9290))
+                                    .text_color(rgb(muted))
                                     .child("To phone / tablet"),
                             ),
                     ),
@@ -2943,9 +2967,21 @@ impl MetalSharpApp {
                             .rounded_full()
                             .border_1()
                             .border_color(rgba(if available { 0x74d28aff } else { 0xaabeff2e }))
-                            .bg(rgb(if available { 0x1f3a28 } else { 0x282c2d }))
+                            .bg(rgba(if available {
+                                0x1f3a28ff
+                            } else if glass {
+                                0xffffff2e
+                            } else {
+                                0x282c2dff
+                            }))
                             .text_size(px(layout.scaled(16.0)))
-                            .text_color(rgb(if available { 0x74d28a } else { 0x777d7b }))
+                            .text_color(rgb(if available {
+                                0x74d28a
+                            } else if glass {
+                                0xffffff
+                            } else {
+                                0x777d7b
+                            }))
                             .when(available && !downloading, |button| button.cursor_pointer())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 if this.update_available() && !this.live.update_downloading {
@@ -2975,7 +3011,7 @@ impl MetalSharpApp {
                             .child(
                                 div()
                                     .text_size(px(layout.scaled(11.0)))
-                                    .text_color(rgb(0x969b9a))
+                                    .text_color(rgb(muted))
                                     .truncate()
                                     .child(update_detail),
                             )
@@ -4049,9 +4085,18 @@ impl MetalSharpApp {
                         .mx_auto()
                         .w_full()
                         .max_w(px(layout.content_width))
+                        .relative()
+                        // the arrows are drawn after the cards, so a tilted card never covers one
+                        .child(div().flex_none().w(px(layout.scaled(38.0))))
+                        .child(cards)
                         .child(
                             div()
                                 .id("dock-previous")
+                                .absolute()
+                                .left_0()
+                                .top_0()
+                                .bottom_0()
+                                .my_auto()
                                 .w(px(layout.scaled(38.0)))
                                 .h(px(layout.scaled(66.0)))
                                 .flex()
@@ -4093,7 +4138,6 @@ impl MetalSharpApp {
                                     0xffffff,
                                 )),
                         )
-                        .child(cards)
                         .child(
                             div()
                                 .id("dock-next")

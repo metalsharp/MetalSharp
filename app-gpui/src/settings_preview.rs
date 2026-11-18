@@ -2761,7 +2761,7 @@ impl Render for SettingsPreview {
             .when(p.glass, |panel| {
                 panel.relative().child(crate::liquid_glass::mark(
                     "settings-glass",
-                    crate::liquid_glass::Glass::Panel,
+                    crate::liquid_glass::Glass::Sheet,
                     18.0,
                 ))
             })
