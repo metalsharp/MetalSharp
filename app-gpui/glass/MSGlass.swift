@@ -82,6 +82,7 @@ private final class Host {
         for view in glows.values { view.removeFromSuperview() }
         regions.removeAll()
         glows.removeAll()
+        placed.removeAll()
     }
 
     init(gpuiView: NSView) {
@@ -170,17 +171,25 @@ private final class Host {
         }
     }
 
+    /// Where each view was last put. A view is touched only when that changes: moving a turned view every frame
+    /// keeps AppKit rebuilding the window's tracking, and the mouse stops reaching GPUI's hover.
+    var placed: [ObjectIdentifier: (NSRect, CGFloat)] = [:]
+
     func place(_ view: NSView, rect: NSRect, rotation: CGFloat) {
-        // rotation is about the center and leaves the frame's meaning: set it straight, then turn it
+        let key = ObjectIdentifier(view)
+        if let last = placed[key], last.0 == rect, last.1 == rotation { return }
+        placed[key] = (rect, rotation)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        // rotation is about the center and changes what the frame means: set it straight, then turn it
         if view.frameCenterRotation != 0 {
             view.frameCenterRotation = 0
         }
-        if view.frame != rect {
-            view.frame = rect
-        }
+        view.frame = rect
         if rotation != 0 {
             view.frameCenterRotation = rotation
         }
+        CATransaction.commit()
     }
 
     func region(id: UInt64, rect: NSRect, radius requested: CGFloat, kind: Kind, rotation: CGFloat) {
@@ -199,24 +208,18 @@ private final class Host {
             } else {
                 addBelowSheets(view)
             }
-            if kind == .selected || kind == .primary {
-                // over the glass: a selected surface's electric rim and glow, or the primary action's light, which
-                // glass alone loses over bright art (it darkens itself there)
+            if kind == .selected {
+                // over the glass: a selected surface's electric rim and glow (the primary action's light is GPUI's,
+                // the theme's accent)
                 let over = FlippedView()
                 over.wantsLayer = true
-                if kind == .selected {
+                do {
                     let electric = color(glowColor, alpha: 1.0, towardWhite: 0.15)
                     over.layer?.borderColor = electric.cgColor
                     over.layer?.borderWidth = 2.5
                     over.layer?.shadowColor = electric.cgColor
                     over.layer?.shadowOpacity = 1.0
                     over.layer?.shadowRadius = 26
-                    over.layer?.shadowOffset = .zero
-                } else {
-                    over.layer?.backgroundColor = NSColor(white: 1.0, alpha: 0.86).cgColor
-                    over.layer?.shadowColor = NSColor.white.cgColor
-                    over.layer?.shadowOpacity = 0.35
-                    over.layer?.shadowRadius = 14
                     over.layer?.shadowOffset = .zero
                 }
                 over.layer?.masksToBounds = false
@@ -259,8 +262,12 @@ private final class Host {
         for (id, view) in regions where !painted.contains(id) {
             view.removeFromSuperview()
             sheets.remove(ObjectIdentifier(view))
+            placed[ObjectIdentifier(view)] = nil
             regions[id] = nil
-            glows.removeValue(forKey: id)?.removeFromSuperview()
+            if let glow = glows.removeValue(forKey: id) {
+                placed[ObjectIdentifier(glow)] = nil
+                glow.removeFromSuperview()
+            }
         }
         // GPUI marks no hero when no game's art is on screen
         if !painted.contains(0) {

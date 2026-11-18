@@ -1994,7 +1994,13 @@ impl MetalSharpApp {
             .children(self.render_launcher_group(
                 layout,
                 steam_menu,
-                f32::from(content_viewport.width) >= 980.0,
+                // under Liquid Glass the sidebar ends where this button does, so its label must not depend on the
+                // width the sidebar leaves the page
+                f32::from(if self.glass() {
+                    viewport.width
+                } else {
+                    content_viewport.width
+                }) >= 980.0,
                 cx,
             ))
             .child(if show_search {
@@ -2632,13 +2638,15 @@ impl MetalSharpApp {
                         .border_1()
                         .border_color(border)
                         .bg(fill)
-                        .when(glass, |d| d.border_0())
+                        .when(glass, |d| d.border_0().rounded_l(px(999.0)))
                         .text_size(px(layout.scaled(13.0)))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(rgb(0xffffff))
                         .when(busy, |d| d.opacity(0.7))
                         .when(!busy, |d| {
-                            d.cursor_pointer().hover(|style| style.bg(rgba(0x1a1e22d0)))
+                            d.cursor_pointer().hover(move |style| {
+                                style.bg(rgba(if glass { 0xffffff24 } else { 0x1a1e22d0 }))
+                            })
                         })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if !busy {
@@ -2662,9 +2670,11 @@ impl MetalSharpApp {
                         .border_color(border)
                         .bg(fill)
                         // one capsule with the launcher's button: a hairline between them
-                        .when(glass, |d| d.border_0().border_l_1())
+                        .when(glass, |d| d.border_0().border_l_1().rounded_r(px(999.0)))
                         .cursor_pointer()
-                        .hover(|style| style.bg(rgba(0x1a1e22d0)))
+                        .hover(move |style| {
+                            style.bg(rgba(if glass { 0xffffff24 } else { 0x1a1e22d0 }))
+                        })
                         .on_click(cx.listener(|this, _, _, cx| {
                             let open = !this.steam_options_open;
                             this.close_library_menus();
