@@ -41,9 +41,17 @@ impl LibraryLayout {
 
         // Five slots retain the existing arch; reserve arrows, gaps, padding, and tilted edges.
         let dock_gap = 16.0 * scale;
-        let dock_vertical_padding = if compact { 88.0 } else { 128.0 } * scale;
+        // How compact the page is, 0 to 1: it eases in over the 240 points of height before `compact` (slower than the
+        // window shrinks, so the cards never grow as it does), so the spacing
+        // and the hero's minimum (and the cards sized from them) change gradually as the window shrinks, without
+        // a jump where `compact` turns on.
+        let compactness = ((960.0 - height) / 240.0)
+            .max((1100.0 - width) / 100.0)
+            .clamp(0.0, 1.0);
+        let ease = |roomy: f32, tight: f32| roomy + (tight - roomy) * compactness;
+        let dock_vertical_padding = ease(128.0, 88.0) * scale;
         let body_height = (height - header_height - footer_height).max(0.0);
-        let hero_minimum = if compact { 240.0 } else { 300.0 } * scale;
+        let hero_minimum = ease(300.0, 240.0) * scale;
         // The cards are sized by the width they share, but never taller than what the hero's minimum leaves
         // them: a wide, short window gets smaller cards, whole, instead of cards cut off by the footer.
         let card_label = 52.0 * scale;
@@ -240,5 +248,22 @@ mod tests {
         // the smallest window is as it was
         let smallest = LibraryLayout::for_viewport(720.0, 640.0);
         assert!((smallest.dock_card_width - 93.6).abs() < 0.01);
+    }
+
+    #[test]
+    fn the_shelf_cards_only_shrink_as_the_window_gets_shorter() {
+        for width in [720.0, 1000.0, 1360.0, 1920.0, 2560.0] {
+            let mut previous = f32::MAX;
+            let mut height = 1400.0;
+            while height >= 640.0 {
+                let card = LibraryLayout::for_viewport(width, height).dock_card_width;
+                assert!(
+                    card <= previous + 0.001,
+                    "{width}x{height}: {card} after {previous}"
+                );
+                previous = card;
+                height -= 1.0;
+            }
+        }
     }
 }
