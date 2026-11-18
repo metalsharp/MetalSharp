@@ -560,7 +560,7 @@ char* ms_app_resources_path(const char* name) {
 }
 
 /* The MetalSharp Wine release this MetalSharp carries and downloads. */
-#define MS_WINE_RELEASE_VERSION "7.0"
+#define MS_WINE_RELEASE_VERSION "8.0"
 
 const char* ms_wine_release_version(void) {
     return MS_WINE_RELEASE_VERSION;

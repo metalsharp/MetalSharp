@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added
+
+- **Game settings in four tabs, the same for every library** — a game's gear opens one panel for Steam, GOG, Epic, Battle.net, Ubisoft, Rockstar and Windows programs, laid out like Settings (the same rows, switches and navigation):
+  - *Graphics:* msync, MetalFX, x87 acceleration (x86_64 build), MoltenVK ray tracing (FEX build), and the game's **OpenGL renderer** (WineMetalGL or Mesa's **Zink**) and **Vulkan renderer** (MoltenVK or Mesa's **KosmicKrisp**, macOS 26 and later). The renderers are MetalSharp Wine 8.0's `SharpGL_Switch` and `SharpVK_Switch`, kept per game in `/game-tuning` (`openglRenderer`, `vulkanRenderer`) and set where MetalSharp starts the game.
+  - *Runtime:* the Metal HUD with a list of the metrics it shows (`metalHudElements`, Apple's `MTL_HUD_ELEMENTS` names), the launch executable, the Steam emulator and controller input. The HUD now reaches every library's games, not only Steam's.
+  - *Advanced:* the standalone app, a Windows program's launch arguments, environment variables, DLL overrides, Windows version, CPU cores and low priority.
+  - *Presentation:* the name, display mode, resolution, frame rate limit, and a game's own **High Resolution (Retina)** for a game in a bottle of its own (#797).
+- **MetalVR headsets** — a game on the MetalVR route has a Headset tab: the headset (Oculus Rift CV1 and S, Meta Quest 1 to Pro, Valve Steam Frame and Index, HTC Vive, Vive Pro and Vive Pro 2, PlayStation VR2), saved for every MetalVR game and the VR server's next start (`GET`/`POST /metalvr/headset`, `~/.metalsharp/metalvr/headset.json`), and one Setup button with a guided setup per headset from MetalVR's guides: what to connect, installing MetalVR 0.2.1 (checked against its SHA-256), letting macOS show the headset's display, SteamVR, pairing the Sense controllers and trusting a streamed headset's ALVR client (`POST /metalvr/setup`). The VR server starts with that headset's driver (`--driver`, `--headset`, `--trust`); MetalVR games keep msync, MetalFX and the Metal HUD.
+- **Liquid Glass** (macOS 26 and later) — Settings > General: the window is blurred glass over the desktop, the game's art fills the page behind a frosted shelf, header, hero controls and footer, and panels are translucent. Off keeps the classic look, which earlier macOS versions always have; Low Performance Mode turns it off.
+
+### Changed
+
+- **MetalSharp Wine 7.0 → 8.0** — both builds carry and download [MetalSharp Wine 8.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v8.0) (`MS_WINE_RELEASE_VERSION`, and Release CI's `METALSHARP_WINE_TAG`).
+- **Motion** — panels, settings tabs and the hero's art ease in (ease-out quint), and the sidebar slides more softly; Low Performance Mode keeps them still.
+- **The header** has the sidebar button in the corner, without MetalSharp's logo and name.
+- **Retina and Wine Steam (#797)** — changing High Resolution (Retina) while Wine Steam runs keeps a *Restart Wine Steam* button beside the setting until Steam has restarted with it.
+
 ### Fixed
 
 - **An earlier MetalSharp's downloaded runtime is replaced by this release's** — the runtime a MetalSharp.app doesn't carry (x86_64 on the FEX build, FEX on the x86_64 build) is downloaded into `~/.metalsharp/downloads`, and one from an earlier MetalSharp stayed there and in `runtime/`: after updating to 1.3.0, switching the FEX build to x86_64 kept MetalSharp Wine 6.5, with nothing downloading 7.0.
