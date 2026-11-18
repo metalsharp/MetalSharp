@@ -1,5 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: Discussions
-    url: https://github.com/aaf2tbz/metalsharp/discussions
+    url: https://github.com/metalsharp/MetalSharp/discussions
     about: Ask questions, share configs, or discuss MetalSharp usage.
+  - name: Discord
+    url: https://discord.gg/kQfFNvVWt
+    about: Chat with other MetalSharp users and the developers.
+  - name: Game Compatibility list
+    url: https://github.com/metalsharp/MetalSharp/blob/main/docs/games-supported.md
+    about: Check whether a game is already tested and which graphics route it uses.
