@@ -3,7 +3,7 @@
 
 Games confirmed playable by users or the developer, grouped by launch route. Many more likely work. Tested on an M6 MacBook Mini (16 GB) from an external USB-C SSD. Routes are described in the [README](../README.md#graphics-routes).
 
-## Sharp Library Sources (Working Launchers and Games)
+## Working Programs (Working Launchers and Games)
 
 | Source | Tested game | Route |
 |---|---|---|
