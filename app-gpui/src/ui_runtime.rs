@@ -274,8 +274,8 @@ impl MetalSharpApp {
         layout: LibraryLayout,
         cx: &mut Context<Self>,
     ) -> gpui::Div {
-        let border = rgba(0xe7eaec4d);
-        let fill = rgba(0x0c0f10b8);
+        let glass = self.glass();
+        let (fill, border) = self.chrome();
         let active = crate::variant::name();
         let segment = |id: &'static str, variant: &'static str| {
             let on = active == variant;
@@ -285,11 +285,13 @@ impl MetalSharpApp {
                 .flex()
                 .items_center()
                 .px(px(layout.scaled(14.0)))
-                .rounded(px(layout.scaled(6.0)))
+                .rounded(px(if glass { 999.0 } else { layout.scaled(6.0) }))
                 .text_size(px(layout.scaled(12.5)))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(if on { 0xffffff } else { 0xaab4c4 }))
-                .when(on, |d| d.bg(rgba(0xffffff26)))
+                .text_color(rgb(if on || glass { 0xffffff } else { 0xaab4c4 }))
+                .when(on, |d| {
+                    d.bg(rgba(if glass { 0xffffff4d } else { 0xffffff26 }))
+                })
                 .cursor_pointer()
                 .on_click(
                     cx.listener(move |this, _, _, cx| this.request_runtime_switch(variant, cx)),
@@ -307,6 +309,16 @@ impl MetalSharpApp {
             .border_1()
             .border_color(border)
             .bg(fill)
+            .when(glass, |toggle| {
+                toggle
+                    .relative()
+                    .rounded_full()
+                    .child(crate::liquid_glass::mark(
+                        "runtime-toggle",
+                        crate::liquid_glass::Glass::Control,
+                        999.0,
+                    ))
+            })
             .child(segment("runtime-toggle-fex", "fex"))
             .child(segment("runtime-toggle-x86_64", "regular"))
     }

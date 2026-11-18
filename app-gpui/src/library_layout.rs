@@ -13,6 +13,9 @@ pub(crate) struct LibraryLayout {
     pub dock_card_width: f32,
     pub dock_card_height: f32,
     pub dock_gap: f32,
+    /// How many cards the shelf shows: five, and up to four more on each side where a wide window has the room
+    /// (always odd, so one is in the middle).
+    pub dock_slots: usize,
     // Total dock space above and below the cards, including their lift clearance.
     pub dock_vertical_padding: f32,
     pub collection_columns: usize,
@@ -40,13 +43,36 @@ impl LibraryLayout {
         let control_height = (40.0 * scale).clamp(36.0, 52.0);
 
         // Five slots retain the existing arch; reserve arrows, gaps, padding, and tilted edges.
-        let dock_card_width = ((width - 252.0 * scale) / 5.0).clamp(0.0, 176.0 * scale);
-        let dock_card_height = dock_card_width * 1.35 + 52.0 * scale;
         let dock_gap = 16.0 * scale;
-        let dock_vertical_padding = if compact { 88.0 } else { 128.0 } * scale;
+        // How compact the page is, 0 to 1: it eases in over the 240 points of height before `compact` (slower than the
+        // window shrinks, so the cards never grow as it does), so the spacing
+        // and the hero's minimum (and the cards sized from them) change gradually as the window shrinks, without
+        // a jump where `compact` turns on.
+        let compactness = ((960.0 - height) / 240.0)
+            .max((1100.0 - width) / 100.0)
+            .clamp(0.0, 1.0);
+        let ease = |roomy: f32, tight: f32| roomy + (tight - roomy) * compactness;
+        let dock_vertical_padding = ease(128.0, 88.0) * scale;
         let body_height = (height - header_height - footer_height).max(0.0);
+        let hero_minimum = ease(300.0, 240.0) * scale;
+        // The cards are sized by the width they share, but never taller than what the hero's minimum leaves
+        // them: a wide, short window gets smaller cards, whole, instead of cards cut off by the footer.
+        let card_label = 52.0 * scale;
+        let card_height_room = body_height - hero_minimum - dock_vertical_padding;
+        let dock_card_width = ((width - 252.0 * scale) / 5.0)
+            .min((card_height_room - card_label) / 1.35)
+            .clamp(72.0 * scale, 176.0 * scale)
+            .min(((width - 252.0 * scale) / 5.0).max(0.0));
+        let dock_card_height = dock_card_width * 1.35 + card_label;
+        let dock_slots = {
+            let room = (width - 252.0 * scale + dock_gap) / (dock_card_width + dock_gap);
+            let whole = room.floor().clamp(5.0, 13.0) as usize;
+            if whole % 2 == 0 { whole - 1 } else { whole }
+        };
         let hero_fit = body_height - dock_card_height - dock_vertical_padding;
-        let hero_minimum = if compact { 240.0 } else { 300.0 } * scale;
+        // With the cards at their smallest, a still shorter window takes the rest from the hero, down to what its
+        // title and buttons need; below that the page scrolls.
+        let hero_floor = 190.0 * scale;
         let hero_maximum = (680.0 * scale).max(width * 0.4);
         let fill_target = if compact {
             0.0
@@ -56,7 +82,7 @@ impl LibraryLayout {
         let hero_height = (height * 0.58)
             .max(fill_target)
             .clamp(hero_minimum, hero_maximum)
-            .min(hero_fit.max(hero_minimum));
+            .min(hero_fit.max(hero_floor));
 
         let collection_gap = 18.0 * scale;
         let collection_columns = ((content_width + collection_gap)
@@ -80,6 +106,7 @@ impl LibraryLayout {
             dock_card_width,
             dock_card_height,
             dock_gap,
+            dock_slots,
             dock_vertical_padding,
             collection_columns,
             collection_card_width,
@@ -174,28 +201,32 @@ mod tests {
     }
 
     #[test]
-    fn short_windows_scroll_instead_of_overlapping_the_primary_action() {
+    fn short_windows_keep_the_primary_action_clear_of_the_shelf() {
+        let total = |layout: &LibraryLayout| {
+            layout.header_height
+                + layout.footer_height
+                + layout.hero_height
+                + layout.dock_card_height
+                + layout.dock_vertical_padding
+        };
+        // shorter than the window may be: the hero keeps what its title and buttons need, and the page scrolls
         for width in [720.0, 740.0, 1360.0] {
             let layout = LibraryLayout::for_viewport(width, 540.0);
             assert!(layout.compact);
-            assert_eq!(layout.hero_height, 240.0 * layout.scale);
-            let total_height = layout.header_height
-                + layout.footer_height
-                + layout.hero_height
-                + layout.dock_card_height
-                + layout.dock_vertical_padding;
-            assert!(total_height > 540.0);
+            assert_eq!(layout.hero_height, 190.0 * layout.scale);
+            assert!(total(&layout) > 540.0);
         }
+        // short for their width: the shelf's cards and then the hero shrink, and the page fits whole
         for (width, height) in [(1360.0, 720.0), (1920.0, 760.0), (3840.0, 1080.0)] {
             let layout = LibraryLayout::for_viewport(width, height);
             assert!(!layout.compact);
-            assert_eq!(layout.hero_height, 300.0 * layout.scale);
-            let total_height = layout.header_height
-                + layout.footer_height
-                + layout.hero_height
-                + layout.dock_card_height
-                + layout.dock_vertical_padding;
-            assert!(total_height > height);
+            assert!(layout.dock_card_width < (width - 252.0 * layout.scale) / 5.0);
+            assert!(layout.hero_height >= 190.0 * layout.scale);
+            assert!(
+                total(&layout) <= height + 0.5,
+                "{width}x{height}: {}",
+                total(&layout)
+            );
         }
         let layout = LibraryLayout::for_viewport(1360.0, 540.0);
         assert_eq!(
@@ -205,5 +236,57 @@ mod tests {
         assert!(LibraryLayout::for_viewport(999.0, 860.0).compact);
         assert!(LibraryLayout::for_viewport(1000.0, 719.0).compact);
         assert!(!LibraryLayout::for_viewport(1000.0, 720.0).compact);
+    }
+
+    #[test]
+    fn a_wide_short_window_keeps_the_shelf_whole() {
+        // the smallest height at widths from the smallest to a very wide window
+        for width in (720..=3840).step_by(40) {
+            let layout = LibraryLayout::for_viewport(width as f32, 640.0);
+            let body = 640.0 - layout.header_height - layout.footer_height;
+            let shelf = layout.dock_card_height + layout.dock_vertical_padding;
+            // at the hero's floor the page scrolls; above it everything fits
+            if layout.hero_height > 190.0 * layout.scale + 0.01 {
+                assert!(
+                    layout.hero_height + shelf <= body + 0.5,
+                    "{width}: hero {} + shelf {shelf} > body {body}",
+                    layout.hero_height
+                );
+            }
+        }
+        // the smallest window is as it was
+        let smallest = LibraryLayout::for_viewport(720.0, 640.0);
+        assert!((smallest.dock_card_width - 93.6).abs() < 0.01);
+    }
+
+    #[test]
+    fn the_shelf_cards_only_shrink_as_the_window_gets_shorter() {
+        for width in [720.0, 1000.0, 1360.0, 1920.0, 2560.0] {
+            let mut previous = f32::MAX;
+            let mut height = 1400.0;
+            while height >= 640.0 {
+                let card = LibraryLayout::for_viewport(width, height).dock_card_width;
+                assert!(
+                    card <= previous + 0.001,
+                    "{width}x{height}: {card} after {previous}"
+                );
+                previous = card;
+                height -= 1.0;
+            }
+        }
+    }
+
+    #[test]
+    fn a_wide_window_with_small_cards_shows_more_of_them() {
+        // the usual shapes keep five
+        assert_eq!(LibraryLayout::for_viewport(720.0, 640.0).dock_slots, 5);
+        assert_eq!(LibraryLayout::for_viewport(1440.0, 864.0).dock_slots, 5);
+        // wide and short: the cards are small, so more fit, odd and at most thirteen
+        let wide = LibraryLayout::for_viewport(1720.0, 640.0);
+        assert!(wide.dock_slots > 5 && wide.dock_slots <= 13 && wide.dock_slots % 2 == 1);
+        let row = wide.dock_slots as f32 * wide.dock_card_width
+            + (wide.dock_slots - 1) as f32 * wide.dock_gap;
+        assert!(row <= 1720.0 - 252.0 * wide.scale);
+        assert_eq!(LibraryLayout::for_viewport(3840.0, 640.0).dock_slots, 13);
     }
 }

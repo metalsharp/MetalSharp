@@ -460,6 +460,34 @@ int main(int argc, char** argv) {
                     ms_wine_release_version());
             fclose(plist);
             EXPECT(!ms_wine_runtime_outdated(home, "fex"));
+            /* with only an earlier release's download, the installed app of this release is its own source */
+            found = ms_wine_fex_app_source();
+            EXPECT(found && !strcmp(found, installed));
+            free(found);
+            /* what an update leaves behind goes: the earlier release's download and an app a swap set aside;
+             * the installed app stays */
+            {
+                char old_app[PATH_MAX], contents[PATH_MAX];
+                snprintf(old_app, sizeof(old_app), "%s.old", installed);
+                mkdir(old_app, 0755);
+                ms_wine_remove_superseded(home);
+                EXPECT(access(old_app, F_OK) != 0);
+                EXPECT(access(downloaded, F_OK) != 0);
+                EXPECT(access(installed_plist, F_OK) == 0);
+                /* a download of this release is kept until it is installed */
+                mkdir(downloaded, 0755);
+                snprintf(contents, sizeof(contents), "%s/Contents", downloaded);
+                mkdir(contents, 0755);
+                plist = fopen(downloaded_plist, "w");
+                EXPECT(plist != NULL);
+                fprintf(plist,
+                        "<plist version=\"1.0\"><dict><key>CFBundleShortVersionString</key><string>%s</string>"
+                        "</dict></plist>\n",
+                        ms_wine_release_version());
+                fclose(plist);
+                ms_wine_remove_superseded(home);
+                EXPECT(access(downloaded_plist, F_OK) == 0);
+            }
             unlink(installed_plist);
             snprintf(installed_plist, sizeof(installed_plist), "%s/Contents", installed);
             rmdir(installed_plist);

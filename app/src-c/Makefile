@@ -235,9 +235,9 @@ $(GAME_EXE_TEST): runtime/game_executable.c tests/game_executable_test.c include
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/game_executable.c tests/game_executable_test.c
 
 # game_tuning.c alone: the test stands in for the Wine, shim and process helpers it calls.
-$(GAME_TUNING_TEST): runtime/game_tuning.c runtime/json.c runtime/json_writer.c tests/game_tuning_test.c include/metalsharp_backend/game_tuning.h
+$(GAME_TUNING_TEST): runtime/game_tuning.c runtime/config.c runtime/json.c runtime/json_writer.c tests/game_tuning_test.c include/metalsharp_backend/game_tuning.h
 	@mkdir -p "$(@D)"
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/game_tuning.c runtime/json.c runtime/json_writer.c tests/game_tuning_test.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/game_tuning.c runtime/config.c runtime/json.c runtime/json_writer.c tests/game_tuning_test.c
 
 # setup.c and migration.c together, as this VARIANT builds them (both #included, like the vcpp test).
 $(SETUP_VARIANT_TEST): runtime/setup.c runtime/migration.c runtime/json.c runtime/json_writer.c runtime/logs.c runtime/rosetta.c runtime/wine_runtime.c tests/setup_variant_test.c include/metalsharp_backend/setup.h include/metalsharp_backend/migration.h include/metalsharp_backend/wine_runtime.h

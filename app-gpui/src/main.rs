@@ -14,11 +14,13 @@ mod intro_video;
 mod launch_overlay;
 mod library_model;
 mod lifecycle;
+mod liquid_glass;
 mod live;
 mod logs_preview;
 mod markdown;
 #[allow(dead_code)]
 mod mini_browser;
+mod motion;
 mod page_palette;
 mod process_manager;
 mod scrollbar;
@@ -323,7 +325,8 @@ fn main() -> Result<()> {
             let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(720.0), px(540.0))),
+                // the smallest the library still reads at: header, hero, shelf and footer whole
+                window_min_size: Some(size(px(720.0), px(640.0))),
                 titlebar: Some(gpui::TitlebarOptions {
                     title: Some("MetalSharp".into()),
                     ..Default::default()

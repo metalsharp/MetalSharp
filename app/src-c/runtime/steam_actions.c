@@ -6722,10 +6722,10 @@ static void set_direct_game_env(const char* home, const char* prefix, unsigned i
     if (rockstar && rockstar->agility_frontend && !strcmp(env_pipeline, "d3dmetal"))
         set_wfdxcompat_agility_env(home);
     ms_steam_apply_launch_preferences(home);
-    /* The fex build's Metal HUD switch (the hero card), for the game only (not the Steam client). 0
-     * also overrides a Mac-wide MetalForceHudEnabled. */
+    /* The Metal HUD switch and its metrics (the hero card), for the game only (not the Steam client); here so they
+     * reach the launch.env of a game the Steam client starts. */
     if (ms_wine_routes_lane(env_pipeline))
-        setenv("MTL_HUD_ENABLED", ms_config_metal_hud_enabled(home) ? "1" : "0", 1);
+        ms_config_apply_metal_hud_env(home);
     /* The fex build's ray tracing switch (Settings), on the VKD3D-Proton lane: MoltenVK's ray tracing
      * pipelines, which VKD3D-Proton reports as DXR 1.1 and feature level 12_2. */
     if (ms_wine_routes_lane(env_pipeline) && !strcmp(env_pipeline, "vkd3d"))
