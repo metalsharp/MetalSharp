@@ -514,6 +514,17 @@ impl PreviewTheme {
 
 /// Website-style bar surface: deep ink, a hue wash from each end, and a
 /// spectrum hairline on the edge that meets the page.
+/// The text color that reads on `color` (0xRRGGBB): near-black on a light one, white on a dark one.
+fn ink_on(color: u32) -> u32 {
+    let (r, g, b) = ((color >> 16) & 0xff, (color >> 8) & 0xff, color & 0xff);
+    // perceived brightness, 0-255
+    if (r * 299 + g * 587 + b * 114) / 1000 > 140 {
+        0x101318
+    } else {
+        0xffffff
+    }
+}
+
 /// The soft shadow under a Liquid Glass surface.
 fn glass_shadow() -> Vec<gpui::BoxShadow> {
     vec![gpui::BoxShadow {
@@ -1661,8 +1672,8 @@ impl MetalSharpApp {
     /// frosted glass.
     fn chrome(&self) -> (gpui::Rgba, gpui::Rgba) {
         if self.glass() {
-            // the glass itself is AppKit's, under GPUI: only its rim is drawn here
-            (rgba(0x00000000), rgba(0xffffff4d))
+            // the glass itself is AppKit's, under GPUI: here a wash of the theme's accent over it, and its rim
+            (rgba((self.theme.accent() << 8) | 0x30), rgba(0xffffff4d))
         } else {
             (rgba(0x0c0f10b8), rgba(0xe7eaec4d))
         }
@@ -2517,7 +2528,14 @@ impl MetalSharpApp {
                     layout.scaled(18.0 * k),
                     if selected { 0xffffff } else { 0xc3cbd8 },
                 ))
-                .child(page.label())
+                // a narrow sidebar has no room for "Windows Programs"
+                .child(
+                    if page == LibraryPage::WindowsPrograms && full_width < layout.scaled(215.0) {
+                        "Programs"
+                    } else {
+                        page.label()
+                    },
+                )
         };
         let mut pages = div().flex().flex_col().gap(px(layout.scaled(3.0)));
         for (index, page) in LibraryPage::LAUNCHERS.into_iter().enumerate() {
@@ -2840,9 +2858,10 @@ impl MetalSharpApp {
                 .border_t_1()
                 .border_color(rim)
                 .bg(fill)
+                .bg(rgba((theme.accent() << 8) | 0x1a))
                 .child(crate::liquid_glass::mark(
                     "library-footer",
-                    crate::liquid_glass::Glass::Control,
+                    crate::liquid_glass::Glass::Panel,
                     0.0,
                 ))
         } else {
@@ -3103,9 +3122,9 @@ impl MetalSharpApp {
                     button
                         .relative()
                         .rounded_full()
-                        .border_color(rgba(0xffffffcc))
-                        .bg(rgba(0x00000000))
-                        .text_color(rgb(0x101318))
+                        .border_color(rgba(0xffffffa6))
+                        .bg(rgba((theme.accent() << 8) | 0xeb))
+                        .text_color(rgb(ink_on(theme.accent())))
                         .child(crate::liquid_glass::mark(
                             "empty-page-action",
                             crate::liquid_glass::Glass::Primary,
@@ -3444,8 +3463,9 @@ impl MetalSharpApp {
                                         // the brightest glass in the app: the one action that matters
                                         play.relative()
                                             .rounded_full()
-                                            .border_color(rgba(0xffffffcc))
-                                            .bg(rgba(0x00000000))
+                                            .border_color(rgba(0xffffffa6))
+                                            // the theme's accent, lit, over its glass
+                                            .bg(rgba((accent << 8) | 0xeb))
                                             .child(crate::liquid_glass::mark(
                                                 "hero-play",
                                                 crate::liquid_glass::Glass::Primary,
@@ -3455,7 +3475,11 @@ impl MetalSharpApp {
                                     .opacity(if launching { 0.6 } else { 1.0 })
                                     .text_size(px(layout.scaled(15.0)))
                                     .font_weight(FontWeight::BOLD)
-                                    .text_color(rgb(if is_running { 0xffffff } else { 0x101318 }))
+                                    .text_color(rgb(if is_running {
+                                        0xffffff
+                                    } else {
+                                        ink_on(accent)
+                                    }))
                                     .cursor_pointer()
                                     .hover(move |style| {
                                         style
@@ -3479,7 +3503,7 @@ impl MetalSharpApp {
                                                 "icon-play.svg"
                                             },
                                             layout.scaled(21.0),
-                                            0x101318,
+                                            ink_on(accent),
                                         )
                                         .into_any_element()
                                     })

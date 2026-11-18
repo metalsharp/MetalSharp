@@ -152,8 +152,8 @@ private final class Host {
     /// Each kind its own strength, so surfaces contrast: panels the quietest, then controls, then the primary action.
     func tint(for kind: Kind) -> NSColor? {
         switch kind {
-        case .panel: return color(accent, alpha: dark ? 0.10 : 0.22, towardWhite: 0.35)
-        case .control: return color(accent, alpha: dark ? 0.26 : 0.45, towardWhite: 0.55)
+        case .panel: return color(accent, alpha: dark ? 0.14 : 0.24, towardWhite: 0.25)
+        case .control: return color(accent, alpha: dark ? 0.42 : 0.50, towardWhite: 0.20)
         case .primary: return NSColor(white: 1.0, alpha: 0.80)
         case .selected: return color(glowColor, alpha: 0.50)
         case .sheet: return color(page, alpha: dark ? 0.62 : 0.55)
