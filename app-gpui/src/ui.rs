@@ -1682,6 +1682,17 @@ impl MetalSharpApp {
         }
     }
 
+    /// A dropdown row's fill: the chosen (or hovered) row is lit; the others show the menu itself, which under
+    /// Liquid Glass is glass.
+    fn menu_item_fill(&self, lit: bool) -> gpui::Rgba {
+        match (self.glass(), lit) {
+            (true, true) => rgba(0xffffff29),
+            (true, false) => rgba(0x00000000),
+            (false, true) => rgba((self.theme.menu_hover() << 8) | 0xff),
+            (false, false) => rgba((self.theme.menu_bg() << 8) | 0xff),
+        }
+    }
+
     /// Under Liquid Glass, the deep glass under a dropdown (a child of the menu, which is positioned).
     fn menu_glass(&self, id: &'static str) -> Option<impl IntoElement + use<>> {
         self.glass()
@@ -1870,15 +1881,14 @@ impl MetalSharpApp {
                         .gap(px(layout.scaled(8.0)))
                         .px(px(layout.scaled(8.0)))
                         .rounded(px(5.0))
-                        .bg(rgb(if selected {
-                            theme.menu_hover()
-                        } else {
-                            theme.menu_bg()
-                        }))
+                        .bg(self.menu_item_fill(selected))
                         .text_size(px(layout.scaled(11.0)))
                         .text_color(rgb(control_text))
                         .cursor_pointer()
-                        .hover(|style| style.bg(rgb(theme.menu_hover())))
+                        .hover({
+                            let fill = self.menu_item_fill(true);
+                            move |style| style.bg(fill)
+                        })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.theme = option;
                             this.theme_menu_open = false;
@@ -1933,7 +1943,10 @@ impl MetalSharpApp {
                         .text_color(rgb(control_text))
                         .opacity(if disabled { 0.5 } else { 1.0 })
                         .cursor_pointer()
-                        .hover(|style| style.bg(rgb(theme.menu_hover())))
+                        .hover({
+                            let fill = self.menu_item_fill(true);
+                            move |style| style.bg(fill)
+                        })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.steam_options_open = false;
                             if steam {
@@ -5011,13 +5024,12 @@ impl MetalSharpApp {
                     .items_center()
                     .justify_between()
                     .rounded(px(5.0))
-                    .bg(rgb(if active {
-                        self.theme.menu_hover()
-                    } else {
-                        self.theme.menu_bg()
-                    }))
+                    .bg(self.menu_item_fill(active))
                     .cursor_pointer()
-                    .hover(|style| style.bg(rgb(self.theme.menu_hover())))
+                    .hover({
+                        let fill = self.menu_item_fill(true);
+                        move |style| style.bg(fill)
+                    })
                     .child(label)
                     .child(if active { "✓" } else { "" })
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -5181,13 +5193,12 @@ impl MetalSharpApp {
                     .items_center()
                     .justify_between()
                     .rounded(px(5.0))
-                    .bg(rgb(if active {
-                        self.theme.menu_hover()
-                    } else {
-                        self.theme.menu_bg()
-                    }))
+                    .bg(self.menu_item_fill(active))
                     .cursor_pointer()
-                    .hover(|style| style.bg(rgb(self.theme.menu_hover())))
+                    .hover({
+                        let fill = self.menu_item_fill(true);
+                        move |style| style.bg(fill)
+                    })
                     .child(label)
                     .child(if active { "✓" } else { "" })
                     .on_click(cx.listener(move |this, _, _, cx| {
