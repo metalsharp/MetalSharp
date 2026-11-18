@@ -42,7 +42,7 @@ Release CI (`.github/workflows/release.yml`), for each build, after the app is p
 
 The release job publishes them next to the DMGs. Since apps read `releases/latest/download/<appcast>`, the newest release's appcast is the feed. A release is in it once it's published and not a prerelease.
 
-The first release with Sparkle has no deltas, because no earlier release has an archive. Users on 1.2.0 and earlier reach it through their own DMG updater. From then on, updates come through Sparkle.
+The first release with Sparkle has no deltas, because no earlier release has an archive. The regular build has none either while `MetalSharp-Wine-x86_64.app` ships `.dSYM` files: their code signatures are in extended attributes, which `BinaryDelta` cannot diff, so `sparkle_release.py` makes no delta from or to such an app, names the file in the log, and Sparkle installs the full `.zip`. Users on 1.2.0 and earlier reach it through their own DMG updater. From then on, updates come through Sparkle.
 
 ## The signing key
 
