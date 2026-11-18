@@ -23,8 +23,7 @@ ___
 
 <div align="center">
 
-<img width="1186" height="861" alt="Screenshot 2026-11-08 at 1 09 05 AM" src="https://github.com/user-attachments/assets/f6867751-1863-490d-b9bc-a1ce9b3c5c94" />
-
+<img width="1367" height="1156" alt="MetalSharp Library" src="https://github.com/user-attachments/assets/5906dfa8-8931-4cba-80fd-dcd9a3d7ba16" />
 
 </div>
 
@@ -52,13 +51,13 @@ For Direct Access to What is Installed During Setup, See Here:
 - To launch your game, save your desired pipeline in MetalSharp and launch through MetalSharp.
 - MetalSharp automatically assigns your game a pipeline based on [Game-Compatibility](https://github.com/metalsharp/MetalSharp/blob/main/docs/games-supported.md) testing. Each build has its own rule set (`configs/mtsp-rules.toml`, `configs/mtsp-rules-fex.toml`).
 
-| Version | Route | Engine | Notes |
-|---|---|---|---|
-| Arm64 FEX | **_VKD3D-Proton_** | VKD3D-Proton D3D12 Through Vulkan -> MetalSharp's MoltenVK  -> Metal | In Early-Access |
-| Arm64 FEX | **_Mullion (DXMT Fork)_** | D3D12 / D3D11 / D3D10 x86 / x64 -> Metal | In Early-Access |
-| Arm64 FEX | **_DXVK_** | D3D11 / D3D10 / D3D9 -> Vulkan -> MetalSharp's MoltenVK -> Metal | |
-| Arm64 FEX | **_OpenGL_** | WineMetalGL (OpenGL 1.0 through 4.6) -> Metal | | 
-
+| Version | Route | Engine |
+|---|---|---|
+| Arm64 FEX | **_VKD3D-Proton_** | VKD3D-Proton D3D12 Through Vulkan -> MetalSharp's MoltenVK  -> Metal |
+| Arm64 FEX | **_Mullion (DXMT Fork)_** | D3D12 / D3D11 / D3D10 x86 / x64 -> Metal |
+| Arm64 FEX | **_DXVK_** | D3D11 / D3D10 / D3D9 -> Vulkan -> MetalSharp's MoltenVK -> Metal |
+| Arm64 FEX | **_OpenGL_** | WineMetalGL (OpenGL 1.0 through 4.6) -> Metal |
+| Arm64 FEX | **_MetalVR_** | Play VR Games Through Many Headsets With D3D11 / 12 |
 ___
 
 | Version | Route | Engine |
@@ -80,10 +79,9 @@ ___
 | **_Rockstar Launcher_** | Download and Play Rockstar Games |
 | **_Runtime Bottles_** | Select your launch method, Enable / Disable Msync and MetalFX; Controller Input and x87 Acceleration on x86_64; Metal HUD, Frame Rate Limits and Ray Tracing on Arm64 FEX |
 | **_Route Routing_** | Automatic route selection based on game compatibility data and developer testing |
-| **_Steam Integration_** | Detects your Steam library, manages the Wine Steam session, and deploys a CEF runtime wrapper that survives Steam updates |
+| **_Steam Integration_** | Detects your Steam library, manages the Wine Steam session |
 | **_Steam Art Manager_** | Set custom artwork for any game in your Steam-Library(s) |
 | **_Game Streaming_** | Streams games to a phone or tablet with Sunshine + Moonlight |
-| **MetalVR** | Play SteamVR / VR-Enabled games on several support headsets |
 
 ## Requirements
 
