@@ -529,7 +529,11 @@ impl Render for LogsPreview {
                 .h(px((f32::from(viewport.height) * 0.40).clamp(180.0, 380.0)))
                 .overflow_y_scroll()
                 .track_scroll(&self.live_scroll)
-                .bg(rgb(0x0c0f11))
+                .bg(rgba(if self.palette.glass {
+                    0x0c0f1180
+                } else {
+                    0x0c0f11ff
+                }))
                 .border_t_1()
                 .border_color(rgba(0xffffff12))
                 .py(px(14.0))
@@ -677,7 +681,11 @@ impl Render for LogsPreview {
                                     .border_1()
                                     .border_color(rgba(0xffffff12))
                                     .rounded(px(8.0))
-                                    .bg(rgb(0x0c0f11))
+                                    .bg(rgba(if self.palette.glass {
+                                        0x0c0f1180
+                                    } else {
+                                        0x0c0f11ff
+                                    }))
                                     .font_family("Menlo")
                                     .text_size(px(10.5))
                                     .line_height(px(16.8))
@@ -706,11 +714,13 @@ impl Render for LogsPreview {
             .min_h_0()
             .flex()
             .flex_col()
-            .bg(linear_gradient(
-                180.0,
-                linear_color_stop(rgb(0x171a1d), 0.0),
-                linear_color_stop(rgb(0x111416), 1.0),
-            ))
+            .when(!self.palette.glass, |page| {
+                page.bg(linear_gradient(
+                    180.0,
+                    linear_color_stop(rgb(0x171a1d), 0.0),
+                    linear_color_stop(rgb(0x111416), 1.0),
+                ))
+            })
             .child(
                 div()
                     .absolute()

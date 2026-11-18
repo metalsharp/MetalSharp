@@ -739,8 +739,8 @@ pub struct MetalSharpApp {
     liquid_glass: bool,
     /// The window background last set (blurred for Liquid Glass)
     window_glass: Option<bool>,
-    /// The docked sidebar's width under Liquid Glass (0 without one): the footer starts beside it
-    glass_sidebar_inset: f32,
+    /// The right edge of the header's launcher button, as last painted: the glass sidebar ends there
+    launcher_edge: std::rc::Rc<std::cell::Cell<f32>>,
     /// The library's layout, and the tab it opens on: Grid (Collection) or Steam Deck (Play).
     library_grid: bool,
     window_size: crate::window_layout::WindowSize,
@@ -817,7 +817,7 @@ impl MetalSharpApp {
             low_performance: false,
             liquid_glass: true,
             window_glass: None,
-            glass_sidebar_inset: 0.0,
+            launcher_edge: Default::default(),
             library_grid: false,
             window_size: crate::window_layout::WindowSize::default(),
             startup_video_seen: false,
@@ -1747,8 +1747,17 @@ impl MetalSharpApp {
         let show_search = self.page != LibraryPage::Logs
             && matches!(self.active_tab, LibraryTab::Play | LibraryTab::Collection);
         // Narrow enough to end left of the header's launcher button.
-        // under Liquid Glass it reaches past the header's launcher button, around it
-        let sidebar_full = layout.scaled(if self.glass() { 318.0 } else { 186.0 });
+        // under Liquid Glass it ends where the header's launcher button does (measured as that is painted)
+        let sidebar_full = if self.glass() {
+            let edge = self.launcher_edge.get();
+            if edge > 0.0 {
+                edge + layout.scaled(10.0)
+            } else {
+                layout.scaled(264.0)
+            }
+        } else {
+            layout.scaled(186.0)
+        };
         let sidebar_width = sidebar_full * self.sidebar_slide_fraction();
         // In a narrow window the sidebar slides over the page instead of
         // squeezing the hero and the dock's cards.
@@ -2104,11 +2113,6 @@ impl MetalSharpApp {
                 .child(self.sharp_preview.clone().unwrap()),
         };
 
-        self.glass_sidebar_inset = if self.glass() && sidebar_width > 0.5 {
-            sidebar_width + layout.scaled(8.0)
-        } else {
-            0.0
-        };
         let footer = self.render_footer(layout, cx);
         let covered = self.glass() && (self.game_settings_open || self.settings_open);
         let update_banner = self.render_update_banner(cx);
@@ -2430,8 +2434,8 @@ impl MetalSharpApp {
 
     /// Below this width the sidebar covers the page rather than narrowing it.
     fn sidebar_overlays(&self, viewport: gpui::Size<gpui::Pixels>) -> bool {
-        // under Liquid Glass it is a pane floating over the page, at any width
-        self.glass() || f32::from(viewport.width) < 1180.0
+        // under Liquid Glass it is always beside the page: glass over the page would show the page through it
+        !self.glass() && f32::from(viewport.width) < 1180.0
     }
 
     fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
@@ -2475,7 +2479,7 @@ impl MetalSharpApp {
         let (ink, _) = theme.chrome_ink();
         let glass = self.glass();
         // the wider glass pane has larger rows and text
-        let k = if glass { 1.22 } else { 1.0 };
+        let k = if glass { 1.12 } else { 1.0 };
         let item = |page: LibraryPage, index: usize, cx: &mut Context<Self>| {
             let selected = page == self.page;
             div()
@@ -2544,36 +2548,11 @@ impl MetalSharpApp {
                     .px(px(layout.scaled(10.0)))
                     .when(!glass, |panel| panel.bg(rgba((ink << 8) | 0xf0)))
                     .when(glass, |panel| {
-                        // a pane of deep glass floating over the page, down to the window's bottom beside the
-                        // footer; its fill keeps the page's own text from showing through it
-                        let inset = layout.scaled(8.0);
-                        panel
-                            .pl(px(layout.scaled(10.0) + inset))
-                            .child(
-                                div()
-                                    .absolute()
-                                    .top(px(inset))
-                                    .left(px(inset))
-                                    .right_0()
-                                    .bottom_0()
-                                    .rounded_t(px(layout.scaled(22.0)))
-                                    .bg(rgba((theme.page_bg() << 8) | 0xb8)),
-                            )
-                            .child(
-                                div()
-                                    .absolute()
-                                    .top(px(inset))
-                                    .left(px(inset))
-                                    .right_0()
-                                    .bottom(px(
-                                        -(layout.footer_height + layout.scaled(10.0) - inset)
-                                    ))
-                                    .child(crate::liquid_glass::mark(
-                                        "library-sidebar",
-                                        crate::liquid_glass::Glass::Sheet,
-                                        layout.scaled(22.0),
-                                    )),
-                            )
+                        panel.child(crate::liquid_glass::mark(
+                            "library-sidebar",
+                            crate::liquid_glass::Glass::Panel,
+                            0.0,
+                        ))
                     })
                     .child(pages)
                     .child(div().flex_1())
@@ -2600,13 +2579,27 @@ impl MetalSharpApp {
                 .flex()
                 .flex_none()
                 .when(glass, |group| {
-                    group.rounded_full().border_1().border_color(border).child(
-                        crate::liquid_glass::mark(
+                    let edge = self.launcher_edge.clone();
+                    group
+                        .rounded_full()
+                        .border_1()
+                        .border_color(border)
+                        .child(crate::liquid_glass::mark(
                             "launcher-group",
                             crate::liquid_glass::Glass::Control,
                             999.0,
-                        ),
-                    )
+                        ))
+                        // where the group ends: the sidebar ends there too
+                        .child(
+                            gpui::canvas(
+                                |_, _, _| (),
+                                move |bounds, (), _, _| edge.set(f32::from(bounds.right())),
+                            )
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .size_full(),
+                        )
                 })
                 .child(
                     div()
@@ -2840,24 +2833,17 @@ impl MetalSharpApp {
         // on glass the quiet text is white: gray would sink into it
         let muted = if glass { 0xf1f4f7 } else { 0x969b9a };
         let bar = if self.glass() {
-            // a floating glass bar, as the shelf above it
+            // a bar of glass across the window's bottom, edge to edge
             let (fill, rim) = self.chrome();
             div()
                 .relative()
-                .mx(px(layout.page_padding))
-                .mb(px(layout.scaled(10.0)))
-                // beside a docked sidebar, whose glass runs to the window's bottom
-                .when(self.glass_sidebar_inset > 0.0, |bar| {
-                    bar.ml(px(self.glass_sidebar_inset))
-                })
-                .rounded(px(layout.scaled(20.0)))
-                .border_1()
+                .border_t_1()
                 .border_color(rim)
                 .bg(fill)
                 .child(crate::liquid_glass::mark(
                     "library-footer",
-                    crate::liquid_glass::Glass::Panel,
-                    layout.scaled(20.0),
+                    crate::liquid_glass::Glass::Control,
+                    0.0,
                 ))
         } else {
             chrome_bar(theme, false)
@@ -4022,7 +4008,11 @@ impl MetalSharpApp {
                                 } else {
                                     FontWeight::NORMAL
                                 })
-                                .text_color(rgb(if selected_card { 0xf4f6fa } else { 0xadb6c5 }))
+                                .text_color(rgb(if selected_card || glass {
+                                    0xf4f6fa
+                                } else {
+                                    0xadb6c5
+                                }))
                                 .child(card_game.name.clone()),
                         )
                         .child(
@@ -4086,7 +4076,7 @@ impl MetalSharpApp {
                             .child(
                                 div()
                                     .text_size(px(layout.scaled(12.0)))
-                                    .text_color(rgb(0x96a1b2))
+                                    .text_color(rgb(if glass { 0xeef1f5 } else { 0x96a1b2 }))
                                     .child(format!("{} games", matches.len())),
                             ),
                     )
