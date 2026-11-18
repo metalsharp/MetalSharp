@@ -4090,17 +4090,6 @@ impl MetalSharpApp {
                         0.0,
                     ))
             })
-                    .w_auto()
-                    .pb(px(layout.scaled(12.0)))
-                    .rounded(px(layout.scaled(24.0)))
-                    .border_1()
-                    .border_color(chrome_rim)
-                    .child(crate::liquid_glass::mark(
-                        "library-shelf",
-                        crate::liquid_glass::Glass::Panel,
-                        layout.scaled(24.0),
-                    ))
-            })
             .child(
                 div()
                     .w_full()
