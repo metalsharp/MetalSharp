@@ -342,7 +342,7 @@ impl PreviewTheme {
             Self::Forest => 0x6fce88,
             Self::OrangePeel => 0xff9a45,
             Self::Dragonfruit => 0xff66aa,
-            Self::Lava => 0xff6b52,
+            Self::Lava => 0xf23a2e,
             Self::Space => 0xb48cff,
         }
     }
@@ -355,7 +355,7 @@ impl PreviewTheme {
             Self::Forest => 0x6fce88,
             Self::OrangePeel => 0xff7a1a,
             Self::Dragonfruit => 0xff2e88,
-            Self::Lava => 0xff4a3d,
+            Self::Lava => 0xff2418,
             // Purple underglow beneath the dock's cards.
             Self::Space => 0x8a3dff,
         }
@@ -369,7 +369,7 @@ impl PreviewTheme {
             Self::Forest => 0x182219,
             Self::OrangePeel => 0x231610,
             Self::Dragonfruit => 0x2c182a,
-            Self::Lava => 0x2b0d12,
+            Self::Lava => 0x2a0a0c,
             Self::Space => 0x120d24,
         }
     }
@@ -382,7 +382,7 @@ impl PreviewTheme {
             Self::Forest => 0x1e2b20,
             Self::OrangePeel => 0x2b1b12,
             Self::Dragonfruit => 0x361e33,
-            Self::Lava => 0x3b1117,
+            Self::Lava => 0x3c0e10,
             Self::Space => 0x1c1535,
         }
     }
@@ -408,7 +408,7 @@ impl PreviewTheme {
             Self::Forest => 0x45634b,
             Self::OrangePeel => 0x65452f,
             Self::Dragonfruit => 0x70405e,
-            Self::Lava => 0x713a34,
+            Self::Lava => 0x74282a,
             Self::Space => 0x4a3a78,
         }
     }
@@ -424,7 +424,7 @@ impl PreviewTheme {
                 Self::Forest => 0x8cbe963d,
                 Self::OrangePeel => 0xffaa783d,
                 Self::Dragonfruit => 0xffaad23d,
-                Self::Lava => 0xff6e5a4d,
+                Self::Lava => 0xf5463a4d,
                 Self::Space => 0xb48cff3d,
             },
             control_bg: self.control_bg(),
