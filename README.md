@@ -23,9 +23,6 @@ ___
 
 <div align="center">
 
-
-MetalSharp is a Free Wine 11.17 x86_64 / Wine 11.20 with FEX (MacOS 15+) Custom-Built Runtime That Runs Windows Applications / Games on Apple Silicon, Built Inside a GPUI Application. MetalSharp Aims to Make The Process of Launching Your Games Easy Without Extra Needed Configuration Steps. 
-
 <img width="1186" height="861" alt="Screenshot 2026-11-08 at 1 09 05 AM" src="https://github.com/user-attachments/assets/f6867751-1863-490d-b9bc-a1ce9b3c5c94" />
 
 
