@@ -31,6 +31,8 @@ typedef struct {
     char windows_version[12]; /* "" keeps the prefix's own */
     unsigned cpu_cores;       /* 0: every core */
     bool low_priority;
+    signed char retina; /* -1: the Retina setting (Settings > Graphics); 0 off, 1 on. A game in a bottle of its own only:
+                           Retina is the prefix's (RetinaMode and its DPI), so a shared prefix keeps the setting */
 } ms_game_tuning;
 
 void ms_game_tuning_init(ms_game_tuning* tuning);

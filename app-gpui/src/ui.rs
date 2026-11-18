@@ -1814,7 +1814,7 @@ impl MetalSharpApp {
             steam_menu = Some(gpui::deferred(menu.id("steam_menu").occlude()).with_priority(10));
         }
 
-        // The header has no fill or divider: the logo, search and the theme
+        // The header has no fill or divider: the sidebar toggle, search and the theme
         // and settings icons sit directly on the page's hero art.
         let plain_icon = |id: &'static str| {
             div()
@@ -1849,12 +1849,7 @@ impl MetalSharpApp {
                     .text_size(px(layout.scaled(15.0)))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(rgb(0xe9edf7))
-                    .child(
-                        img(asset_path("metalsharp-logo.png"))
-                            .size(px(layout.scaled(27.0)))
-                            .object_fit(ObjectFit::Contain),
-                    )
-                    .children((!layout.compact).then(|| div().child("MetalSharp")))
+                    // the sidebar toggle sits in the corner on its own: no logo or name before it
                     .child(
                         plain_icon("library-sidebar-toggle")
                             .on_click(cx.listener(|this, _, _, cx| {
