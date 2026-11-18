@@ -1387,6 +1387,11 @@ impl Render for MetalSharpApp {
         // Liquid Glass: AppKit's glass under GPUI's view (liquid_glass.rs, glass/MSGlass.swift), which GPUI leaves
         // clear wherever there is glass.
         let glass = self.glass();
+        if self.window_glass.is_none() {
+            // the library is laid out for its smallest size's proportions: the window keeps them, so widening it
+            // alone cannot squash the shelf
+            crate::liquid_glass::lock_aspect(window, 720.0, 640.0);
+        }
         if self.window_glass != Some(glass) {
             window.set_background_appearance(if glass {
                 gpui::WindowBackgroundAppearance::Transparent
