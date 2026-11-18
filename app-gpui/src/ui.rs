@@ -33,6 +33,7 @@ const PAGE_BG: u32 = 0x080a0d;
 const PANEL_BG: u32 = 0x101316;
 const TEXT: u32 = 0xf2efe6;
 const MUTED: u32 = 0x9aa09e;
+/// The shelf's cards in the usual window; a wide one with small cards shows more (LibraryLayout::dock_slots).
 const DOCK_VISIBLE_CARDS: usize = 5;
 // Bundled sample artwork is visual-only, not a claim of game/runtime compatibility.
 const LIBRARY_GAMES: [(&str, &str, &str); 20] = [
@@ -85,14 +86,15 @@ fn library_search_placeholder(window_width: f32) -> &'static str {
     }
 }
 
-fn dock_card_lift(index: usize, selected: usize) -> f32 {
-    let center = DOCK_VISIBLE_CARDS / 2;
-    let arch = index.abs_diff(center) as f32 * 7.0;
+fn dock_card_lift(index: usize, selected: usize, slots: usize) -> f32 {
+    let center = slots / 2;
+    // the arch stops rising four cards out, so a long shelf's ends stay on it
+    let arch = index.abs_diff(center).min(4) as f32 * 7.0;
     arch - if index == selected { 16.0 } else { 0.0 }
 }
 
-fn dock_card_angle(index: usize) -> i32 {
-    let center = DOCK_VISIBLE_CARDS as i32 / 2;
+fn dock_card_angle(index: usize, slots: usize) -> i32 {
+    let center = slots as i32 / 2;
     ((index as i32 - center) * 3).clamp(-12, 12)
 }
 
@@ -746,6 +748,8 @@ pub struct MetalSharpApp {
     copy: SetupCopy,
     developer_mode: bool,
     low_performance: bool,
+    /// How many cards the shelf showed when last laid out (LibraryLayout::dock_slots)
+    dock_slots: usize,
     /// Liquid Glass, Settings > General (macOS 26 and later; off in Low Performance Mode)
     liquid_glass: bool,
     /// The window background last set (blurred for Liquid Glass)
@@ -826,6 +830,7 @@ impl MetalSharpApp {
             copy,
             developer_mode: false,
             low_performance: false,
+            dock_slots: DOCK_VISIBLE_CARDS,
             liquid_glass: true,
             window_glass: None,
             launcher_edge: Default::default(),
@@ -3287,6 +3292,8 @@ impl MetalSharpApp {
         let layout = LibraryLayout::for_viewport(viewport.width.into(), viewport.height.into());
         let glass = self.glass();
         let (chrome_fill, chrome_rim) = self.chrome();
+        self.dock_slots = layout.dock_slots;
+        let slots = layout.dock_slots;
         // The hero runs up under the transparent header; its content starts
         // below the header and the page's launcher row.
         let top_inset = self.page_top_inset;
@@ -3760,30 +3767,32 @@ impl MetalSharpApp {
                 - layout.scaled(if layout.compact { 58.0 } else { 80.0 })));
         let dock_start = self
             .dock_start
-            .min(matches.len().saturating_sub(DOCK_VISIBLE_CARDS));
+            .min(matches.len().saturating_sub(self.dock_slots));
         let visible_count = matches
             .len()
             .saturating_sub(dock_start)
-            .min(DOCK_VISIBLE_CARDS);
-        let first_slot = (DOCK_VISIBLE_CARDS - visible_count) / 2;
+            .min(self.dock_slots);
+        let first_slot = (self.dock_slots - visible_count) / 2;
         for (slot, index) in matches
             .iter()
             .copied()
             .skip(dock_start)
-            .take(DOCK_VISIBLE_CARDS)
+            .take(self.dock_slots)
             .enumerate()
         {
             let card_game = self.games[index].clone();
             let selected_card = index == selected;
             let arch_slot = first_slot + slot;
             // Tilted cover variants: bundled for samples, rendered on demand for real games.
-            let slot_angle = dock_card_angle(arch_slot);
+            let slot_angle = dock_card_angle(arch_slot, slots);
             let (angle, card_art) = match card_game.preview_art {
                 Some((cover, _)) if slot_angle != 0 => (
-                    slot_angle,
+                    slot_angle.clamp(-6, 6),
                     Some(asset_path(&format!(
-                        "dock/{}-{slot_angle}.png",
-                        cover.trim_end_matches(".jpg")
+                        "dock/{}-{}.png",
+                        cover.trim_end_matches(".jpg"),
+                        // the samples' tilts are bundled up to six degrees
+                        slot_angle.clamp(-6, 6)
                     ))),
                 ),
                 Some(_) => (0, self.art_path(&card_game, false, cx)),
@@ -3808,6 +3817,7 @@ impl MetalSharpApp {
                 .top(px(dock_card_lift(
                     arch_slot,
                     if selected_card { arch_slot } else { usize::MAX },
+                    slots,
                 )))
                 .cursor_pointer()
                 .on_hover(cx.listener(move |this, is_hovered, _, cx| {
@@ -4061,7 +4071,7 @@ impl MetalSharpApp {
         }
 
         let can_scroll_back = dock_start > 0;
-        let can_scroll_forward = dock_start + DOCK_VISIBLE_CARDS < matches.len();
+        let can_scroll_forward = dock_start + self.dock_slots < matches.len();
         let dock = div()
             .relative()
             .w_full()
@@ -4358,7 +4368,7 @@ impl MetalSharpApp {
             self.move_card(delta, cx);
             return true;
         }
-        let page = DOCK_VISIBLE_CARDS as isize;
+        let page = self.dock_slots as isize;
         let step = match keystroke.key.as_str() {
             "left" | "a" => -1,
             "right" | "d" => 1,
@@ -4522,13 +4532,13 @@ impl MetalSharpApp {
         if let Some(position) = matches.iter().position(|game| *game == self.selected_game) {
             if position < self.dock_start {
                 self.dock_start = position;
-            } else if position >= self.dock_start + DOCK_VISIBLE_CARDS {
-                self.dock_start = position + 1 - DOCK_VISIBLE_CARDS;
+            } else if position >= self.dock_start + self.dock_slots {
+                self.dock_start = position + 1 - self.dock_slots;
             }
         }
         self.dock_start = self
             .dock_start
-            .min(matches.len().saturating_sub(DOCK_VISIBLE_CARDS));
+            .min(matches.len().saturating_sub(self.dock_slots));
         self.hovered_card = None;
         self.close_library_menus();
         self.on_featured_changed(cx);
@@ -4536,7 +4546,7 @@ impl MetalSharpApp {
 
     fn scroll_dock(&mut self, direction: i32, cx: &mut Context<Self>) {
         let matches = self.matching_games();
-        let last_start = matches.len().saturating_sub(DOCK_VISIBLE_CARDS);
+        let last_start = matches.len().saturating_sub(self.dock_slots);
         let next_start = if direction > 0 {
             (self.dock_start + 1).min(last_start)
         } else {
@@ -4555,7 +4565,7 @@ impl MetalSharpApp {
         } else {
             position.saturating_sub(1)
         };
-        let next_position = next_position.clamp(next_start, next_start + DOCK_VISIBLE_CARDS - 1);
+        let next_position = next_position.clamp(next_start, next_start + self.dock_slots - 1);
         self.select_game(matches[next_position], cx);
     }
 
@@ -6982,10 +6992,15 @@ mod tests {
 
     #[test]
     fn responsive_dock_fits_and_selection_forms_an_arch() {
-        assert_eq!(super::dock_card_lift(2, 2), -16.0);
-        assert_eq!(super::dock_card_lift(1, 2), super::dock_card_lift(3, 2));
+        assert_eq!(super::dock_card_lift(2, 2, 5), -16.0);
         assert_eq!(
-            (0..5).map(super::dock_card_angle).collect::<Vec<_>>(),
+            super::dock_card_lift(1, 2, 5),
+            super::dock_card_lift(3, 2, 5)
+        );
+        assert_eq!(
+            (0..5)
+                .map(|slot| super::dock_card_angle(slot, 5))
+                .collect::<Vec<_>>(),
             [-6, -3, 0, 3, 6]
         );
     }
