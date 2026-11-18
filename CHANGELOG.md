@@ -17,6 +17,7 @@
 - **MetalSharp Wine 7.0 → 8.0** — both builds carry and download [MetalSharp Wine 8.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v8.0) (`MS_WINE_RELEASE_VERSION`, and Release CI's `METALSHARP_WINE_TAG`).
 - **Motion** — panels, settings tabs and the hero's art ease in (ease-out quint), and the sidebar slides more softly; Low Performance Mode keeps them still.
 - **The header** has the sidebar button in the corner, without MetalSharp's logo and name.
+- **An updated MetalSharp Wine leaves no earlier copy behind** — once a downloaded runtime is installed, its download in `~/.metalsharp/downloads` is removed instead of staying beside the runtime as a second copy; at start MetalSharp also removes a download from an earlier MetalSharp Wine release and an app an interrupted update set aside (`<app>.old`). An installed runtime of this release with no download stands as its own source, so switching to it needs nothing downloaded again.
 - **Retina and Wine Steam (#797)** — changing High Resolution (Retina) while Wine Steam runs keeps a *Restart Wine Steam* button beside the setting until Steam has restarted with it.
 
 ### Fixed

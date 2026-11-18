@@ -594,7 +594,8 @@ static bool app_version_is(const char* app, const char* version) {
 /* <name> in MetalSharp.app's Resources, else the other build's runtime, which MetalSharp.app does not carry,
  * downloaded (ms_wine_runtime_download); $<override> names another. A download from another MetalSharp Wine release
  * (one an earlier MetalSharp got) is not this one's: it is downloaded again, rather than laid out over the newer
- * runtime MetalSharp expects. */
+ * runtime MetalSharp expects. A download is removed once it is installed (install_app_locked), so with neither, the
+ * installed app of this release stands for itself: there is nothing newer to install over it. */
 static char* app_source(const char* override_name, const char* name) {
     const char* override = existing_override(override_name);
     char candidate[PATH_MAX], home[PATH_MAX];
@@ -605,6 +606,10 @@ static char* app_source(const char* override_name, const char* name) {
         return found;
     if (metalsharp_home(home, sizeof(home)) &&
         format_path(candidate, sizeof(candidate), "%s/downloads/%s", home, name) && access(candidate, R_OK) == 0 &&
+        app_version_is(candidate, MS_WINE_RELEASE_VERSION))
+        return strdup(candidate);
+    if (metalsharp_home(home, sizeof(home)) &&
+        format_path(candidate, sizeof(candidate), "%s/runtime/%s", home, name) && access(candidate, R_OK) == 0 &&
         app_version_is(candidate, MS_WINE_RELEASE_VERSION))
         return strdup(candidate);
     return NULL;
@@ -765,6 +770,21 @@ bool ms_wine_refresh_inactive_app(const char* home, char* error, size_t error_si
     return ok;
 }
 
+/* What an update leaves behind goes: the app an interrupted swap set aside (<app>.old), and a download from another
+ * MetalSharp Wine release, which is never installed from. Called before the startup refresh. */
+void ms_wine_remove_superseded(const char* home) {
+    static const char* const names[] = {"MetalSharp-Wine.app", WINE_X86_64_APP};
+    for (size_t i = 0; home && i < sizeof(names) / sizeof(names[0]); i++) {
+        char path[PATH_MAX];
+        if (format_path(path, sizeof(path), "%s/runtime/%s.old", home, names[i]) && access(path, F_OK) == 0 &&
+            !remove_tree(path))
+            ms_log_event(home, "An earlier MetalSharp Wine set aside by an update could not be removed");
+        if (format_path(path, sizeof(path), "%s/downloads/%s", home, names[i]) && access(path, F_OK) == 0 &&
+            !app_version_is(path, MS_WINE_RELEASE_VERSION) && !remove_tree(path))
+            ms_log_event(home, "An earlier MetalSharp Wine release's download could not be removed");
+    }
+}
+
 /* Takes source (freed here) */
 static bool install_app_locked(const char* home, char* source, const char* name, char* error, size_t error_size) {
     char app[PATH_MAX], staging[PATH_MAX], old[PATH_MAX], runtime[PATH_MAX], log[PATH_MAX], logs[PATH_MAX];
@@ -818,6 +838,13 @@ static bool install_app_locked(const char* home, char* source, const char* name,
     /* Read-only, so nothing MetalSharp does later can write into the sealed bundle. */
     (void)set_tree_writable(app, false);
     ok = true;
+    /* Installed: the download it came from is not kept beside it as a second copy. */
+    {
+        char downloads[PATH_MAX];
+        if (snprintf(downloads, sizeof(downloads), "%s/downloads/", home) < (int)sizeof(downloads) &&
+            !strncmp(source, downloads, strlen(downloads)) && !remove_tree(source))
+            ms_log_event(home, "MetalSharp Wine is installed, but its download could not be removed");
+    }
 done:
     free(source);
     return ok;
@@ -1223,6 +1250,8 @@ static void* refresh_thread(void* argument) {
     /* A pending or running migration swaps the app itself (ms_wine_fex_refresh_app). An app from an earlier
      * release with nothing of this one to install from (the x86_64 build downloads MetalSharp Wine) gets this
      * release's download first, which refresh_app then installs. */
+    if (!ms_wine_fex_refresh_blocked(home))
+        ms_wine_remove_superseded(home);
     if (!ms_wine_fex_refresh_blocked(home) && !ms_wine_fetch_outdated_runtime(home, "fex", error, sizeof(error)))
         fprintf(stderr, "warning: could not download MetalSharp Wine: %s\n", error);
     if (!ms_wine_fex_refresh_blocked(home) && !refresh_app(home, false, error, sizeof(error)))
