@@ -4079,12 +4079,17 @@ impl MetalSharpApp {
             .px(px(layout.page_padding))
             .pt(px(layout.scaled(if layout.compact { 8.0 } else { 12.0 })))
             .when(glass, |dock| {
-                // the shelf on a pane of glass, as the hero's controls
-                dock.mx(px(layout.page_padding))
-                    // an open sidebar and the shelf meet edge to edge
-                    .when(self.sidebar_open && !self.sidebar_is_overlay, |dock| {
-                        dock.ml(px(0.0))
-                    })
+                // the shelf on a pane of glass from one edge of the page to the other (the sidebar's edge, when
+                // that is open): a rim along its top, where it meets the art
+                dock.pb(px(layout.scaled(12.0)))
+                    .border_t_1()
+                    .border_color(chrome_rim)
+                    .child(crate::liquid_glass::mark(
+                        "library-shelf",
+                        crate::liquid_glass::Glass::Panel,
+                        0.0,
+                    ))
+            })
                     .w_auto()
                     .pb(px(layout.scaled(12.0)))
                     .rounded(px(layout.scaled(24.0)))
