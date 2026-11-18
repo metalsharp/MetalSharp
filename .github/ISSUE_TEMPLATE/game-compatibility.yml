@@ -2,6 +2,11 @@ name: Game Compatibility Report
 description: Report whether a game works or doesn't work with MetalSharp
 labels: [compatibility]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Tested games are listed in [Game Compatibility](https://github.com/metalsharp/MetalSharp/blob/main/docs/games-supported.md).
+
   - type: input
     id: game-name
     attributes:
@@ -9,12 +14,46 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: library
+    attributes:
+      label: Library
+      options:
+        - Steam
+        - GOG
+        - Epic
+        - Ubisoft Connect
+        - Battle.net
+        - Rockstar Games Launcher
+        - Game Jolt
+        - Windows Programs
+    validations:
+      required: true
+
   - type: input
     id: steam-appid
     attributes:
       label: Steam App ID
-      description: Found in the Steam store URL, e.g. store.steampowered.com/app/312520
+      description: For Steam games. Found in the Steam store URL, e.g. store.steampowered.com/app/312520
       placeholder: e.g. 312520
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: MetalSharp Version
+      placeholder: e.g. 1.4.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build
+    attributes:
+      label: Build
+      options:
+        - x86_64 (MetalSharp-arm64.dmg, Wine under Rosetta)
+        - Arm64 FEX (MetalSharp-arm64-FEX.dmg)
     validations:
       required: true
 
@@ -34,25 +73,34 @@ body:
   - type: dropdown
     id: launch-method
     attributes:
-      label: Launch method used
+      label: Graphics route used
       options:
-        - Native (DXMT Metal)
-        - Native (D3DMetal/GPTK)
-        - Native (MetalFX)
-        - FNA (ARM64)
-        - FNA (x86)
-        - WineD3D (32-bit)
-        - MetalSharp Wine
-        - Steam bare
-        - Auto-detected
+        - Auto (MetalSharp's pick)
+        - D3DMetal (x86_64 only)
+        - Mullion (DXMT)
+        - VKD3D-Proton
+        - DXVK
+        - VKD3D / DXVK (x86_64)
+        - OpenGL (WineMetalGL)
+        - OpenGL (Zink)
+        - MetalVR
     validations:
       required: true
+
+  - type: input
+    id: headset
+    attributes:
+      label: VR headset
+      description: For MetalVR reports only.
+      placeholder: e.g. Meta Quest 3, Valve Index
+    validations:
+      required: false
 
   - type: textarea
     id: notes
     attributes:
       label: Notes
-      description: What works, what doesn't, any workarounds, visual glitches, performance notes.
+      description: What works, what doesn't, any workarounds, settings you changed (msync, MetalFX, Retina, renderers), visual glitches, performance notes.
     validations:
       required: true
 
@@ -60,6 +108,14 @@ body:
     id: hardware
     attributes:
       label: Mac model / chip
+    validations:
+      required: false
+
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: e.g. Tahoe 26.4
     validations:
       required: false
 

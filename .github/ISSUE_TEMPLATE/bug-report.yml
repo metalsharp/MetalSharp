@@ -10,37 +10,78 @@ body:
   - type: input
     id: game
     attributes:
-      label: Game
-      description: Which game were you playing?
-      placeholder: e.g. Rain World, Portal 2, Terraria
+      label: Game or program
+      description: Which game or Windows program were you running? Leave blank if the bug isn't tied to one.
+      placeholder: e.g. Rain World, Portal 2, Battle.net, a standalone installer
     validations:
-      required: true
+      required: false
 
   - type: input
     id: version
     attributes:
       label: MetalSharp Version
-      description: What version are you running?
-      placeholder: e.g. 0.19.0
+      description: Shown in Settings > About.
+      placeholder: e.g. 1.4.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build
+    attributes:
+      label: Build
+      description: Which MetalSharp build are you running?
+      options:
+        - x86_64 (MetalSharp-arm64.dmg, Wine under Rosetta)
+        - Arm64 FEX (MetalSharp-arm64-FEX.dmg)
+        - Homebrew cask
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: library
+    attributes:
+      label: Library
+      description: Where does the game or program come from?
+      options:
+        - Steam
+        - GOG
+        - Epic
+        - Ubisoft Connect
+        - Battle.net
+        - Rockstar Games Launcher
+        - Game Jolt
+        - Windows Programs
+        - Not game-specific
     validations:
       required: true
 
   - type: dropdown
     id: launch-method
     attributes:
-      label: Launch Method
-      description: How was the game launched?
+      label: Graphics route
+      description: The pipeline saved in the game's settings (Graphics tab).
       options:
-        - Native (DXMT Metal)
-        - Native (D3DMetal/GPTK)
-        - Native (MetalFX)
-        - FNA (ARM64)
-        - FNA (x86)
-        - WineD3D (32-bit)
-        - MetalSharp Wine
-        - Steam bare
+        - Auto (MetalSharp's pick)
+        - D3DMetal (x86_64 only)
+        - Mullion (DXMT)
+        - VKD3D-Proton
+        - DXVK
+        - VKD3D / DXVK (x86_64)
+        - OpenGL (WineMetalGL)
+        - OpenGL (Zink)
+        - MetalVR
+        - Not applicable
     validations:
       required: true
+
+  - type: textarea
+    id: settings
+    attributes:
+      label: Game settings changed
+      description: Anything you changed from the defaults, e.g. msync, MetalFX, x87 acceleration, Vulkan renderer (MoltenVK / KosmicKrisp), ray tracing, Retina, environment variables, DLL overrides.
+    validations:
+      required: false
 
   - type: textarea
     id: description
@@ -78,7 +119,7 @@ body:
     id: hardware
     attributes:
       label: Mac model / chip
-      placeholder: e.g. MacBook Pro M4 Pro, Mac Mini M2
+      placeholder: e.g. MacBook Pro M4 Pro, Mac mini M2
     validations:
       required: false
 
@@ -86,7 +127,7 @@ body:
     id: macos-version
     attributes:
       label: macOS version
-      placeholder: e.g. Sequoia 15.4
+      placeholder: e.g. Tahoe 26.4, Sequoia 15.6
     validations:
       required: false
 
