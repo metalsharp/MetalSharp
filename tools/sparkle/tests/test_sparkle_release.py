@@ -1,6 +1,8 @@
 """Tests for tools/sparkle/sparkle_release.py's naming, release selection and appcast."""
 
+import subprocess
 import sys
+import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -94,6 +96,21 @@ class Appcast(unittest.TestCase):
     def test_no_deltas_element_without_deltas(self):
         root = ET.fromstring(sr.appcast_xml(self.item(deltas=False)))
         self.assertIsNone(root.find("./channel/item/sparkle:deltas", NS))
+
+
+@unittest.skipUnless(sys.platform == "darwin", "code signatures in extended attributes are macOS's")
+class SignedXattrs(unittest.TestCase):
+    def test_finds_a_signature_kept_in_extended_attributes(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            app = Path(scratch) / "MetalSharp.app"
+            dwarf = app / "Contents/Resources/tool.dSYM/Contents/Resources/DWARF/tool"
+            dwarf.parent.mkdir(parents=True)
+            dwarf.write_bytes(b"dwarf")
+            (app / "Contents/Info.plist").write_text("<plist/>")
+            subprocess.run(["xattr", "-w", "com.apple.quarantine", "x", app / "Contents/Info.plist"], check=True)
+            self.assertEqual(sr.xattr_signed_file(app), "")
+            subprocess.run(["xattr", "-w", "com.apple.cs.CodeDirectory", "x", dwarf], check=True)
+            self.assertEqual(sr.xattr_signed_file(app), "Contents/Resources/tool.dSYM/Contents/Resources/DWARF/tool")
 
 
 if __name__ == "__main__":

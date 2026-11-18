@@ -11,7 +11,9 @@ Run by .github/workflows/release.yml after the app is packaged and signed, befor
       MetalSharp-X.Y.Z-arm64[-FEX].zip: the app, as Sparkle's full update;
       MetalSharp-X.Y.Z-arm64[-FEX]-from<old>.delta: a patch from each of the last --previous releases that published
         this build's Sparkle archive. Each is applied to a copy of that release's app, which must come out identical
-        to this one and pass codesign --verify --deep --strict, or the release stops;
+        to this one and pass codesign --verify --deep --strict, or the release stops. A release whose app keeps a
+        code signature in extended attributes (xattr_signed_file) gets no delta, from it or to it: BinaryDelta
+        cannot diff those. The log says which file, and Sparkle installs the full archive;
       appcast.xml (regular) or appcast-fex.xml (fex): one item, this version, its archive and its deltas, every file
         signed with the EdDSA key in $SPARKLE_ED_PRIVATE_KEY (or --ed-key-file).
 
@@ -39,6 +41,9 @@ REPO = "metalsharp/MetalSharp"
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 # The delta format the apps' Sparkle (2.9.6) reads; BinaryDelta's newest.
 DELTA_FORMAT = "4"
+# Where codesign keeps the signature of a file that cannot hold one (a .dSYM's DWARF file).
+SIGNED_XATTRS = ("com.apple.cs.CodeDirectory", "com.apple.cs.CodeRequirements", "com.apple.cs.CodeRequirements-1",
+                 "com.apple.cs.CodeSignature")
 
 
 def asset_stem(version: str, variant: str) -> str:
@@ -202,6 +207,18 @@ def download(url: str, path: Path) -> None:
         shutil.copyfileobj(response, out)
 
 
+def xattr_signed_file(app: Path) -> str:
+    """A file in app whose code signature is in extended attributes, or "" when there is none. BinaryDelta refuses
+    such a tree ("Diffing code signed extended attributes are not supported"), as the old app or the new one.
+    MetalSharp-Wine-x86_64.app has them (its Mono's .dSYM files) and is carried unmodified, so the regular build
+    has no deltas while it does."""
+    names: list[str] = []
+    for name in SIGNED_XATTRS:
+        names += ["-o", "-xattrname", name]
+    found = run("find", app, "-type", "f", "(", *names[1:], ")", "-print", "-quit", capture=True).strip()
+    return found and str(Path(found).relative_to(app))
+
+
 def make_delta(old_app: Path, new_app: Path, delta: Path, tools: Path, scratch: Path) -> None:
     """BinaryDelta's patch from old_app to new_app, applied to a copy of old_app, which must then be new_app: the same
     files and a valid code signature, or the delta would leave users with a broken MetalSharp."""
@@ -271,8 +288,14 @@ def publish(args: argparse.Namespace) -> None:
             notes_url=f"https://github.com/{args.repo}/releases/tag/v{args.version}",
         )
 
-        olds = args.from_version or previous_versions(github_releases(args.repo), args.version, args.variant,
-                                                       args.previous)
+        blocker = xattr_signed_file(app)
+        if blocker:
+            print(f"no deltas: this app keeps a code signature in extended attributes ({blocker}), which BinaryDelta "
+                  "cannot diff; updates install the full archive", flush=True)
+            olds = []
+        else:
+            olds = args.from_version or previous_versions(github_releases(args.repo), args.version, args.variant,
+                                                           args.previous)
         for old in olds:
             old_dir = scratch / f"old-{old}"
             old_dir.mkdir()
@@ -281,6 +304,12 @@ def publish(args: argparse.Namespace) -> None:
             if not old_archive.is_file():
                 download(download_url(old, archive_name(old, args.variant), args.repo), old_archive)
             old_app = unzip_app(old_archive, old_dir)
+            blocker = xattr_signed_file(old_app)
+            if blocker:
+                print(f"no delta from {old}: its app keeps a code signature in extended attributes ({blocker}), "
+                      "which BinaryDelta cannot diff; updates from it install the full archive", flush=True)
+                shutil.rmtree(old_dir, ignore_errors=True)
+                continue
             delta = out / delta_name(args.version, args.variant, old)
             make_delta(old_app, app, delta, tools, scratch)
             signature, length = sign(delta, key_file, tools)
