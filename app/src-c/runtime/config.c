@@ -219,14 +219,73 @@ bool ms_config_msync_enabled(const char* metalsharp_home) {
     return enabled;
 }
 
-/* Apple's Metal performance HUD in games (MTL_HUD_ENABLED); off unless turned on. */
-bool ms_config_metal_hud_enabled(const char* metalsharp_home) {
+/* The Metal HUD's metrics (MTL_HUD_ELEMENTS, Apple's "Customizing Metal Performance HUD"), in this order. An empty
+ * choice leaves the HUD's own selection. */
+static const char* const hud_elements[] = {
+    "device",       "rosetta",        "layersize",          "layerscale",   "memory",
+    "fps",          "frameinterval",  "gputime",            "thermal",      "frameintervalgraph",
+    "presentdelay", "frameintervalhistogram", "metalcpu",   "gputimeline",  "shaders",
+    "framenumber",  "disk",           "fpsgraph",           "toplabeledcommandbuffers", "toplabeledencoders",
+};
+
+/* text as the canonical comma list of known elements (each once, in hud_elements order); false for an unknown one */
+static bool canonical_hud_elements(const char* text, char** out) {
+    bool chosen[sizeof(hud_elements) / sizeof(hud_elements[0])] = {false};
+    size_t length = 1;
+    const char* cursor = text;
+    while (*cursor) {
+        const char* end = strchr(cursor, ',');
+        size_t span = end ? (size_t)(end - cursor) : strlen(cursor);
+        bool known = span == 0;
+        for (size_t i = 0; !known && i < sizeof(hud_elements) / sizeof(hud_elements[0]); ++i) {
+            if (strlen(hud_elements[i]) == span && !strncmp(cursor, hud_elements[i], span)) {
+                chosen[i] = known = true;
+            }
+        }
+        if (!known)
+            return false;
+        cursor += span + (end ? 1 : 0);
+    }
+    for (size_t i = 0; i < sizeof(hud_elements) / sizeof(hud_elements[0]); ++i)
+        length += chosen[i] ? strlen(hud_elements[i]) + 1 : 0;
+    if (!(*out = calloc(1, length)))
+        return false;
+    for (size_t i = 0; i < sizeof(hud_elements) / sizeof(hud_elements[0]); ++i) {
+        if (!chosen[i])
+            continue;
+        if ((*out)[0])
+            strcat(*out, ",");
+        strcat(*out, hud_elements[i]);
+    }
+    return true;
+}
+
+static char* metal_hud_elements(const ms_json* config) {
+    char *value = NULL, *canonical = NULL;
+    if (ms_json_as_string(ms_json_object_get(config, "metalHudElements"), &value) &&
+        canonical_hud_elements(value, &canonical)) {
+        free(value);
+        return canonical;
+    }
+    free(value);
+    return strdup("");
+}
+
+/* The Metal HUD of a game MetalSharp starts: MTL_HUD_ENABLED (0 also overrides a Mac-wide MetalForceHudEnabled)
+ * and, with it on, the metrics chosen for it. */
+void ms_config_apply_metal_hud_env(const char* metalsharp_home) {
     char* path = config_path(metalsharp_home);
     ms_json* config = path == NULL ? NULL : read_json_file(path);
     bool enabled = config_bool(config, "metalHud", false);
+    char* elements = enabled ? metal_hud_elements(config) : NULL;
+    setenv("MTL_HUD_ENABLED", enabled ? "1" : "0", 1);
+    if (elements && elements[0])
+        setenv("MTL_HUD_ELEMENTS", elements, 1);
+    else
+        unsetenv("MTL_HUD_ELEMENTS");
+    free(elements);
     free(path);
     ms_json_free(config);
-    return enabled;
 }
 
 /* MoltenVK's ray tracing pipelines (MVK_CONFIG_ENABLE_EXPERIMENTAL_RAY_TRACING) on the fex build's VKD3D-Proton
@@ -298,14 +357,16 @@ char* ms_config_get_json(const char* metalsharp_home) {
     char* controller = controller_input(config);
     char* display = window_mode(config);
     char* resolution = game_resolution(config);
+    char* hud = metal_hud_elements(config);
     ms_json_writer writer;
     char* result;
-    if (controller == NULL || display == NULL || resolution == NULL) {
+    if (controller == NULL || display == NULL || resolution == NULL || hud == NULL) {
         free(path);
         ms_json_free(config);
         free(controller);
         free(display);
         free(resolution);
+        free(hud);
         return NULL;
     }
     ms_json_writer_init(&writer);
@@ -334,6 +395,8 @@ char* ms_config_get_json(const char* metalsharp_home) {
     ms_json_writer_bool(&writer, x87);
     ms_json_writer_key(&writer, "metalHud");
     ms_json_writer_bool(&writer, metal_hud);
+    ms_json_writer_key(&writer, "metalHudElements");
+    ms_json_writer_string(&writer, hud);
     ms_json_writer_key(&writer, "rayTracing");
     ms_json_writer_bool(&writer, ray_tracing);
     ms_json_writer_key(&writer, "excludeNativeMacSteamGames");
@@ -343,6 +406,7 @@ char* ms_config_get_json(const char* metalsharp_home) {
     free(controller);
     free(display);
     free(resolution);
+    free(hud);
     free(path);
     ms_json_free(config);
     return result;
@@ -387,7 +451,8 @@ static void write_member(ms_json_writer* writer, const char* key, const ms_json*
 
 static bool write_config(const char* path, const ms_json* existing, bool set_logs, bool logs, bool set_controller,
                          const char* controller, bool set_msync, bool msync, bool set_retina, bool retina, bool set_x87,
-                         bool x87, bool set_metal_hud, bool metal_hud, bool set_ray_tracing, bool ray_tracing,
+                         bool x87, bool set_metal_hud, bool metal_hud, const char* hud_elements_value,
+                         bool set_ray_tracing, bool ray_tracing,
                          bool set_exclude_native_mac_steam_games,
                          bool exclude_native_mac_steam_games,
                          bool set_window_mode, const char* window_mode_value, bool set_game_resolution,
@@ -403,6 +468,7 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
     bool emitted_retina = false;
     bool emitted_x87 = false;
     bool emitted_metal_hud = false;
+    bool emitted_hud_elements = false;
     bool emitted_ray_tracing = false;
     bool emitted_exclude_native_mac_steam_games = false;
     bool emitted_window_mode = false;
@@ -452,6 +518,10 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
             ms_json_writer_key(&writer, key);
             ms_json_writer_bool(&writer, metal_hud);
             emitted_metal_hud = true;
+        } else if (hud_elements_value && strcmp(key, "metalHudElements") == 0) {
+            ms_json_writer_key(&writer, key);
+            ms_json_writer_string(&writer, hud_elements_value);
+            emitted_hud_elements = true;
         } else if (set_ray_tracing && strcmp(key, "rayTracing") == 0) {
             ms_json_writer_key(&writer, key);
             ms_json_writer_bool(&writer, ray_tracing);
@@ -499,6 +569,10 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
     if (set_metal_hud && !emitted_metal_hud) {
         ms_json_writer_key(&writer, "metalHud");
         ms_json_writer_bool(&writer, metal_hud);
+    }
+    if (hud_elements_value && !emitted_hud_elements) {
+        ms_json_writer_key(&writer, "metalHudElements");
+        ms_json_writer_string(&writer, hud_elements_value);
     }
     if (set_ray_tracing && !emitted_ray_tracing) {
         ms_json_writer_key(&writer, "rayTracing");
@@ -548,7 +622,7 @@ char* ms_config_set_json(const char* metalsharp_home, const unsigned char* body,
     bool set_window_mode = false, set_game_resolution = false;
     static const char* const window_modes[] = {"default", "windowed", "fullscreen"};
     static const char* const resolutions[] = {"default", "1280x720", "1920x1080", "2560x1440", "3840x2160"};
-    char *controller = NULL, *window_mode_value = NULL, *game_resolution_value = NULL;
+    char *controller = NULL, *window_mode_value = NULL, *game_resolution_value = NULL, *hud_elements_value = NULL;
     char* result;
     if (status != NULL)
         *status = 500;
@@ -587,13 +661,30 @@ char* ms_config_set_json(const char* metalsharp_home, const unsigned char* body,
         set_x87 = value != NULL && ms_json_as_bool(value, &x87);
         value = ms_json_object_get(request, "metalHud");
         set_metal_hud = value != NULL && ms_json_as_bool(value, &metal_hud);
+        value = ms_json_object_get(request, "metalHudElements");
+        if (value) {
+            char* text = NULL;
+            bool valid = ms_json_as_string(value, &text) && canonical_hud_elements(text, &hud_elements_value);
+            free(text);
+            if (!valid) {
+                if (status != NULL)
+                    *status = 400;
+                free(controller);
+                free(window_mode_value);
+                free(game_resolution_value);
+                ms_json_free(existing);
+                ms_json_free(request);
+                free(path);
+                return strdup("{\"ok\":false,\"error\":\"metalHudElements names an unknown Metal HUD element\"}");
+            }
+        }
         value = ms_json_object_get(request, "rayTracing");
         set_ray_tracing = value != NULL && ms_json_as_bool(value, &ray_tracing);
         value = ms_json_object_get(request, "excludeNativeMacSteamGames");
         set_exclude_native_mac_steam_games = value != NULL && ms_json_as_bool(value, &exclude_native_mac_steam_games);
     }
     if (!write_config(path, existing, set_logs, logs, set_controller, controller, set_msync, msync, set_retina, retina,
-                      set_x87, x87, set_metal_hud, metal_hud, set_ray_tracing, ray_tracing, set_exclude_native_mac_steam_games, exclude_native_mac_steam_games, set_window_mode,
+                      set_x87, x87, set_metal_hud, metal_hud, hud_elements_value, set_ray_tracing, ray_tracing, set_exclude_native_mac_steam_games, exclude_native_mac_steam_games, set_window_mode,
                       window_mode_value, set_game_resolution, game_resolution_value))
         goto fail;
     result = ms_config_get_json(metalsharp_home);
@@ -602,6 +693,7 @@ char* ms_config_set_json(const char* metalsharp_home, const unsigned char* body,
     free(controller);
     free(window_mode_value);
     free(game_resolution_value);
+    free(hud_elements_value);
     ms_json_free(existing);
     ms_json_free(request);
     free(path);
@@ -610,6 +702,7 @@ fail:
     free(controller);
     free(window_mode_value);
     free(game_resolution_value);
+    free(hud_elements_value);
     ms_json_free(existing);
     ms_json_free(request);
     free(path);

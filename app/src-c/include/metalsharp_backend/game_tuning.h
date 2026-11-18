@@ -33,6 +33,8 @@ typedef struct {
     bool low_priority;
     signed char retina; /* -1: the Retina setting (Settings > Graphics); 0 off, 1 on. A game in a bottle of its own only:
                            Retina is the prefix's (RetinaMode and its DPI), so a shared prefix keeps the setting */
+    bool zink;          /* OpenGL through Zink (SharpGL_Switch=1) instead of WineMetalGL */
+    bool kosmickrisp;   /* Vulkan through KosmicKrisp (SharpVK_Switch=1) instead of MoltenVK; macOS 26 or later */
 } ms_game_tuning;
 
 void ms_game_tuning_init(ms_game_tuning* tuning);

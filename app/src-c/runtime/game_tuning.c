@@ -70,7 +70,7 @@ void ms_game_tuning_free(ms_game_tuning* tuning) {
 bool ms_game_tuning_is_default(const ms_game_tuning* tuning) {
     return !tuning || (!tuning->env_count && (!tuning->dll_overrides || !tuning->dll_overrides[0]) &&
                        !tuning->windows_version[0] && !tuning->cpu_cores && !tuning->low_priority &&
-                       tuning->retina < 0);
+                       tuning->retina < 0 && !tuning->zink && !tuning->kosmickrisp);
 }
 
 static bool valid_component(const char* value) {
@@ -616,6 +616,16 @@ bool ms_game_tuning_load(const char* home, const char* provider, const char* id,
             tuning->retina = !strcmp(retina, "on") ? 1 : !strcmp(retina, "off") ? 0 : -1;
         free(retina);
     }
+    {
+        char* renderer = NULL;
+        if (ms_json_as_string(ms_json_object_get(root, "openglRenderer"), &renderer))
+            tuning->zink = !strcmp(renderer, "zink");
+        free(renderer);
+        renderer = NULL;
+        if (ms_json_as_string(ms_json_object_get(root, "vulkanRenderer"), &renderer))
+            tuning->kosmickrisp = !strcmp(renderer, "kosmickrisp");
+        free(renderer);
+    }
     ms_json_free(root);
     return true;
 }
@@ -654,6 +664,10 @@ bool ms_game_tuning_save(const char* home, const char* provider, const char* id,
     ms_json_writer_bool(&writer, tuning->low_priority);
     ms_json_writer_key(&writer, "retina");
     ms_json_writer_string(&writer, tuning->retina > 0 ? "on" : tuning->retina == 0 ? "off" : "default");
+    ms_json_writer_key(&writer, "openglRenderer");
+    ms_json_writer_string(&writer, tuning->zink ? "zink" : "winemetalgl");
+    ms_json_writer_key(&writer, "vulkanRenderer");
+    ms_json_writer_string(&writer, tuning->kosmickrisp ? "kosmickrisp" : "moltenvk");
     ms_json_writer_object_end(&writer);
     text = ms_json_writer_take(&writer);
     ok = text && ensure_parent_directories(home, provider) && write_atomic(path, text, 0600);
@@ -1027,6 +1041,14 @@ static void apply_bottle_retina(const char* home, const char* prefix, const ms_g
     char reg[256];
     if (!prefix || !strstr(prefix, "/bottles/"))
         return;
+    /* A bottle Wine has not made yet starts with Retina off at 96 DPI, so only Retina on needs writing to it. */
+    if (!retina) {
+        char* user_reg = join(prefix, "user.reg");
+        bool made = user_reg && access(user_reg, F_OK) == 0;
+        free(user_reg);
+        if (!made)
+            return;
+    }
     current = prefix_section_has(prefix, "[Software\\\\Wine\\\\Mac Driver]", retina_line) &&
               prefix_section_has(prefix, "[Control Panel\\\\Desktop]", dpi_line);
     if (current)
@@ -1137,8 +1159,20 @@ void ms_game_tuning_prepare_launch(const char* home, const char* provider, const
 
 void ms_game_tuning_apply_child(const char* home, const char* provider, const char* id) {
     ms_game_tuning tuning;
-    if (!home || !ms_game_tuning_load(home, provider, id, &tuning))
+    if (!home)
         return;
+    /* The Metal HUD switch and its metrics, for every store's games; the game's own variables below can still
+     * change them. */
+    ms_config_apply_metal_hud_env(home);
+    if (!ms_game_tuning_load(home, provider, id, &tuning))
+        return;
+    /* MetalSharp Wine 8.0's renderer switches: Zink for OpenGL in WineMetalGL's place, KosmicKrisp for Vulkan in
+     * MoltenVK's. Wine reads them when it starts, before launch.env, so they are set here rather than written to
+     * the game's launch.local.env. */
+    if (tuning.zink)
+        setenv("SharpGL_Switch", "1", 1);
+    if (tuning.kosmickrisp)
+        setenv("SharpVK_Switch", "1", 1);
     for (size_t i = 0; i < tuning.env_count; i++) {
         char* entry = tuning.env[i];
         char* equals = entry[0] == '-' ? NULL : strchr(entry, '=');
@@ -1218,6 +1252,10 @@ static char* tuning_json(const char* provider, const char* id, const ms_game_tun
     ms_json_writer_bool(&writer, tuning->low_priority);
     ms_json_writer_key(&writer, "retina");
     ms_json_writer_string(&writer, tuning->retina > 0 ? "on" : tuning->retina == 0 ? "off" : "default");
+    ms_json_writer_key(&writer, "openglRenderer");
+    ms_json_writer_string(&writer, tuning->zink ? "zink" : "winemetalgl");
+    ms_json_writer_key(&writer, "vulkanRenderer");
+    ms_json_writer_string(&writer, tuning->kosmickrisp ? "kosmickrisp" : "moltenvk");
     ms_json_writer_object_end(&writer);
     free(env_text);
     return ms_json_writer_take(&writer);
@@ -1426,6 +1464,29 @@ char* ms_game_tuning_save_json(const char* home, const char* body, size_t length
         }
         tuning.retina = retina && !strcmp(retina, "on") ? 1 : retina && !strcmp(retina, "off") ? 0 : -1;
         free(retina);
+    }
+    if ((value = ms_json_object_get(request, "openglRenderer"))) {
+        char* renderer = NULL;
+        if (ms_json_type_of(value) != MS_JSON_NULL &&
+            (!ms_json_as_string(value, &renderer) || (strcmp(renderer, "winemetalgl") && strcmp(renderer, "zink")))) {
+            free(renderer);
+            out = error_json("openglRenderer must be \"winemetalgl\" or \"zink\"");
+            goto done;
+        }
+        tuning.zink = renderer && !strcmp(renderer, "zink");
+        free(renderer);
+    }
+    if ((value = ms_json_object_get(request, "vulkanRenderer"))) {
+        char* renderer = NULL;
+        if (ms_json_type_of(value) != MS_JSON_NULL &&
+            (!ms_json_as_string(value, &renderer) ||
+             (strcmp(renderer, "moltenvk") && strcmp(renderer, "kosmickrisp")))) {
+            free(renderer);
+            out = error_json("vulkanRenderer must be \"moltenvk\" or \"kosmickrisp\"");
+            goto done;
+        }
+        tuning.kosmickrisp = renderer && !strcmp(renderer, "kosmickrisp");
+        free(renderer);
     }
     if (!ms_game_tuning_save(home, provider, id, &tuning, error, sizeof(error))) {
         if (status)

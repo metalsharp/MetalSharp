@@ -11,4 +11,11 @@ char* ms_metalvr_status_json(const char* metalsharp_home);
 char* ms_metalvr_start_json(const char* metalsharp_home, int* status);
 char* ms_metalvr_stop_json(const char* metalsharp_home, int* status);
 
+/* GET /metalvr/headset: the chosen headset, the trusted ALVR client, whether MetalVR is installed and running, and the
+ * headsets it supports. POST /metalvr/headset saves the choice; POST /metalvr/setup runs a setup step. */
+#include <stddef.h>
+char* ms_metalvr_headset_json(const char* metalsharp_home);
+char* ms_metalvr_set_headset_json(const char* metalsharp_home, const char* body, size_t length, int* status);
+char* ms_metalvr_setup_json(const char* metalsharp_home, const char* body, size_t length, int* status);
+
 #endif

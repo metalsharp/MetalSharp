@@ -14,6 +14,7 @@
  */
 #include "metalsharp_backend/metalvr.h"
 
+#include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/logs.h"
 
@@ -66,19 +67,96 @@ static void sleep_ms(long ms) {
     }
 }
 
-/* The driver metalvrd runs: ~/.metalsharp/metalvr/driver holds one word (rift, alvr or sim); rift without it */
-static void read_driver(const char* home, char* out, size_t size) {
-    char path[1024];
+/* The headsets MetalVR drives (its docs/headsets): the key metalvrd and the UI know it by, its name, the driver that
+ * runs it, and the helper that sets it up (metalvr-rift, run as metalvr-lighthouse or metalvr-psvr2). A streamed
+ * headset (ALVR) is named to metalvrd with --headset and connects only once trusted. */
+typedef struct {
+    const char* key;
+    const char* name;
+    const char* driver;
+    const char* display; /* `metalvr display` group, NULL when macOS shows its display as it is */
+    bool streamed;
+} headset_info;
+
+static const headset_info headsets[] = {
+    {"rift-cv1", "Oculus Rift CV1", "rift", "rift", false},
+    {"rift-s", "Oculus Rift S", "rift", "rift", false},
+    {"quest-1", "Meta Quest", "alvr", NULL, true},
+    {"quest-2", "Meta Quest 2", "alvr", NULL, true},
+    {"quest-3", "Meta Quest 3", "alvr", NULL, true},
+    {"quest-3s", "Meta Quest 3S", "alvr", NULL, true},
+    {"quest-pro", "Meta Quest Pro", "alvr", NULL, true},
+    {"steam-frame", "Valve Steam Frame", "alvr", NULL, true},
+    {"index", "Valve Index", "lighthouse", "lighthouse", false},
+    {"vive", "HTC Vive", "lighthouse", "lighthouse", false},
+    {"vive-pro", "HTC Vive Pro", "lighthouse", "lighthouse", false},
+    {"vive-pro-2", "HTC Vive Pro 2", "lighthouse", "lighthouse", false},
+    {"psvr2", "PlayStation VR2", "psvr2", NULL, false},
+};
+
+static const headset_info* find_headset(const char* key) {
+    for (size_t i = 0; key && i < sizeof(headsets) / sizeof(headsets[0]); ++i)
+        if (!strcmp(headsets[i].key, key))
+            return &headsets[i];
+    return NULL;
+}
+
+/* The chosen headset and, for a streamed one, the ALVR client it trusts: ~/.metalsharp/metalvr/headset.json. A
+ * setup from before it (metalvr/driver: rift, alvr or sim) still names the driver. */
+typedef struct {
+    const headset_info* headset;
+    char trust[128];
+    char legacy_driver[16];
+} headset_choice;
+
+static bool valid_trust(const char* name) {
+    size_t length = strlen(name);
+    if (length == 0 || length >= 128)
+        return false;
+    for (const char* c = name; *c; ++c)
+        if (!((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9') || *c == '.' ||
+              *c == '-' || *c == '_'))
+            return false;
+    return true;
+}
+
+static void read_choice(const char* home, headset_choice* choice) {
+    char path[1024], error[96], text[4096];
     FILE* f;
-    snprintf(out, size, "rift");
-    if (!path_join(path, sizeof(path), home, "metalvr/driver") || !(f = fopen(path, "r")))
-        return;
-    if (fgets(out, (int)size, f)) {
-        out[strcspn(out, " \t\r\n")] = '\0';
-        if (strcmp(out, "rift") && strcmp(out, "alvr") && strcmp(out, "sim"))
-            snprintf(out, size, "rift");
+    size_t length;
+    memset(choice, 0, sizeof(*choice));
+    if (path_join(path, sizeof(path), home, "metalvr/headset.json") && (f = fopen(path, "r"))) {
+        length = fread(text, 1, sizeof(text) - 1, f);
+        fclose(f);
+        text[length] = '\0';
+        ms_json* root = ms_json_parse(text, length, error, sizeof(error));
+        char *key = NULL, *trust = NULL;
+        if (root && ms_json_as_string(ms_json_object_get(root, "headset"), &key))
+            choice->headset = find_headset(key);
+        if (root && ms_json_as_string(ms_json_object_get(root, "trust"), &trust) && valid_trust(trust))
+            snprintf(choice->trust, sizeof(choice->trust), "%s", trust);
+        free(key);
+        free(trust);
+        ms_json_free(root);
+        if (choice->headset)
+            return;
     }
-    fclose(f);
+    if (path_join(path, sizeof(path), home, "metalvr/driver") && (f = fopen(path, "r"))) {
+        if (fgets(choice->legacy_driver, (int)sizeof(choice->legacy_driver), f)) {
+            choice->legacy_driver[strcspn(choice->legacy_driver, " \t\r\n")] = '\0';
+            if (strcmp(choice->legacy_driver, "rift") && strcmp(choice->legacy_driver, "alvr") &&
+                strcmp(choice->legacy_driver, "sim"))
+                choice->legacy_driver[0] = '\0';
+        }
+        fclose(f);
+    }
+}
+
+/* the driver metalvrd runs: the chosen headset's, a setup from before the choice's, else rift */
+static const char* choice_driver(const headset_choice* choice) {
+    if (choice->headset)
+        return choice->headset->driver;
+    return choice->legacy_driver[0] ? choice->legacy_driver : "rift";
 }
 
 /* Runs argv to its end, as the backend's other short-lived children: SIGCHLD is held on this thread so the
@@ -117,7 +195,7 @@ static bool run_and_wait(char* const argv[]) {
 
 /* metalvrd, detached: in a session of its own, its output in the log, holding none of the backend's descriptors
  * (the backend's socket must not stay bound to it) */
-static bool start_server(const char* home, const char* server, const char* driver) {
+static bool start_server(const char* home, const char* server, const headset_choice* choice) {
     char log_path[1024];
     sigset_t block, previous;
     pid_t pid;
@@ -145,7 +223,24 @@ static bool start_server(const char* home, const char* server, const char* drive
             for (int fd = 3; fd < 1024; ++fd)
                 close(fd);
         }
-        execl(server, "metalvrd", "--driver", driver, "--verbose", (char*)NULL);
+        {
+            char* argv[10];
+            int argc = 0;
+            argv[argc++] = "metalvrd";
+            argv[argc++] = "--driver";
+            argv[argc++] = (char*)choice_driver(choice);
+            if (choice->headset && choice->headset->streamed) {
+                argv[argc++] = "--headset";
+                argv[argc++] = (char*)choice->headset->key;
+                if (choice->trust[0]) {
+                    argv[argc++] = "--trust";
+                    argv[argc++] = (char*)choice->trust;
+                }
+            }
+            argv[argc++] = "--verbose";
+            argv[argc] = NULL;
+            execv(server, argv);
+        }
         _exit(127);
     }
     if (pid > 0) {
@@ -237,7 +332,8 @@ char* ms_metalvr_status_json(const char* home) {
 }
 
 char* ms_metalvr_start_json(const char* home, int* status) {
-    char server[1024], helper[1024], driver[16];
+    char server[1024], helper[1024];
+    headset_choice choice;
     if (status)
         *status = 200;
     if (!installed_paths(home, server, sizeof(server), helper, sizeof(helper))) {
@@ -247,8 +343,8 @@ char* ms_metalvr_start_json(const char* home, int* status) {
     }
     ask_screen_recording(home);
     if (!server_listening()) {
-        read_driver(home, driver, sizeof(driver));
-        if (!start_server(home, server, driver)) {
+        read_choice(home, &choice);
+        if (!start_server(home, server, &choice)) {
             if (status)
                 *status = 500;
             return reply(false, false, "The VR server could not be started");
@@ -298,3 +394,180 @@ char* ms_metalvr_prepare(const char* home) {
     register_runtimes(home, helper);
     return NULL;
 }
+
+/* ---- the headset (the game settings' Headset tab) ---- */
+
+#define METALVR_RELEASE     "0.2.1"
+#define METALVR_RELEASE_SHA "f780ef88ad0f545f48e187587810eb0275afcc33b323db2878c5bc7393258a80"
+
+static char* headset_reply(const char* home, const char* error) {
+    char server[1024], helper[1024];
+    headset_choice choice;
+    ms_json_writer w;
+    read_choice(home, &choice);
+    ms_json_writer_init(&w);
+    ms_json_writer_object_begin(&w);
+    ms_json_writer_key(&w, "ok");
+    ms_json_writer_bool(&w, error == NULL);
+    if (error) {
+        ms_json_writer_key(&w, "error");
+        ms_json_writer_string(&w, error);
+    }
+    ms_json_writer_key(&w, "headset");
+    ms_json_writer_string(&w, choice.headset ? choice.headset->key : "");
+    ms_json_writer_key(&w, "trust");
+    ms_json_writer_string(&w, choice.trust);
+    ms_json_writer_key(&w, "installed");
+    ms_json_writer_bool(&w, installed_paths(home, server, sizeof(server), helper, sizeof(helper)));
+    ms_json_writer_key(&w, "running");
+    ms_json_writer_bool(&w, server_listening());
+    ms_json_writer_key(&w, "headsets");
+    ms_json_writer_array_begin(&w);
+    for (size_t i = 0; i < sizeof(headsets) / sizeof(headsets[0]); ++i) {
+        ms_json_writer_object_begin(&w);
+        ms_json_writer_key(&w, "key");
+        ms_json_writer_string(&w, headsets[i].key);
+        ms_json_writer_key(&w, "name");
+        ms_json_writer_string(&w, headsets[i].name);
+        ms_json_writer_key(&w, "driver");
+        ms_json_writer_string(&w, headsets[i].driver);
+        ms_json_writer_key(&w, "streamed");
+        ms_json_writer_bool(&w, headsets[i].streamed);
+        ms_json_writer_key(&w, "display");
+        ms_json_writer_bool(&w, headsets[i].display != NULL);
+        ms_json_writer_object_end(&w);
+    }
+    ms_json_writer_array_end(&w);
+    ms_json_writer_object_end(&w);
+    return ms_json_writer_take(&w);
+}
+
+char* ms_metalvr_headset_json(const char* home) {
+    return headset_reply(home, NULL);
+}
+
+/* POST /metalvr/headset {"headset": key, "trust"?: ALVR client name}: saved for every later start of the server */
+char* ms_metalvr_set_headset_json(const char* home, const char* body, size_t length, int* status) {
+    char error[96], dir[1024], path[1024], temp[1100];
+    ms_json* request = body ? ms_json_parse(body, length, error, sizeof(error)) : NULL;
+    char *key = NULL, *trust = NULL;
+    const headset_info* headset;
+    headset_choice previous;
+    FILE* f;
+    ms_json_writer w;
+    char* text;
+    bool ok;
+    *status = 400;
+    if (!request || !ms_json_as_string(ms_json_object_get(request, "headset"), &key) || !(headset = find_headset(key))) {
+        free(key);
+        ms_json_free(request);
+        return headset_reply(home, "headset must be one MetalVR supports");
+    }
+    read_choice(home, &previous);
+    if (ms_json_object_get(request, "trust") &&
+        (!ms_json_as_string(ms_json_object_get(request, "trust"), &trust) || (trust[0] && !valid_trust(trust)))) {
+        free(key);
+        free(trust);
+        ms_json_free(request);
+        return headset_reply(home, "trust must be the name the headset's ALVR app shows, such as 1234.client");
+    }
+    ms_json_writer_init(&w);
+    ms_json_writer_object_begin(&w);
+    ms_json_writer_key(&w, "headset");
+    ms_json_writer_string(&w, headset->key);
+    ms_json_writer_key(&w, "trust");
+    /* a new headset keeps the trusted client only when it says nothing of it and is streamed too */
+    ms_json_writer_string(&w, trust ? trust : headset->streamed ? previous.trust : "");
+    ms_json_writer_object_end(&w);
+    text = ms_json_writer_take(&w);
+    ok = text && path_join(dir, sizeof(dir), home, "metalvr") && (mkdir(dir, 0755) == 0 || errno == EEXIST) &&
+         path_join(path, sizeof(path), home, "metalvr/headset.json") &&
+         snprintf(temp, sizeof(temp), "%s.tmp", path) < (int)sizeof(temp) && (f = fopen(temp, "w")) &&
+         (fputs(text, f) >= 0) + (fclose(f) == 0) == 2 && rename(temp, path) == 0;
+    free(text);
+    free(key);
+    free(trust);
+    ms_json_free(request);
+    *status = ok ? 200 : 500;
+    if (ok)
+        ms_log_event(home, "MetalVR: headset saved (it applies when the VR server next starts)");
+    return headset_reply(home, ok ? NULL : "the headset could not be saved");
+}
+
+/* A setup step that may ask for the user's password runs in Terminal, as a .command file MetalSharp writes */
+static bool open_in_terminal(const char* home, const char* step, const char* script) {
+    char path[1024];
+    FILE* f;
+    if (!path_join(path, sizeof(path), home, "metalvr") || (mkdir(path, 0755) != 0 && errno != EEXIST))
+        return false;
+    if (snprintf(path, sizeof(path), "%s/metalvr/setup-%s.command", home, step) >= (int)sizeof(path) ||
+        !(f = fopen(path, "w")))
+        return false;
+    fprintf(f, "#!/bin/zsh\n# MetalSharp: MetalVR setup, %s\nset -e\n%s\necho\necho 'Done. You can close this window.'\n",
+            step, script);
+    if (fclose(f) != 0 || chmod(path, 0755) != 0)
+        return false;
+    char* argv[] = {"/usr/bin/open", "-a", "Terminal", path, NULL};
+    return run_and_wait(argv);
+}
+
+/* POST /metalvr/setup {"step"}: install (MetalVR's release, checked), display (let macOS show the headset's display),
+ * steamvr (MetalVR's driver in the Steam prefix's SteamVR), bluetooth and displays (their System Settings panes). */
+char* ms_metalvr_setup_json(const char* home, const char* body, size_t length, int* status) {
+    char error[96], script[2048], helper[1024], server[1024];
+    ms_json* request = body ? ms_json_parse(body, length, error, sizeof(error)) : NULL;
+    char* step = NULL;
+    headset_choice choice;
+    bool ok = false;
+    *status = 400;
+    if (!request || !ms_json_as_string(ms_json_object_get(request, "step"), &step)) {
+        ms_json_free(request);
+        return headset_reply(home, "step is required");
+    }
+    read_choice(home, &choice);
+    bool installed = installed_paths(home, server, sizeof(server), helper, sizeof(helper));
+    if (!strcmp(step, "install")) {
+        snprintf(script, sizeof(script),
+                 "cd \"$(mktemp -d)\"\n"
+                 "curl -fL --progress-bar -o metalvr.tar.gz "
+                 "https://github.com/metalsharp/MetalVR/releases/download/v" METALVR_RELEASE
+                 "/metalvr-" METALVR_RELEASE "-macos-arm64.tar.gz\n"
+                 "echo '" METALVR_RELEASE_SHA "  metalvr.tar.gz' | shasum -a 256 -c -\n"
+                 "tar -xzf metalvr.tar.gz\n"
+                 "metalvr-" METALVR_RELEASE "-macos-arm64/bin/metalvr-rift install");
+        ok = open_in_terminal(home, step, script);
+    } else if (!strcmp(step, "display") || !strcmp(step, "steamvr")) {
+        if (!installed) {
+            free(step);
+            ms_json_free(request);
+            *status = 409;
+            return headset_reply(home, "Install MetalVR first");
+        }
+        if (!strcmp(step, "display")) {
+            if (!choice.headset || !choice.headset->display) {
+                free(step);
+                ms_json_free(request);
+                return headset_reply(home, "this headset needs no display step");
+            }
+            snprintf(script, sizeof(script), "'%s' display %s", helper, choice.headset->display);
+        } else {
+            snprintf(script, sizeof(script), "'%s' steamvr", helper);
+        }
+        ok = open_in_terminal(home, step, script);
+    } else if (!strcmp(step, "bluetooth") || !strcmp(step, "displays")) {
+        char* argv[] = {"/usr/bin/open",
+                        !strcmp(step, "bluetooth") ? "x-apple.systempreferences:com.apple.BluetoothSettings"
+                                                   : "x-apple.systempreferences:com.apple.Displays-Settings.extension",
+                        NULL};
+        ok = run_and_wait(argv);
+    } else {
+        free(step);
+        ms_json_free(request);
+        return headset_reply(home, "unknown setup step");
+    }
+    free(step);
+    ms_json_free(request);
+    *status = ok ? 200 : 500;
+    return headset_reply(home, ok ? NULL : "the setup step could not be started");
+}
+

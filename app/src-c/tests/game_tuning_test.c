@@ -1,5 +1,6 @@
 #define _DARWIN_C_SOURCE
 #include "metalsharp_backend/game_tuning.h"
+#include "metalsharp_backend/config.h"
 
 #include <assert.h>
 #include <fcntl.h>
@@ -321,6 +322,76 @@ static void test_routes_and_launch(const char* home) {
     assert(access(path, F_OK) != 0);
 }
 
+/* The renderer switches (per game) and the Metal HUD with its metrics (shared): set in the child that starts the game. */
+static void test_renderers_and_hud(const char* home) {
+    char path[PATH_MAX];
+    int status = 0;
+    char* out;
+    const char* body = "{\"provider\":\"gog\",\"id\":\"1207658924\",\"openglRenderer\":\"zink\","
+                       "\"vulkanRenderer\":\"kosmickrisp\"}";
+    out = ms_game_tuning_save_json(home, body, strlen(body), &status);
+    assert(status == 200 && strstr(out, "\"openglRenderer\":\"zink\"") &&
+           strstr(out, "\"vulkanRenderer\":\"kosmickrisp\""));
+    free(out);
+    body = "{\"provider\":\"gog\",\"id\":\"1207658924\",\"vulkanRenderer\":\"dxvk\"}";
+    out = ms_game_tuning_save_json(home, body, strlen(body), &status);
+    assert(status == 400 && strstr(out, "vulkanRenderer"));
+    free(out);
+
+    /* HUD metrics: unknown names are refused, known ones are kept once each, in the HUD's order. */
+    body = "{\"metalHud\":true,\"metalHudElements\":\"fps,bogus\"}";
+    out = ms_config_set_json(home, (const unsigned char*)body, strlen(body), &status);
+    assert(status == 400);
+    free(out);
+    body = "{\"metalHud\":true,\"metalHudElements\":\"gputime,fps,fps\"}";
+    out = ms_config_set_json(home, (const unsigned char*)body, strlen(body), &status);
+    assert(status == 200 && strstr(out, "\"metalHudElements\":\"fps,gputime\""));
+    free(out);
+
+    {
+        pid_t child = fork();
+        int child_status = 0;
+        if (child == 0) {
+            unsetenv("SharpGL_Switch");
+            unsetenv("SharpVK_Switch");
+            ms_game_tuning_apply_child(home, "gog", "1207658924");
+            const char *gl = getenv("SharpGL_Switch"), *vk = getenv("SharpVK_Switch"),
+                       *hud = getenv("MTL_HUD_ENABLED"), *elements = getenv("MTL_HUD_ELEMENTS");
+            _exit(gl && !strcmp(gl, "1") && vk && !strcmp(vk, "1") && hud && !strcmp(hud, "1") && elements &&
+                          !strcmp(elements, "fps,gputime")
+                      ? 0
+                      : 1);
+        }
+        assert(child > 0 && waitpid(child, &child_status, 0) == child);
+        assert(WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0);
+    }
+
+    /* Back to the defaults: no switches, and the HUD off with no metric list. */
+    body = "{\"provider\":\"gog\",\"id\":\"1207658924\",\"openglRenderer\":\"winemetalgl\","
+           "\"vulkanRenderer\":\"moltenvk\"}";
+    out = ms_game_tuning_save_json(home, body, strlen(body), &status);
+    assert(status == 200);
+    free(out);
+    snprintf(path, sizeof(path), "%s/config/game-tuning/gog/1207658924.json", home);
+    assert(access(path, F_OK) != 0);
+    body = "{\"metalHud\":false}";
+    out = ms_config_set_json(home, (const unsigned char*)body, strlen(body), &status);
+    assert(status == 200);
+    free(out);
+    {
+        pid_t child = fork();
+        int child_status = 0;
+        if (child == 0) {
+            unsetenv("SharpGL_Switch");
+            ms_game_tuning_apply_child(home, "gog", "1207658924");
+            const char* hud = getenv("MTL_HUD_ENABLED");
+            _exit(!getenv("SharpGL_Switch") && hud && !strcmp(hud, "0") && !getenv("MTL_HUD_ELEMENTS") ? 0 : 1);
+        }
+        assert(child > 0 && waitpid(child, &child_status, 0) == child);
+        assert(WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0);
+    }
+}
+
 int main(int argc, char** argv) {
     char temporary[] = "/tmp/metalsharp-game-tuning-test-XXXXXX";
     const char* home = argc > 1 ? argv[1] : mkdtemp(temporary);
@@ -331,6 +402,7 @@ int main(int argc, char** argv) {
     test_store(home);
     test_local_env(home);
     test_routes_and_launch(home);
+    test_renderers_and_hud(home);
     printf("game tuning tests passed\n");
     return 0;
 }
