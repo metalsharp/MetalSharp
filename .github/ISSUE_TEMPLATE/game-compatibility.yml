@@ -84,7 +84,6 @@ body:
         - OpenGL (WineMetalGL)
         - OpenGL (Zink)
         - MetalVR
-        - Mono/FNA (x86_64 only)
     validations:
       required: true
 
