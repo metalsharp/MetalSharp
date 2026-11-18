@@ -44,7 +44,6 @@ unsafe extern "C" {
     );
     fn ms_glass_end(view: *mut core::ffi::c_void);
     fn ms_glass_detach(view: *mut core::ffi::c_void);
-    fn ms_window_lock_aspect(view: *mut core::ffi::c_void, width: f64, height: f64);
 }
 
 #[cfg(target_os = "macos")]
@@ -187,13 +186,4 @@ pub fn hero(path: Option<std::path::PathBuf>) -> impl IntoElement {
         )
         .size_full(),
     )
-}
-
-/// The window keeps the proportions `width`:`height` as it is resized, so it only grows or shrinks whole.
-pub fn lock_aspect(window: &Window, width: f32, height: f32) {
-    #[cfg(target_os = "macos")]
-    if let Some(view) = gpui_view(window) {
-        // SAFETY: as in begin.
-        unsafe { ms_window_lock_aspect(view, width as f64, height as f64) }
-    }
 }

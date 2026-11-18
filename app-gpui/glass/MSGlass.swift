@@ -337,25 +337,3 @@ public func ms_glass_detach(_ view: UnsafeMutableRawPointer) {
         hosts.removeValue(forKey: ObjectIdentifier(gpuiView))?.remove()
     }
 }
-
-/// The window scales in both directions together: its content keeps the proportions width:height (those of its
-/// smallest size), and is brought to them now, keeping its height. Not Liquid Glass's alone: any look has it.
-@_cdecl("ms_window_lock_aspect")
-public func ms_window_lock_aspect(_ view: UnsafeMutableRawPointer, _ width: Double, _ height: Double) {
-    MainActor.assumeIsolated {
-        let gpuiView = Unmanaged<NSView>.fromOpaque(view).takeUnretainedValue()
-        guard let window = gpuiView.window, width > 0, height > 0 else { return }
-        window.contentAspectRatio = NSSize(width: width, height: height)
-        let content = window.contentRect(forFrameRect: window.frame).size
-        var size = NSSize(width: (content.height * width / height).rounded(), height: content.height)
-        // a window too wide for its screen keeps the proportions at the width that fits
-        if let visible = window.screen?.visibleFrame.size, size.width > visible.width {
-            size = NSSize(width: visible.width, height: (visible.width * height / width).rounded())
-        }
-        if abs(size.width - content.width) > 1 || abs(size.height - content.height) > 1 {
-            window.setContentSize(size)
-            window.center()
-        }
-    }
-}
-
