@@ -2,15 +2,9 @@
 
 <p align="center">
   
-<img width="400" alt="MetalSharp X MetalSharp Wine" src="https://github.com/user-attachments/assets/59a8cd89-f8d5-41eb-ba1e-2bb5839ef8d6" />
-
-
+<img width="300" alt="MetalSharp X MetalSharp Wine" src="https://github.com/user-attachments/assets/59a8cd89-f8d5-41eb-ba1e-2bb5839ef8d6" />
 
 </p>
-
-___
-
-### Run Windows Games / Programs on MacOS Silicon.
 
 <a href="https://github.com/metalsharp/MetalSharp/releases/tag/v1.4.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v1.4.0&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases"><img src="https://img.shields.io/github/downloads/metalsharp/MetalSharp/total?style=for-the-badge" alt="Downloads"></a>
@@ -23,110 +17,82 @@ ___
 
 <div align="center">
 
-<img width="1367" height="1156" alt="MetalSharp Library" src="https://github.com/user-attachments/assets/5906dfa8-8931-4cba-80fd-dcd9a3d7ba16" />
+<img width="1415" height="954" alt="MetalSharp Library" src="https://github.com/user-attachments/assets/7aff8426-ff4f-498c-91a5-2495eb2e3361" />
 
 </div>
 
-## Quick Start
+## Quick start: 
 
-Download the DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into `/Applications`, and open it. Each release has two builds:
+MetalSharp ships two different runtimes, both using the same graphics engines; 
 
-- `MetalSharp-arm64.dmg`: the x86_64 Wine build under Rosetta (MacOS 15+).
-- `MetalSharp-arm64-FEX.dmg`: the Arm64 build with FEX and MetalSharp Wine (MacOS 26.4+), in early access.
+- X86_64 Wine 11.17 under Rosetta 2, for MacOS 15+
+- Arm64/Arm64EC Wine 11.20 with FEX, for MacOS 26.4+
 
-The in-app updater keeps the build you have, and can switch between them. Installed games automatically sync into the User Library.
-
-Alternatively, Install MetalSharp from the official **_Homebrew_** tap:
-
-```bash
-brew install --cask metalsharp/tap/metalsharp
-```
-
-For Direct Access to What is Installed During Setup, See Here:
-- [MetalSharp-Wine x86_64](https://github.com/metalsharp/MetalSharp-Wine)
-- [MetalSharp Wine With FEX](https://github.com/metalsharp/MetalSharp-Wine)
+Download your preferred DMG, and run it. Move MetalSharp into the applications folder, and launch it. Setup sets up everything you need, and you should install Steam from here to create your main prefix, or 'bottle'. That's it! Optionally, you can switch between both builds, and run games under both versions. 
 
 ## Graphics Routes
 
 - To launch your game, save your desired pipeline in MetalSharp and launch through MetalSharp.
-- MetalSharp automatically assigns your game a pipeline based on [Game-Compatibility](https://github.com/metalsharp/MetalSharp/blob/main/docs/games-supported.md) testing. Each build has its own rule set (`configs/mtsp-rules.toml`, `configs/mtsp-rules-fex.toml`).
+- MetalSharp automatically assigns your game a pipeline based on [Game-Compatibility](https://github.com/metalsharp/MetalSharp/blob/main/docs/games-supported.md) testing.
 
-| Version | Route | Engine |
-|---|---|---|
-| Arm64 FEX | **_VKD3D-Proton_** | VKD3D-Proton D3D12 Through Vulkan -> MetalSharp's MoltenVK  -> Metal |
-| Arm64 FEX | **_Mullion (DXMT Fork)_** | D3D12 / D3D11 / D3D10 x86 / x64 -> Metal |
-| Arm64 FEX | **_DXVK_** | D3D11 / D3D10 / D3D9 -> Vulkan -> MetalSharp's MoltenVK -> Metal |
-| Arm64 FEX | **_OpenGL_** | WineMetalGL (OpenGL 1.0 through 4.6) -> Metal |
-| Arm64 FEX | **_MetalVR_** | Play VR Games Through Many Headsets With D3D11 / 12 |
-___
+| Route | Engine |
+|---|---|
+| **_VKD3D/DXVK_** | VKD3D-Proton D3D12, DXVK D3D11/10/9 Through Vulkan -> MetalSharp's MoltenVK  -> Metal |
+| **_Mullion (DXMT Fork)_** | D3D12 / D3D11 / D3D10 -> Metal |
+| **_OpenGL_** | WineMetalGL (OpenGL 1.0 through 4.6) -> Metal |
+| **_MetalVR_** | Play VR Games Through Many Headsets With D3D11 / 12 |
+| **_D3DMetal_** | D3D12/11/10 Through Apple's D3DMetal. Only Available On The x86_64 Version |
 
-| Version | Route | Engine |
-|---|---|---|
-| x86_64 | **_D3DMetal_** | D3D12/11/10 Through the Latest D3DMetal Framework |
-| x86_64 | **_VKD3D-Proton / DXVK_** | D3D12 Through VKD3D-Proton, D3D11 / D3D10 / D3D9 Through DXVK -> MoltenVK -> Metal |
-| x86_64 | **_Mullion(DXMT)_** | D3D12 / D3D11 / D3D10 to Metal, X86/X64 -> Metal |
-| x86_64 | **_OpenGL_** | OpenGL 1.0->4.6 Through WineMetalGL |
 
 ## Features
 
 | Feature | Notes |
 |---|---|
 | **_Windows Programs_** | Import and Run Standalone Windows Programs, Installers, and Launchers |
-| **_GOG Library_** | Download and Play GOG Games |
-| **_Epic Library_** | Download and Play Epic Games |
-| **_Ubisoft Connect_** | Download and Play Ubisoft Connect Games |
-| **_Battle.Net_** | Download and Play Battle.Net Games |
-| **_Rockstar Launcher_** | Download and Play Rockstar Games |
-| **_Runtime Bottles_** | Select your launch method, Enable / Disable Msync and MetalFX; Controller Input and x87 Acceleration on x86_64; Metal HUD, Frame Rate Limits and Ray Tracing on Arm64 FEX |
-| **_Route Routing_** | Automatic route selection based on game compatibility data and developer testing |
-| **_Steam Integration_** | Detects your Steam library, manages the Wine Steam session |
-| **_Steam Art Manager_** | Set custom artwork for any game in your Steam-Library(s) |
+| **_Steam Integration_** | Detects your Steam library, manages the Wine Steam session. Set Custom Artwork Images For Any Game's Hero / App Card |
+| **_Launcher Support_** | Supports GOG, Ubisoft Connect, Battle.Net, Rockstar, and Epic Games |
+| **_Per-Game Settings_** | Select Launch Method, MetalHUD Options, x87 Acceleration, Frame-rate Limits, And More  |
+| **_VR Support_** | Launch Games With SteamVR For Oculus CV1/S, PSVR2, Quest 2/3/3s/Pro, Valve Index, and HTC Vive | 
 | **_Game Streaming_** | Streams games to a phone or tablet with Sunshine + Moonlight |
 
 ## Requirements
 
-For x86_64 Version Under Rosetta: 
+**_For x86_64 Version Under Rosetta:_**
 
 - Apple Silicon Mac M1-M5, MacOS 15+
 - About ~4 GB Free Space (Extra Prefixes, or 'Bottles' Take up More Space. 
 
-For Arm64 Version with FEX (MetalSharp Wine 4.0): 
+**_For Arm64 Version with FEX (MetalSharp Wine 4.0):_**
 
 - Apple Silicon Mac M1-M5, MacOS 26.4+
-- About ~4 GB Free Space (Extra Prefixes, or 'Bottles' Take up More Space. 
+- About ~4 GB Free Space (Extra Prefixes, or 'Bottles' Take up More Space.
 
-## Developer Setup
+## Links / Docs
 
-Current maintainer validation is happening on this hardware/software setup. This is not the recommended baseline or minimum requirement; it is here so readers know what MetalSharp is actively running on during development.
-
-- Apple M6 Mac mini, 12-core (4 performance, 6 efficiency, 2 Super)
-- 16 GB memory
-- macOS Golden Gate, Version `27.3`
-
-## Documentation
-
-- [Development](docs/development.md)
-- [User Guide](docs/user-guide.md)
-- [Architecture](docs/architecture.md)
-- [Ubisoft Connect Guide](docs/ubisoft-connect.md)
-- [All Docs](docs/README.md)
+- [Tested And Verified Games](https://github.com/metalsharp/MetalSharp/blob/main/docs/games-supported.md)
+- [MetalVR](https://github.com/metalsharp/MetalVR)
+- [VKD3D-Proton MacOS](https://github.com/metalsharp/VKD3D-Proton-MacOS)
+- [WineMetalGL](https://github.com/metalsharp/WineMetalGL)
+- [Updates](https://github.com/metalsharp/MetalSharp/blob/main/docs/updates.md)
 
 ## License
 
 Licensed under the `GNU Affero General Public License v3.0` or later (AGPL-3.0-or-later). Third-party components keep their original licenses; see [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES).
 
-## Special Thanks To; 
+## Special Thanks To These Projects, Which Enable a Lot of What MetalSharp Is / Does; 
 
-[DXMT](https://github.com/3Shain/dxmt) _For DirectX -> Metal_,  [Wine](https://www.winehq.org/) _For Tiny Windows VM_, 
-[FEX-Emu](https://github.com/FEX-Emu/FEX) _For x86 on Arm64_, 
-[VKD3D-Proton](https://github.com/HansKristian-Work/vkd3d-proton) _For D3D12 on Vulkan_, 
-[MoltenVK](https://github.com/KhronosGroup/MoltenVK) _For Vulkan on Metal_, 
-[DXVK-MacOS](https://github.com/Gcenx/DXVK-macOS) _For Vulkan On Mac_, 
-[Tormak9970](https://github.com/Tormak9970/Steam-Art-Manager) _For Steam Art Manager_, 
-[ZED](https://github.com/zed-industries/zed) _For GPUI_, 
+[Mullion](https://github.com/dttdrv/mullion), 
+[Wine](https://www.winehq.org/), 
+[FEX-Emu](https://github.com/FEX-Emu/FEX), 
+[VKD3D-Proton](https://github.com/HansKristian-Work/vkd3d-proton), 
+[MoltenVK](https://github.com/KhronosGroup/MoltenVK), 
+[DXVK-MacOS](https://github.com/Gcenx/DXVK-macOS), 
+[Steam Art Manager](https://github.com/Tormak9970/Steam-Art-Manager), 
+[GPUI](https://github.com/zed-industries/zed), 
 [Wine-Mono](https://github.com/wine-mono/wine-mono), 
-[Legendary](https://github.com/legendary-gl/legendary) _For Headless Epic Login_, 
-[Heroic](https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher) _For Headless GOG Login_, and [WineForge](https://github.com/Alien4042x/WineForge) _For WFDXCompat / WFUSync_
+[Legendary](https://github.com/legendary-gl/legendary), 
+[Heroic](https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher),
+[WineForge](https://github.com/Alien4042x/WineForge)
 
 Without their work, this project would not have been possible. 
 
