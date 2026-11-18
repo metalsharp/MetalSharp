@@ -291,6 +291,13 @@ impl MetalSharpApp {
             .border_1()
             .border_color(p.panel_border())
             .bg(p.panel_bg())
+            .when(p.glass, |panel| {
+                panel.relative().child(crate::liquid_glass::mark(
+                    "game-settings-glass",
+                    crate::liquid_glass::Glass::Panel,
+                    18.0,
+                ))
+            })
             .text_color(rgb(p.control_text))
             .overflow_hidden()
             .shadow(vec![gpui::BoxShadow {
@@ -320,7 +327,7 @@ impl MetalSharpApp {
                 .items_center()
                 .justify_center()
                 .occlude()
-                .bg(rgba(0x06080a94))
+                .bg(p.scrim())
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.game_settings_open = false;
                     cx.notify();
@@ -1372,6 +1379,13 @@ impl MetalSharpApp {
             .border_1()
             .border_color(p.panel_border())
             .bg(p.panel_bg())
+            .when(p.glass, |panel| {
+                panel.relative().child(crate::liquid_glass::mark(
+                    "vr-setup-glass",
+                    crate::liquid_glass::Glass::Panel,
+                    18.0,
+                ))
+            })
             .text_color(rgb(p.control_text))
             .overflow_hidden()
             .shadow(vec![gpui::BoxShadow {
@@ -1442,7 +1456,7 @@ impl MetalSharpApp {
                 .items_center()
                 .justify_center()
                 .occlude()
-                .bg(rgba(0x06080a70))
+                .bg(p.scrim())
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.vr_setup_open = false;
                     cx.notify();

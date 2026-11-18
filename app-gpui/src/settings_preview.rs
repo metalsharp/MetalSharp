@@ -2758,6 +2758,13 @@ impl Render for SettingsPreview {
             .border_1()
             .border_color(p.panel_border())
             .bg(p.panel_bg())
+            .when(p.glass, |panel| {
+                panel.relative().child(crate::liquid_glass::mark(
+                    "settings-glass",
+                    crate::liquid_glass::Glass::Panel,
+                    18.0,
+                ))
+            })
             .text_color(rgb(p.control_text))
             .shadow(vec![gpui::BoxShadow {
                 color: rgba(0x0000008c).into(),
@@ -2840,7 +2847,7 @@ impl Render for SettingsPreview {
             .pt(px(layout.top))
             .px(px(layout.gutter))
             .pb(px(layout.gutter))
-            .bg(rgba(0x06080a94))
+            .bg(self.palette.scrim())
             .on_click(cx.listener(|this, _, _, cx| this.dismiss(cx)))
             .child(crate::motion::appear(
                 panel

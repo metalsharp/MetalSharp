@@ -33,10 +33,20 @@ impl Default for PagePalette {
 }
 
 impl PagePalette {
+    /// What dims the page behind a panel: nothing under Liquid Glass, where it would dim the panel's glass too.
+    pub fn scrim(&self) -> gpui::Rgba {
+        if self.glass {
+            rgba(0x00000000)
+        } else {
+            rgba(0x06080a94)
+        }
+    }
+
     /// A settings panel's fill: the control background, translucent under Liquid Glass.
     pub fn panel_bg(&self) -> gpui::Rgba {
         if self.glass {
-            rgba((self.control_bg << 8) | 0xb8)
+            // AppKit's glass is under the panel (liquid_glass::mark): only a veil here, for the text
+            rgba((self.control_bg << 8) | 0x40)
         } else {
             rgba((self.control_bg << 8) | 0xff)
         }

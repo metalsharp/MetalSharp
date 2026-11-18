@@ -14,6 +14,7 @@ mod intro_video;
 mod launch_overlay;
 mod library_model;
 mod lifecycle;
+mod liquid_glass;
 mod live;
 mod logs_preview;
 mod markdown;
