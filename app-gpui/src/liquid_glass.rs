@@ -22,7 +22,14 @@ pub enum Glass {
 
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
-    fn ms_glass_begin(view: *mut core::ffi::c_void, dark: bool, page: u32, accent: u32, glow: u32);
+    fn ms_glass_begin(
+        view: *mut core::ffi::c_void,
+        dark: bool,
+        page: u32,
+        accent: u32,
+        glow: u32,
+        clarity: f64,
+    );
     fn ms_glass_region(
         view: *mut core::ffi::c_void,
         id: u64,
@@ -74,7 +81,8 @@ fn region_id(id: &impl Hash) -> u64 {
 
 /// The start of a frame's glass: paint it before anything that marks a surface.
 /// `page` and `accent` are the theme's (0xRRGGBB): they tint the glass. `glow` is what a selected surface glows.
-pub fn begin(dark: bool, page: u32, accent: u32, glow: u32) -> impl IntoElement {
+/// `clarity`, 0.0 to 1.0, is Settings' Glass Transparency: the higher, the less the panels are tinted and blurred.
+pub fn begin(dark: bool, page: u32, accent: u32, glow: u32, clarity: f32) -> impl IntoElement {
     canvas(
         |_, _, _| (),
         move |_, (), window, _| {
@@ -82,7 +90,16 @@ pub fn begin(dark: bool, page: u32, accent: u32, glow: u32) -> impl IntoElement 
             COVERED.set(false);
             if let Some(view) = gpui_view(window) {
                 // SAFETY: view is the window's live GPUI NSView, on the main thread.
-                unsafe { ms_glass_begin(view, dark, page, accent, glow) }
+                unsafe {
+                    ms_glass_begin(
+                        view,
+                        dark,
+                        page,
+                        accent,
+                        glow,
+                        f64::from(clarity.clamp(0.0, 1.0)),
+                    )
+                }
             }
         },
     )
