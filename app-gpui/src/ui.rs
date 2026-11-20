@@ -4759,11 +4759,22 @@ impl MetalSharpApp {
         };
         let (card_game, hero_game, reset_game) = (game.clone(), game.clone(), game.clone());
         let art = game.art_key.is_some();
-        let uninstall_game = (matches!(game.page(), LibraryPage::Gog | LibraryPage::Epic)
-            && game.installed
+        // GOG and Epic games uninstall; Windows programs (and Game Jolt games) leave the library, as from the
+        // Collection view's settings, once they are not running (#809).
+        let windows_program = game.page() == LibraryPage::WindowsPrograms;
+        let uninstall_game = (matches!(
+            game.page(),
+            LibraryPage::Gog | LibraryPage::Epic | LibraryPage::WindowsPrograms
+        ) && game.installed
             && !game.needs_install
-            && game.external_id.is_some())
+            && game.external_id.is_some()
+            && !(windows_program && self.is_running(game.appid)))
         .then(|| game.clone());
+        let uninstall_label = if game.source.as_deref() == Some("windows") {
+            "Remove from Library…"
+        } else {
+            "Uninstall…"
+        };
         let (left, right) = self.card_moves();
         let ordered = self.live.card_order.contains_key(self.page.storage_id());
         let order_item = |id: &'static str, label: &'static str, enabled: bool| {
@@ -4818,7 +4829,7 @@ impl MetalSharpApp {
                 ))
             }))
             .children(uninstall_game.map(|game| {
-                item("art-menu-uninstall", "Uninstall…").on_click(cx.listener(
+                item("art-menu-uninstall", uninstall_label).on_click(cx.listener(
                     move |this, _, _, cx| {
                         this.art_menu = None;
                         this.game_uninstall_prompt = Some(game.clone());
@@ -4854,7 +4865,8 @@ impl MetalSharpApp {
             }))
     }
 
-    /// "Uninstall <game>?" for a GOG or Epic game, centred over the window.
+    /// "Uninstall <game>?" for a GOG, Epic or Game Jolt game, or "Remove <program> from the library?" for a Windows
+    /// program, centred over the window.
     fn render_game_uninstall_prompt(
         &self,
         viewport: gpui::Size<gpui::Pixels>,
@@ -4864,10 +4876,27 @@ impl MetalSharpApp {
         let layout = LibraryLayout::for_viewport(viewport.width.into(), viewport.height.into());
         let theme = self.theme;
         let text_color = theme.control_text();
-        let keeps = if game.page() == LibraryPage::Epic {
-            "Only the game's files are deleted. Its bottle (saves and settings) and your Epic library stay."
-        } else {
-            "Only the game's folder is deleted. The GOG prefix (saves and settings) and your GOG library stay."
+        let (title, keeps, action) = match game.source.as_deref() {
+            Some("windows") => (
+                format!("Remove {} from the library?", game.name),
+                "MetalSharp stops listing it. Its files and the Windows Programs prefix (saves and settings) stay on disk.",
+                "Remove",
+            ),
+            Some("gamejolt") => (
+                format!("Uninstall {}?", game.name),
+                "This removes its GameJolt folder and cannot be undone.",
+                "Uninstall",
+            ),
+            Some("epic") => (
+                format!("Uninstall {}?", game.name),
+                "Only the game's files are deleted. Its bottle (saves and settings) and your Epic library stay.",
+                "Uninstall",
+            ),
+            _ => (
+                format!("Uninstall {}?", game.name),
+                "Only the game's folder is deleted. The GOG prefix (saves and settings) and your GOG library stay.",
+                "Uninstall",
+            ),
         };
         let button = |id: &'static str, label: &'static str, primary: bool| {
             div()
@@ -4908,7 +4937,7 @@ impl MetalSharpApp {
                         .text_size(px(layout.scaled(18.0)))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(rgb(text_color))
-                        .child(format!("Uninstall {}?", game.name)),
+                        .child(title),
                 )
                 .child(
                     div()
@@ -4928,24 +4957,22 @@ impl MetalSharpApp {
                                 cx.notify();
                             }),
                         ))
-                        .child(
-                            button("game-uninstall-confirm", "Uninstall", true).on_click(
-                                cx.listener(move |this, _, _, cx| {
-                                    this.game_uninstall_prompt = None;
-                                    let (Some(id), Some(sharp)) =
-                                        (confirm.external_id.clone(), this.sharp_preview.clone())
-                                    else {
-                                        return;
-                                    };
-                                    let source = confirm.source.clone().unwrap_or_default();
-                                    let title = confirm.name.clone();
-                                    sharp.update(cx, |sharp, cx| {
-                                        sharp.deck_uninstall(&source, &id, title, cx)
-                                    });
-                                    cx.notify();
-                                }),
-                            ),
-                        ),
+                        .child(button("game-uninstall-confirm", action, true).on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                this.game_uninstall_prompt = None;
+                                let (Some(id), Some(sharp)) =
+                                    (confirm.external_id.clone(), this.sharp_preview.clone())
+                                else {
+                                    return;
+                                };
+                                let source = confirm.source.clone().unwrap_or_default();
+                                let title = confirm.name.clone();
+                                sharp.update(cx, |sharp, cx| {
+                                    sharp.deck_uninstall(&source, &id, title, cx)
+                                });
+                                cx.notify();
+                            }),
+                        )),
                 );
         Some(
             div()

@@ -587,7 +587,7 @@ impl SharpPreview {
         .detach();
     }
 
-    fn uninstall_app(&mut self, id: String, name: String, cx: &mut Context<Self>) {
+    pub(super) fn uninstall_app(&mut self, id: String, name: String, cx: &mut Context<Self>) {
         live::call(
             cx,
             "POST",
@@ -2181,7 +2181,7 @@ impl SharpPreview {
         );
     }
 
-    fn uninstall_gamejolt(
+    pub(super) fn uninstall_gamejolt(
         &mut self,
         id: String,
         name: String,
