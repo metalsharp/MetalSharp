@@ -36,7 +36,11 @@ pub fn slug(name: &str) -> String {
         }
     }
     let out = out.trim_end_matches('-');
-    if out.is_empty() { "game".to_owned() } else { out.chars().take(48).collect() }
+    if out.is_empty() {
+        "game".to_owned()
+    } else {
+        out.chars().take(48).collect()
+    }
 }
 
 /// The lines of `from`'s last MOST_BYTES, redacted, into `to`.
@@ -49,7 +53,11 @@ fn copy_redacted(from: &Path, to: &Path) -> io::Result<()> {
     }
     let mut out = io::BufWriter::new(fs::File::create(to)?);
     if length > MOST_BYTES {
-        writeln!(out, "[the first {} bytes are left out]", length - MOST_BYTES)?;
+        writeln!(
+            out,
+            "[the first {} bytes are left out]",
+            length - MOST_BYTES
+        )?;
     }
     for line in io::BufReader::new(file).split(b'\n') {
         let line = String::from_utf8_lossy(&line?).into_owned();
@@ -66,11 +74,20 @@ fn newest_files(folder: &Path, count: usize) -> Vec<PathBuf> {
         .flatten()
         .filter_map(|entry| {
             let meta = entry.metadata().ok()?;
-            meta.is_file().then(|| (meta.modified().unwrap_or(SystemTime::UNIX_EPOCH), entry.path()))
+            meta.is_file().then(|| {
+                (
+                    meta.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+                    entry.path(),
+                )
+            })
         })
         .collect();
     files.sort_by(|a, b| b.0.cmp(&a.0));
-    files.into_iter().take(count).map(|(_, path)| path).collect()
+    files
+        .into_iter()
+        .take(count)
+        .map(|(_, path)| path)
+        .collect()
 }
 
 /// What a command prints, trimmed; empty when it does not run.
@@ -84,12 +101,19 @@ fn output(program: &str, args: &[&str]) -> String {
 }
 
 fn system_text(game: &GameFacts) -> String {
-    let memory = output("/usr/sbin/sysctl", &["-n", "hw.memsize"]).parse::<u64>().unwrap_or(0) >> 30;
+    let memory = output("/usr/sbin/sysctl", &["-n", "hw.memsize"])
+        .parse::<u64>()
+        .unwrap_or(0)
+        >> 30;
     format!(
         "MetalSharp {} ({} build)\nmacOS {} ({})\nMac: {} ({}), {} GB\n\nGame: {}\nApp ID: {}\nSource: {}\nRoute: {}\n\
          Environment variables: {}\nDLL overrides: {}\n",
         env!("CARGO_PKG_VERSION"),
-        if crate::variant::is_fex() { "Arm64 FEX" } else { "regular" },
+        if crate::variant::is_fex() {
+            "Arm64 FEX"
+        } else {
+            "regular"
+        },
         output("/usr/bin/sw_vers", &["-productVersion"]),
         output("/usr/bin/sw_vers", &["-buildVersion"]),
         output("/usr/sbin/sysctl", &["-n", "hw.model"]),
@@ -97,15 +121,34 @@ fn system_text(game: &GameFacts) -> String {
         memory,
         game.name,
         game.appid,
-        if game.source.is_empty() { "steam" } else { &game.source },
-        if game.pipeline.is_empty() { "default" } else { &game.pipeline },
-        redact_line(if game.env.is_empty() { "(none)" } else { &game.env }),
-        if game.dll_overrides.is_empty() { "(none)" } else { &game.dll_overrides },
+        if game.source.is_empty() {
+            "steam"
+        } else {
+            &game.source
+        },
+        if game.pipeline.is_empty() {
+            "default"
+        } else {
+            &game.pipeline
+        },
+        redact_line(if game.env.is_empty() {
+            "(none)"
+        } else {
+            &game.env
+        }),
+        if game.dll_overrides.is_empty() {
+            "(none)"
+        } else {
+            &game.dll_overrides
+        },
     )
 }
 
 fn day_name(time: SystemTime) -> String {
-    let seconds = time.duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let seconds = time
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     output("/bin/date", &["-r", &seconds.to_string(), "+%Y-%m-%d"])
 }
 
@@ -150,10 +193,17 @@ pub fn build(home: &Path, desktop: &Path, game: &GameFacts) -> io::Result<PathBu
     if !crashes.is_empty() {
         fs::create_dir_all(folder.join("crash-reports"))?;
         for file in crashes {
-            copy_redacted(&file, &folder.join("crash-reports").join(file.file_name().unwrap()))?;
+            copy_redacted(
+                &file,
+                &folder.join("crash-reports").join(file.file_name().unwrap()),
+            )?;
         }
     }
-    let zip = desktop.join(format!("MetalSharp report - {} - {}.zip", slug(&game.name), stamp));
+    let zip = desktop.join(format!(
+        "MetalSharp report - {} - {}.zip",
+        slug(&game.name),
+        stamp
+    ));
     let status = Command::new("/usr/bin/ditto")
         .args(["-c", "-k", "--keepParent"])
         .arg(&folder)
@@ -178,12 +228,16 @@ mod tests {
     fn slug_keeps_letters_and_digits() {
         assert_eq!(slug("Counter-Strike 2"), "Counter-Strike-2");
         assert_eq!(slug("  ???  "), "game");
-        assert_eq!(slug("Tom Clancy's The Division® 2"), "Tom-Clancy-s-The-Division-2");
+        assert_eq!(
+            slug("Tom Clancy's The Division® 2"),
+            "Tom-Clancy-s-The-Division-2"
+        );
     }
 
     #[test]
     fn a_report_holds_redacted_logs_and_the_game() {
-        let root = std::env::temp_dir().join(format!("metalsharp-report-test-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("metalsharp-report-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let home = root.join("home");
         let desktop = root.join("desktop");
@@ -194,7 +248,11 @@ mod tests {
             "launch ok\nAuthorization: Bearer fixture-private\n",
         )
         .unwrap();
-        fs::write(home.join("logs/fex-dxmt/730/cs2_d3d11.log"), "info: Mullion\n").unwrap();
+        fs::write(
+            home.join("logs/fex-dxmt/730/cs2_d3d11.log"),
+            "info: Mullion\n",
+        )
+        .unwrap();
         let game = GameFacts {
             name: "Counter-Strike 2".into(),
             appid: 730,
@@ -205,12 +263,23 @@ mod tests {
         };
         let zip = build(&home, &desktop, &game).unwrap();
         assert!(zip.is_file());
-        let folder = fs::read_dir(home.join("reports")).unwrap().next().unwrap().unwrap().path();
-        let log = fs::read_to_string(folder.join(format!("logs/{}.log", day_name(SystemTime::now())))).unwrap();
+        let folder = fs::read_dir(home.join("reports"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let log =
+            fs::read_to_string(folder.join(format!("logs/{}.log", day_name(SystemTime::now()))))
+                .unwrap();
         assert!(log.contains("launch ok") && !log.contains("fixture-private"));
         assert!(folder.join("mullion/fex-dxmt/cs2_d3d11.log").is_file());
         let system = fs::read_to_string(folder.join("system.txt")).unwrap();
-        assert!(system.contains("Counter-Strike 2") && system.contains("App ID: 730") && system.contains("MULLION_LOSSY"));
+        assert!(
+            system.contains("Counter-Strike 2")
+                && system.contains("App ID: 730")
+                && system.contains("MULLION_LOSSY")
+        );
         let _ = fs::remove_dir_all(&root);
     }
 }

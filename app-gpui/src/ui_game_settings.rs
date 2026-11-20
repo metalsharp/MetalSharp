@@ -882,8 +882,12 @@ impl MetalSharpApp {
 
     /// Game Settings > Advanced > Report a problem: the zip is made off the UI thread, then shown in the Finder.
     fn make_problem_report(&mut self, cx: &mut Context<Self>) {
-        let Some(live) = crate::live::Live::get(cx) else { return };
-        let Some(game) = self.games.get(self.selected_game) else { return };
+        let Some(live) = crate::live::Live::get(cx) else {
+            return;
+        };
+        let Some(game) = self.games.get(self.selected_game) else {
+            return;
+        };
         let facts = crate::problem_report::GameFacts {
             name: game.name.clone(),
             appid: game.appid,
@@ -893,7 +897,9 @@ impl MetalSharpApp {
             dll_overrides: self.live.tuning.dll_overrides.clone(),
         };
         let home = live.home();
-        let Some(desktop) = std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join("Desktop")) else {
+        let Some(desktop) =
+            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join("Desktop"))
+        else {
             return;
         };
         crate::toast::info(cx, format!("Making a problem report for {}…", facts.name));
@@ -905,10 +911,15 @@ impl MetalSharpApp {
             let _ = cx.update(|cx| match made {
                 Ok(zip) => {
                     crate::problem_report::reveal(&zip);
-                    let name = zip.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    let name = zip
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
                     crate::toast::success(cx, format!("{name} is on the Desktop"));
                 }
-                Err(error) => crate::toast::error(cx, format!("Could not make the report: {error}")),
+                Err(error) => {
+                    crate::toast::error(cx, format!("Could not make the report: {error}"))
+                }
             });
         })
         .detach();

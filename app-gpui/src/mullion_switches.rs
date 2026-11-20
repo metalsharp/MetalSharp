@@ -44,7 +44,11 @@ pub const SWITCHES: &[Switch] = &[
 ];
 
 /// The variables the detailed log sets beside its own.
-const DETAILED_LOG_ALSO: &[&str] = &["MULLION_TRACE_MEMORY", "MULLION_TRACE_SHADER", "MULLION_TRACE_PRESENT"];
+const DETAILED_LOG_ALSO: &[&str] = &[
+    "MULLION_TRACE_MEMORY",
+    "MULLION_TRACE_SHADER",
+    "MULLION_TRACE_PRESENT",
+];
 
 /// The text's variables, split as the backend splits them: on spaces, but not inside double quotes.
 fn tokens(text: &str) -> Vec<String> {
@@ -77,15 +81,20 @@ fn names(token: &str, name: &str) -> bool {
 
 /// The value the text gives a variable, if it gives one.
 pub fn value_of(text: &str, name: &str) -> Option<String> {
-    tokens(text)
-        .into_iter()
-        .rev()
-        .find_map(|token| token.split_once('=').filter(|(key, _)| *key == name).map(|(_, v)| v.trim_matches('"').to_owned()))
+    tokens(text).into_iter().rev().find_map(|token| {
+        token
+            .split_once('=')
+            .filter(|(key, _)| *key == name)
+            .map(|(_, v)| v.trim_matches('"').to_owned())
+    })
 }
 
 /// The text with a variable set to a value, or taken out (None), keeping every other variable as it was written.
 pub fn with_variable(text: &str, name: &str, value: Option<&str>) -> String {
-    let mut kept: Vec<String> = tokens(text).into_iter().filter(|token| !names(token, name)).collect();
+    let mut kept: Vec<String> = tokens(text)
+        .into_iter()
+        .filter(|token| !names(token, name))
+        .collect();
     if let Some(value) = value {
         kept.push(format!("{name}={value}"));
     }
@@ -123,7 +132,10 @@ mod tests {
         let text = r#"DXVK_HUD=fps NAME="a value""#;
         assert!(!saver.is_on(text));
         let on = saver.turned(text, true);
-        assert_eq!(on, r#"DXVK_HUD=fps NAME="a value" MULLION_LOSSY_TEXTURES=1"#);
+        assert_eq!(
+            on,
+            r#"DXVK_HUD=fps NAME="a value" MULLION_LOSSY_TEXTURES=1"#
+        );
         assert!(saver.is_on(&on));
         assert_eq!(saver.turned(&on, false), r#"DXVK_HUD=fps NAME="a value""#);
     }
@@ -142,14 +154,24 @@ mod tests {
     fn the_detailed_log_sets_its_categories_together() {
         let log = &SWITCHES[2];
         let on = log.turned("-WINEDEBUG", true);
-        assert!(on.starts_with("-WINEDEBUG MULLION_TRACE_GPU=1") && on.contains("MULLION_TRACE_PRESENT=1"));
+        assert!(
+            on.starts_with("-WINEDEBUG MULLION_TRACE_GPU=1")
+                && on.contains("MULLION_TRACE_PRESENT=1")
+        );
         assert_eq!(log.turned(&on, false), "-WINEDEBUG");
     }
 
     #[test]
     fn a_removed_variable_turns_its_switch_back() {
         assert!(!SWITCHES[0].is_on("-MULLION_LOSSY_TEXTURES"));
-        assert_eq!(with_variable("-MULLION_LOSSY_TEXTURES A=1", "MULLION_LOSSY_TEXTURES", None), "A=1");
+        assert_eq!(
+            with_variable(
+                "-MULLION_LOSSY_TEXTURES A=1",
+                "MULLION_LOSSY_TEXTURES",
+                None
+            ),
+            "A=1"
+        );
         assert_eq!(value_of(r#"X="1 2""#, "X").as_deref(), Some("1 2"));
     }
 }
