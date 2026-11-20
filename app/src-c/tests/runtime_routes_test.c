@@ -12,6 +12,7 @@
 #include "metalsharp_backend/gamejolt.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/ubisoft.h"
+#include "metalsharp_backend/bottle_actions.h"
 // clang-format on
 #define main metalsharp_backend_main_for_test
 #include "../runtime/main.c"
@@ -971,6 +972,68 @@ static void test_cs2_d3dmetal_cursor(const char* home) {
     assert(!getenv("METALSHARP_CONFINE_CURSOR"));
     set_direct_game_env(home, prefix, 570, "d3dmetal", "d3dmetal", NULL);
     assert(!getenv("METALSHARP_CONFINE_CURSOR"));
+}
+
+/* A Windows version change in a bottle waits for its own child only: the backend keeps no process-wide SIGCHLD reaper
+ * afterwards, which would take the children popen waits for. MetalSharp Wine's version is read that way, so with a
+ * reaper the switch to FEX found no runtime to install ("this MetalSharp does not carry MetalSharp-Wine.app") though
+ * one was downloaded (issue 811). The change's result still reaches the bottle. */
+static void test_bottle_action_keeps_child_waits(const char* root) {
+    char home[PATH_MAX], path[PATH_MAX], downloaded[PATH_MAX], body[PATH_MAX + 64];
+    struct sigaction action;
+    char *reply, *found, *manifest_text = NULL;
+    int status = 0;
+    FILE* file;
+    snprintf(home, sizeof(home), "%s/bottle-child-waits", root);
+    snprintf(path, sizeof(path),
+             "mkdir -p '%s/bottles/b1' '%s/pfx' '%s/runtime/wine/bin' "
+             "'%s/downloads/MetalSharp-Wine.app/Contents' '%s/resources'",
+             home, home, home, home, home);
+    assert(system(path) == 0);
+    snprintf(path, sizeof(path), "%s/runtime/wine/bin/wine", home);
+    assert((file = fopen(path, "w")) && fputs("#!/bin/sh\nexit 0\n", file) >= 0 && fclose(file) == 0);
+    assert(chmod(path, 0755) == 0);
+    snprintf(path, sizeof(path), "%s/bottles/b1/bottle.json", home);
+    assert((file = fopen(path, "w")));
+    fprintf(file, "{\"id\":\"b1\",\"name\":\"b1\",\"prefix_path\":\"%s/pfx\"}", home);
+    assert(fclose(file) == 0);
+    snprintf(downloaded, sizeof(downloaded), "%s/downloads/MetalSharp-Wine.app", home);
+    snprintf(path, sizeof(path), "%s/Contents/Info.plist", downloaded);
+    assert((file = fopen(path, "w")));
+    fprintf(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict>"
+            "<key>CFBundleShortVersionString</key><string>%s</string></dict></plist>\n",
+            ms_wine_release_version());
+    assert(fclose(file) == 0);
+
+    snprintf(body, sizeof(body), "{\"id\":\"b1\",\"version\":\"win10\"}");
+    reply = ms_bottle_action_json(home, "set-windows-version", (const unsigned char*)body, strlen(body), &status);
+    assert(reply && strstr(reply, "\"started\""));
+    free(reply);
+    /* its result reaches the bottle at the next bottle action, once the child has exited */
+    snprintf(path, sizeof(path), "%s/bottles/b1/bottle.json", home);
+    for (int i = 0; i < 100; i++) {
+        free(manifest_text);
+        reply = ms_bottle_action_json(home, "get", (const unsigned char*)body, strlen(body), &status);
+        free(reply);
+        manifest_text = read_text(path, 65536);
+        if (manifest_text && strstr(manifest_text, "\"last_launch_status\":\"exited\""))
+            break;
+        usleep(50000);
+    }
+    assert(manifest_text && strstr(manifest_text, "\"last_launch_status\":\"exited\""));
+    free(manifest_text);
+
+    assert(sigaction(SIGCHLD, NULL, &action) == 0 && action.sa_handler == SIG_DFL);
+    assert(setenv("METALSHARP_HOME", home, 1) == 0);
+    snprintf(path, sizeof(path), "%s/resources", home);
+    assert(setenv("METALSHARP_APP_RESOURCES", path, 1) == 0);
+    unsetenv("METALSHARP_WINE_APP_SOURCE");
+    found = ms_wine_fex_app_source();
+    assert(found && !strcmp(found, downloaded));
+    free(found);
+    unsetenv("METALSHARP_HOME");
+    unsetenv("METALSHARP_APP_RESOURCES");
 }
 
 int main(int argc, char** argv) {
@@ -2894,6 +2957,7 @@ int main(int argc, char** argv) {
     free(drive_c_link);
     free(dosdevices);
     legacy_ntdll_hook_refresh_test(home);
+    test_bottle_action_keeps_child_waits(home);
     puts("runtime routing regressions passed");
     return 0;
 }

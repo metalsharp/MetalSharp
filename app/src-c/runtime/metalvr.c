@@ -159,20 +159,14 @@ static const char* choice_driver(const headset_choice* choice) {
     return choice->legacy_driver[0] ? choice->legacy_driver : "rift";
 }
 
-/* Runs argv to its end, as the backend's other short-lived children: SIGCHLD is held on this thread so the
- * process-wide reaper (bottle_actions.c) cannot take the child. True when it exited 0. */
+/* Runs argv to its end. True when it exited 0. */
 static bool run_and_wait(char* const argv[]) {
-    sigset_t block, previous;
     pid_t pid;
     int status = 0;
     bool ok = false;
-    sigemptyset(&block);
-    sigaddset(&block, SIGCHLD);
-    pthread_sigmask(SIG_BLOCK, &block, &previous);
     pid = fork();
     if (pid == 0) {
         int null = open("/dev/null", O_RDWR);
-        pthread_sigmask(SIG_SETMASK, &previous, NULL);
         if (null >= 0) {
             dup2(null, STDIN_FILENO);
             dup2(null, STDOUT_FILENO);
@@ -186,10 +180,8 @@ static bool run_and_wait(char* const argv[]) {
         do {
             waited = waitpid(pid, &status, 0);
         } while (waited < 0 && errno == EINTR);
-        /* taken by the reaper on another thread: the exit status is unknown, and the command ran */
-        ok = waited < 0 ? errno == ECHILD : (WIFEXITED(status) && WEXITSTATUS(status) == 0);
+        ok = waited == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
     }
-    pthread_sigmask(SIG_SETMASK, &previous, NULL);
     return ok;
 }
 
@@ -197,19 +189,14 @@ static bool run_and_wait(char* const argv[]) {
  * (the backend's socket must not stay bound to it) */
 static bool start_server(const char* home, const char* server, const headset_choice* choice) {
     char log_path[1024];
-    sigset_t block, previous;
     pid_t pid;
     if (!path_join(log_path, sizeof(log_path), home, "logs/metalvrd.log"))
         return false;
-    sigemptyset(&block);
-    sigaddset(&block, SIGCHLD);
-    pthread_sigmask(SIG_BLOCK, &block, &previous);
     pid = fork();
     if (pid == 0) {
         /* a second fork leaves metalvrd without the backend as its parent */
         if (fork() != 0)
             _exit(0);
-        pthread_sigmask(SIG_SETMASK, &previous, NULL);
         setsid();
         {
             int null = open("/dev/null", O_RDONLY);
@@ -248,7 +235,6 @@ static bool start_server(const char* home, const char* server, const headset_cho
         while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
         }
     }
-    pthread_sigmask(SIG_SETMASK, &previous, NULL);
     return pid > 0;
 }
 
