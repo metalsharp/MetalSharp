@@ -605,6 +605,11 @@
           "kind": "literal-candidate"
         },
         {
+          "file": "app-gpui/src/mullion_switches.rs",
+          "line": 2,
+          "kind": "literal-candidate"
+        },
+        {
           "file": "app-gpui/src/ui_game_settings.rs",
           "line": 529,
           "kind": "literal-candidate"
@@ -639,6 +644,11 @@
         {
           "file": "app-gpui/src/library_model.rs",
           "line": 221,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/mullion_switches.rs",
+          "line": 2,
           "kind": "literal-candidate"
         },
         {

@@ -6947,6 +6947,61 @@ mod tests {
     use super::{LANGUAGES, MetalSharpApp, SetupCopy};
     use std::collections::HashMap;
 
+    // Game Settings > Advanced draws Report a problem and the Mullion switches, in a test window (TestPlatform: no
+    // real window, backend or data home), for a game whose settings have loaded
+    #[gpui::test]
+    fn advanced_settings_draw_the_report_button_and_mullion_switches(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (view, cx) = cx.add_window_view(|_, _| {
+            let mut app = MetalSharpApp::new();
+            let selected = app
+                .games
+                .iter()
+                .position(|game| app.tunable(game))
+                .expect("a preview game takes settings");
+            let key = app.games[selected]
+                .tuning_key()
+                .map(|(p, id)| (p.to_owned(), id));
+            app.selected_game = selected;
+            // Liquid Glass draws through the native window, which a test window has not: the plain look, a setting
+            app.liquid_glass = false;
+            app.window_glass = Some(false);
+            app.game_settings_open = true;
+            app.game_settings_tab = super::GameSettingsTab::Advanced;
+            app.live.tuning = super::live_impl::GameTuning {
+                key,
+                loaded: true,
+                env: "MULLION_LOSSY_TEXTURES=1".into(),
+                ..Default::default()
+            };
+            app
+        });
+        cx.simulate_resize(gpui::size(gpui::px(1400.0), gpui::px(2400.0)));
+        cx.run_until_parked();
+        for selector in [
+            "game-report-problem",
+            "mullion-memory-saver",
+            "mullion-keep-wired",
+            "mullion-detailed-log",
+        ] {
+            let bounds = cx.debug_bounds(selector);
+            assert!(
+                bounds.is_some_and(
+                    |b| f32::from(b.size.width) > 0.0 && f32::from(b.size.height) > 0.0
+                ),
+                "{selector} was not drawn: {bounds:?}"
+            );
+        }
+        // a switch's click saves through the backend, which a test has not: it is ignored, and nothing panics
+        let center = cx.debug_bounds("mullion-memory-saver").unwrap().center();
+        cx.simulate_click(center, gpui::Modifiers::none());
+        cx.run_until_parked();
+        view.update(cx, |app, _| {
+            assert_eq!(app.live.tuning.env, "MULLION_LOSSY_TEXTURES=1")
+        });
+    }
+
     #[test]
     fn narrow_library_uses_short_search_copy() {
         assert_eq!(super::library_search_placeholder(720.0), "Search");

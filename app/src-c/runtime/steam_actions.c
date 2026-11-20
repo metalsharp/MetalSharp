@@ -1107,6 +1107,8 @@ static void set_launch_cache_env(const char* home, unsigned id, const char* pipe
     char fex_subdir[64];
     const char* subdir = pipeline;
     char shader[PATH_MAX], cache[PATH_MAX], summary[PATH_MAX * 2];
+    /* the last launch's game folder is not this one's */
+    unsetenv("MULLION_LOG_PATH");
     /* Mullion's caches are not DXMT's: the fex build keeps its own. */
     if (ms_wine_is_fex()) {
         snprintf(fex_subdir, sizeof(fex_subdir), "fex-%s", pipeline);
@@ -1130,6 +1132,10 @@ static void set_launch_cache_env(const char* home, unsigned id, const char* pipe
             setenv("MULLION_SHADER_CACHE_PATH", shader, 1);
         snprintf(log_path, sizeof(log_path), "%s/logs/%s/%u/", home, subdir, id);
         (void)ensure_directory(log_path);
+        /* Mullion's own log of the game goes in it (a log per DLL, warnings and errors unless the game's settings ask
+         * for more), which Game Settings > Advanced > Report a problem puts in its zip. */
+        if (ms_wine_is_fex() || x86_64_metalsharp_wine())
+            setenv("MULLION_LOG_PATH", log_path, 1);
     } else if (!strcmp(pipeline, "vkd3d")) {
         setenv("DXVK_STATE_CACHE_PATH", shader, 1);
         setenv("DXVK_LOG_PATH", cache, 1);
@@ -6838,7 +6844,7 @@ static const char* const launch_env_route_names[] = {
     "VKD3D_CONFIG_FILE", "DXVK_CONFIG_FILE", "DXVK_CONFIG",
     "WINEDLLOVERRIDES", "OPENGL_BACKEND",
     "DXVK_STATE_CACHE_PATH", "DXVK_LOG_PATH", "DXVK_LOG_LEVEL", "VKD3D_DEBUG", "VKD3D_CONFIG", "VKD3D_FRAME_RATE",
-    "VKD3D_SHADER_CACHE_PATH", "MULLION_SHADER_CACHE_PATH", "MS_GSBASE_SWITCH",
+    "VKD3D_SHADER_CACHE_PATH", "MULLION_SHADER_CACHE_PATH", "MULLION_LOG_PATH", "MS_GSBASE_SWITCH",
     "METALSHARP_PIPELINE"};
 
 static const char* env_value(char** env, const char* name, size_t length) {
