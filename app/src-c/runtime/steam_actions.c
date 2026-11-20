@@ -241,10 +241,39 @@ char* ms_steam_wine_launch_wrapper_path(const char* home) {
         free(path);
         return NULL;
     }
-    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0700);
-    if (fd >= 0) {
+    /* The wrapper this MetalSharp writes, unless it is already there. One an earlier MetalSharp wrote (another
+     * wrapper text) is replaced, not kept: with it refused, a game's window mode and resolution were dropped until
+     * MetalSharp was reinstalled (metalsharp/MetalSharp#811). */
+    {
+        char* existing = read_bounded_file(path);
+        bool matches = existing && !strcmp(existing, wrapper) && access(path, X_OK) == 0;
+        free(existing);
+        if (matches) {
+            free(cache);
+            return path;
+        }
+    }
+    {
+        char temporary[PATH_MAX];
         size_t length = sizeof(wrapper) - 1;
         size_t offset = 0;
+        bool saved;
+        int fd;
+        static unsigned serial;
+        unsigned mine = __atomic_fetch_add(&serial, 1, __ATOMIC_RELAXED);
+        if ((size_t)snprintf(temporary, sizeof(temporary), "%s.%ld.%u.tmp", path, (long)getpid(), mine) >=
+            sizeof(temporary)) {
+            free(cache);
+            free(path);
+            return NULL;
+        }
+        (void)unlink(temporary);
+        fd = open(temporary, O_WRONLY | O_CREAT | O_EXCL, 0700);
+        if (fd < 0) {
+            free(cache);
+            free(path);
+            return NULL;
+        }
         while (offset < length) {
             ssize_t written = write(fd, wrapper + offset, length - offset);
             if (written < 0 && errno == EINTR)
@@ -253,28 +282,15 @@ char* ms_steam_wine_launch_wrapper_path(const char* home) {
                 break;
             offset += (size_t)written;
         }
-        bool saved = offset == length && fchmod(fd, 0700) == 0;
+        saved = offset == length && fchmod(fd, 0700) == 0;
         if (close(fd) != 0)
             saved = false;
-        if (!saved) {
-            (void)unlink(path);
+        if (!saved || rename(temporary, path) != 0) {
+            (void)unlink(temporary);
             free(cache);
             free(path);
             return NULL;
         }
-    } else if (errno == EEXIST) {
-        char* existing = read_bounded_file(path);
-        bool matches = existing && !strcmp(existing, wrapper) && access(path, X_OK) == 0;
-        free(existing);
-        if (!matches) {
-            free(cache);
-            free(path);
-            return NULL;
-        }
-    } else {
-        free(cache);
-        free(path);
-        return NULL;
     }
     free(cache);
     return path;
