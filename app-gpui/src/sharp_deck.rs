@@ -489,6 +489,20 @@ impl SharpPreview {
         match source {
             "gog" => self.uninstall_gog_game(id.to_owned(), title, cx),
             "epic" => self.uninstall_epic_game(id.to_owned(), title, cx),
+            // A Windows program leaves the library; its files and the prefix stay, as from the Collection view.
+            "windows" => self.uninstall_app(id.to_owned(), title, cx),
+            // A Game Jolt game's folder goes, as from the Collection view.
+            "gamejolt" => {
+                let Some(dir) = self
+                    .deck_entry(source, id)
+                    .map(|entry| text(&entry, "install_dir").to_owned())
+                    .filter(|dir| !dir.is_empty())
+                else {
+                    crate::toast::error(cx, format!("Could not find {title}'s GameJolt folder"));
+                    return;
+                };
+                self.uninstall_gamejolt(id.to_owned(), title, dir, cx)
+            }
             _ => {}
         }
     }
