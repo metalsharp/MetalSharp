@@ -631,6 +631,25 @@ impl SettingsPreview {
             == Some(true)
     }
 
+    /// Whether anything of `variant`'s runtime is on disk to uninstall (installed, or only downloaded or partly set
+    /// up), per the last /runtime/state. A backend without "present" reports only "installed".
+    fn runtime_present(&self, variant: &str) -> bool {
+        self.runtime_state
+            .as_ref()
+            .and_then(|s| s.get(variant))
+            .and_then(|v| v.get("present").or_else(|| v.get("installed")))
+            .and_then(Value::as_bool)
+            == Some(true)
+    }
+
+    /// The runtime the backend runs on ("fex" or "regular"), per the last /runtime/state.
+    fn active_runtime(&self) -> Option<&str> {
+        self.runtime_state
+            .as_ref()
+            .and_then(|s| s.get("active"))
+            .and_then(Value::as_str)
+    }
+
     /// Settings' "Uninstall FEX" / "Uninstall x86_64": that runtime only (the backend refuses the last one).
     fn uninstall_runtime(&mut self, variant: &'static str, cx: &mut Context<Self>) {
         if self.uninstalling_runtime {
@@ -2532,15 +2551,24 @@ impl Render for SettingsPreview {
                     .child(self.text_control(format!("{}%", app.update_progress.round() as u32))),
             )
         });
-        // One runtime only, for a user who wants just one of the two: offered when both are installed (the last
-        // one goes with "Uninstall MetalSharp").
-        let both_installed = self.runtime_installed("fex") && self.runtime_installed("regular");
+        // One runtime only, for a user who wants just one of the two. The inactive one is offered whenever anything
+        // of it is on disk, including a download whose setup never finished (#813); the active one only when the
+        // other is installed to switch to (the last one goes with "Uninstall MetalSharp").
+        let active = self.active_runtime().map(str::to_owned);
+        let offered = |variant: &str| {
+            let other = if variant == "fex" { "regular" } else { "fex" };
+            match active.as_deref() {
+                Some(a) if a == variant => self.runtime_installed(other),
+                Some(_) => self.runtime_present(variant),
+                None => self.runtime_installed("fex") && self.runtime_installed("regular"),
+            }
+        };
         let runtime_uninstalls: Vec<_> = [
             ("fex", "uninstall-fex", "Uninstall FEX", "Delete the FEX Wine runtime (Arm64 with FEX) and its shader caches, keeping the x86_64 one, your prefixes and settings"),
             ("regular", "uninstall-x86_64", "Uninstall x86_64", "Delete the x86_64 Wine runtime (Rosetta 2) and its shader caches, keeping the FEX one, your prefixes and settings"),
         ]
         .into_iter()
-        .filter(|_| both_installed)
+        .filter(|(variant, ..)| offered(variant))
         .map(|(variant, id, label, desc)| {
             self.row(
                 label,

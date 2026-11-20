@@ -1036,6 +1036,35 @@ static void test_bottle_action_keeps_child_waits(const char* root) {
     unsetenv("METALSHARP_APP_RESOURCES");
 }
 
+/* The inactive runtime downloaded but never set up (FEX's setup failing, issue 811) is still something on disk to
+ * remove: /runtime/state reports it present though not installed, so Settings offers "Uninstall FEX" /
+ * "Uninstall x86_64" for it, and uninstalling it removes the download (issue 813). */
+static void test_uninstall_downloaded_runtime(const char* root) {
+    char home[PATH_MAX], path[PATH_MAX], downloaded[PATH_MAX], error[PATH_MAX + 128] = "";
+    const char* inactive = ms_wine_is_fex() ? "regular" : "fex";
+    const char* app = ms_wine_is_fex() ? "MetalSharp-Wine-x86_64.app" : "MetalSharp-Wine.app";
+    char *state, key[64];
+    bool switched = true;
+    snprintf(home, sizeof(home), "%s/uninstall-downloaded-runtime", root);
+    snprintf(downloaded, sizeof(downloaded), "%s/downloads/%s", home, app);
+    snprintf(path, sizeof(path), "mkdir -p '%s/Contents/MacOS' '%s/runtime'", downloaded, home);
+    assert(system(path) == 0);
+
+    assert(!ms_wine_runtime_installed(home, inactive));
+    assert(ms_wine_runtime_present(home, inactive));
+    state = ms_wine_runtimes_json(home);
+    snprintf(key, sizeof(key), "\"%s\":{\"installed\":false,\"present\":true", inactive);
+    assert(state && strstr(state, key));
+    free(state);
+
+    assert(ms_wine_uninstall_runtime(home, inactive, &switched, error, sizeof(error)));
+    assert(!switched);
+    assert(access(downloaded, F_OK) != 0);
+    assert(!ms_wine_runtime_present(home, inactive));
+    /* nothing of it at all */
+    assert(!ms_wine_runtime_present(home, "bogus") && !ms_wine_runtime_present(NULL, inactive));
+}
+
 int main(int argc, char** argv) {
     if (argc >= 2 && !strcmp(argv[1], "--wine-exe-probe")) {
         for (;;)
@@ -2958,6 +2987,7 @@ int main(int argc, char** argv) {
     free(dosdevices);
     legacy_ntdll_hook_refresh_test(home);
     test_bottle_action_keeps_child_waits(home);
+    test_uninstall_downloaded_runtime(home);
     puts("runtime routing regressions passed");
     return 0;
 }
