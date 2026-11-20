@@ -1580,6 +1580,22 @@ bool ms_wine_runtime_installed(const char* home, const char* variant) {
            format_path(wine, sizeof(wine), "%s/%s", path, "wine") && runtime_wine_ready(wine, variant);
 }
 
+/* Anything of `variant`'s on disk that "Uninstall FEX" / "Uninstall x86_64" would remove: it installed, its app in
+ * runtime/, its download, or its files kept aside. A runtime downloaded but never set up (or whose setup failed) has
+ * only some of these, and is still worth removing. */
+bool ms_wine_runtime_present(const char* home, const char* variant) {
+    char path[PATH_MAX];
+    bool fex = variant && !strcmp(variant, "fex");
+    const char* app = fex ? "MetalSharp-Wine.app" : WINE_X86_64_APP;
+    if (!home || !variant || (!fex && strcmp(variant, "regular")))
+        return false;
+    if (ms_wine_runtime_installed(home, variant))
+        return true;
+    return (format_path(path, sizeof(path), "%s/runtime/%s", home, app) && access(path, F_OK) == 0) ||
+           (format_path(path, sizeof(path), "%s/downloads/%s", home, app) && access(path, F_OK) == 0) ||
+           (runtime_stash(home, variant, path, sizeof(path)) && access(path, F_OK) == 0);
+}
+
 /* Where the runtime installs from: MetalSharp.app's own, or one downloaded into <home>/downloads */
 static bool runtime_source_available(const char* variant) {
     char* source = !strcmp(variant, "fex") ? ms_wine_fex_app_source() : ms_wine_x86_64_app_source();
@@ -1593,6 +1609,8 @@ static void write_runtime_state(ms_json_writer* writer, const char* home, const 
     ms_json_writer_object_begin(writer);
     ms_json_writer_key(writer, "installed");
     ms_json_writer_bool(writer, ms_wine_runtime_installed(home, variant));
+    ms_json_writer_key(writer, "present");
+    ms_json_writer_bool(writer, ms_wine_runtime_present(home, variant));
     ms_json_writer_key(writer, "source");
     ms_json_writer_bool(writer, runtime_source_available(variant));
     /* installed from another MetalSharp Wine release, with nothing of this one to install from: switching to it
@@ -1793,8 +1811,9 @@ char* ms_wine_switch_runtime_json(const char* home, const char* body, size_t bod
  * Settings' "Uninstall FEX" / "Uninstall x86_64": that runtime's Wine app, its laid-out files (active in runtime/ or
  * kept aside), its download and its lanes' caches go; prefixes, which both runtimes share, stay. The active runtime
  * goes only when the other is installed: the switch to it comes first (and the backend restarts on it). The last
- * runtime stays: removing it is "Uninstall MetalSharp". MetalSharp.app still carries the apps, so either runtime can
- * be set up again from the FEX | x86_64 toggle. */
+ * runtime stays: removing it is "Uninstall MetalSharp". The inactive one goes whatever state it is in, including a
+ * download whose setup never finished. MetalSharp.app still carries the apps, so either runtime can be set up again
+ * from the FEX | x86_64 toggle. */
 bool ms_wine_uninstall_runtime(const char* home, const char* variant, bool* switched, char* error, size_t error_size) {
     static const char* const fex_caches[] = {"shader-cache/fex-dxmt", "shader-cache/fex-dxmt_32",
                                              "shader-cache/fex-vkd3d", "shader-cache/fex-dxvk",

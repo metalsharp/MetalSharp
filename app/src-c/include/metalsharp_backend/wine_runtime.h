@@ -177,6 +177,8 @@ void ms_wine_reload_active_runtime(void);
 /* The backend (main) follows config/active-runtime; other programs (the tests) keep the build's runtime */
 void ms_wine_use_active_runtime_setting(void);
 bool ms_wine_runtime_installed(const char* home, const char* variant);
+/* Anything of the runtime's on disk to uninstall: installed, or only downloaded / partly set up */
+bool ms_wine_runtime_present(const char* home, const char* variant);
 /* Removes what an update leaves behind: an app set aside by an interrupted swap, and a download from another
  * MetalSharp Wine release. */
 void ms_wine_remove_superseded(const char* home);
