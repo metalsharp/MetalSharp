@@ -527,7 +527,7 @@ impl MetalSharpApp {
     }
 
     /// Whether the game has its own settings (`/game-tuning`): an installed Windows game.
-    fn tunable(&self, game: &LibGame) -> bool {
+    pub(super) fn tunable(&self, game: &LibGame) -> bool {
         game.installed
             && !game.needs_install
             && !game.has_native_build
@@ -716,6 +716,7 @@ impl MetalSharpApp {
             "Puts MetalSharp's and this game's logs, its settings and the Mac's details in a zip on the Desktop, to \
              attach to an issue. Nothing is sent.",
             p.button("game-report-problem", "Make report", false)
+                .debug_selector(|| "game-report-problem".into())
                 .on_click(cx.listener(|this, _, _, cx| this.make_problem_report(cx))),
             narrow,
         ));
@@ -861,6 +862,7 @@ impl MetalSharpApp {
                     switch.title,
                     switch.hint,
                     p.switch(switch.id, on)
+                        .debug_selector(|| switch.id.into())
                         .opacity(if enabled { 1.0 } else { 0.5 })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let switch = &crate::mullion_switches::SWITCHES[index];
