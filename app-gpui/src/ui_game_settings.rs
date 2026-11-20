@@ -711,6 +711,14 @@ impl MetalSharpApp {
         if let Some(row) = self.packed_app_row(game, narrow, cx) {
             rows.push(row);
         }
+        rows.push(p.setting_row(
+            "Report a problem",
+            "Puts MetalSharp's and this game's logs, its settings and the Mac's details in a zip on the Desktop, to \
+             attach to an issue. Nothing is sent.",
+            p.button("game-report-problem", "Make report", false)
+                .on_click(cx.listener(|this, _, _, cx| this.make_problem_report(cx))),
+            narrow,
+        ));
         // A Windows program's own launch arguments.
         if let Some(inputs) = self
             .sharp_setting_inputs
@@ -839,7 +847,69 @@ impl MetalSharpApp {
                 narrow,
             ),
         );
+        rows.push(p.setting_row(
+            "Mullion",
+            "For Direct3D 10, 11 and 12 on the Mullion route. Each switch is a variable in the environment variables \
+             above, and applies at the game's next start.",
+            div(),
+            narrow,
+        ));
+        for (index, switch) in crate::mullion_switches::SWITCHES.iter().enumerate() {
+            let on = switch.is_on(&tuning.env);
+            rows.push(
+                p.setting_row(
+                    switch.title,
+                    switch.hint,
+                    p.switch(switch.id, on)
+                        .opacity(if enabled { 1.0 } else { 0.5 })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let switch = &crate::mullion_switches::SWITCHES[index];
+                            let env = switch.turned(&this.live.tuning.env, !on);
+                            this.save_game_tuning(
+                                json!({"env": env}),
+                                Some("Mullion setting saved (it applies at its next start)"),
+                                cx,
+                            )
+                        })),
+                    narrow,
+                ),
+            );
+        }
         rows
+    }
+
+    /// Game Settings > Advanced > Report a problem: the zip is made off the UI thread, then shown in the Finder.
+    fn make_problem_report(&mut self, cx: &mut Context<Self>) {
+        let Some(live) = crate::live::Live::get(cx) else { return };
+        let Some(game) = self.games.get(self.selected_game) else { return };
+        let facts = crate::problem_report::GameFacts {
+            name: game.name.clone(),
+            appid: game.appid,
+            source: game.source.clone().unwrap_or_default(),
+            pipeline: self.live.selected_pipeline.clone(),
+            env: self.live.tuning.env.clone(),
+            dll_overrides: self.live.tuning.dll_overrides.clone(),
+        };
+        let home = live.home();
+        let Some(desktop) = std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join("Desktop")) else {
+            return;
+        };
+        crate::toast::info(cx, format!("Making a problem report for {}…", facts.name));
+        cx.spawn(async move |_, cx| {
+            let made = cx
+                .background_executor()
+                .spawn(async move { crate::problem_report::build(&home, &desktop, &facts) })
+                .await;
+            let _ = cx.update(|cx| match made {
+                Ok(zip) => {
+                    crate::problem_report::reveal(&zip);
+                    let name = zip.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    crate::toast::success(cx, format!("{name} is on the Desktop"));
+                }
+                Err(error) => crate::toast::error(cx, format!("Could not make the report: {error}")),
+            });
+        })
+        .detach();
     }
 
     /// The game as its own app in Applications, which starts it (and its launcher) and quits with it.
