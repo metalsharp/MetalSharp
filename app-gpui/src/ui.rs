@@ -5364,6 +5364,38 @@ impl MetalSharpApp {
                                 linear_color_stop(rgba(0x050708e6), 1.0),
                             )),
                     )
+                    // The game's settings (Graphics, Runtime, Advanced, Presentation), as the front card
+                    // spread's gear opens them, without paging to the game there (#799). In the corner, so the
+                    // narrowest cards keep their engine and Play on one row.
+                    .child(
+                        div()
+                            .id(("collection-settings", index))
+                            .absolute()
+                            .top(px(layout.scaled(8.0)))
+                            .right(px(layout.scaled(8.0)))
+                            .size(px(layout.scaled(28.0)))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(999.0))
+                            .border_1()
+                            .border_color(rgb(theme.border()))
+                            .bg(rgba(control_bg << 8 | 0xd8))
+                            .cursor_pointer()
+                            .hover(|style| style.opacity(0.85))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.select_game(index, cx);
+                                this.open_game_settings(cx);
+                                this.load_game_tuning(cx);
+                                cx.notify();
+                            }))
+                            .child(control_icon(
+                                "launch-settings.svg",
+                                layout.scaled(15.0),
+                                theme.control_text(),
+                            )),
+                    )
                     .child(
                         div()
                             .absolute()
