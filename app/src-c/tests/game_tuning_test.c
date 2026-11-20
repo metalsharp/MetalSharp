@@ -392,6 +392,65 @@ static void test_renderers_and_hud(const char* home) {
     }
 }
 
+/* A game's own Retina reaches the prefix it starts in, Steam's included, where Windows programs run; a game that keeps
+ * the default sets Settings > Graphics' back (issue 811). Imported only when user.reg does not hold it already. */
+static void test_prefix_retina(const char* home) {
+    char prefix[PATH_MAX], path[PATH_MAX], log[PATH_MAX], game[PATH_MAX], exe[PATH_MAX];
+    int status = 0;
+    char *out, *text;
+    const char* body = "{\"provider\":\"windows\",\"id\":\"retina-app\",\"retina\":\"on\"}";
+    snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
+    snprintf(path, sizeof(path), "%s/drive_c", prefix);
+    (void)mkdir(prefix, 0700);
+    assert(mkdir(path, 0700) == 0);
+    snprintf(path, sizeof(path), "%s/runtime", home);
+    (void)mkdir(path, 0700);
+    snprintf(path, sizeof(path), "%s/runtime/wine", home);
+    (void)mkdir(path, 0700);
+    snprintf(path, sizeof(path), "%s/runtime/wine/bin", home);
+    (void)mkdir(path, 0700);
+    /* Wine's `reg import`: the imported file goes into a log */
+    snprintf(log, sizeof(log), "%s/imported.reg", home);
+    snprintf(path, sizeof(path), "%s/runtime/wine/bin/wine", home);
+    {
+        char script[PATH_MAX * 2];
+        snprintf(script, sizeof(script),
+                 "#!/bin/sh\ncat \"$WINEPREFIX/drive_c/metalsharp-game-settings.reg\" >> '%s'\n", log);
+        spit(path, script);
+        assert(chmod(path, 0700) == 0);
+    }
+    snprintf(path, sizeof(path), "%s/user.reg", prefix);
+    spit(path, "WINE REGISTRY Version 2\n\n[Software\\\\Wine\\\\Mac Driver] 1\n\"RetinaMode\"=\"N\"\n\n"
+               "[Control Panel\\\\Desktop] 1\n\"LogPixels\"=dword:00000060\n");
+    snprintf(game, sizeof(game), "%s/Retina Program", home);
+    snprintf(exe, sizeof(exe), "%s/Program.exe", game);
+    assert(mkdir(game, 0700) == 0);
+    spit(exe, "MZ");
+
+    out = ms_game_tuning_save_json(home, body, strlen(body), &status);
+    assert(status == 200 && strstr(out, "\"retina\":\"on\""));
+    free(out);
+    ms_game_tuning_prepare_launch(home, "windows", "retina-app", prefix, NULL, exe);
+    text = slurp(log);
+    assert(text && strstr(text, "\"RetinaMode\"=\"Y\"") && strstr(text, "\"LogPixels\"=dword:000000c0"));
+    free(text);
+    (void)unlink(log);
+
+    /* The prefix holds it now (as Wine's import would leave it): nothing is imported again. */
+    snprintf(path, sizeof(path), "%s/user.reg", prefix);
+    spit(path, "WINE REGISTRY Version 2\n\n[Software\\\\Wine\\\\Mac Driver] 1\n\"RetinaMode\"=\"Y\"\n\n"
+               "[Control Panel\\\\Desktop] 1\n\"LogPixels\"=dword:000000c0\n");
+    ms_game_tuning_prepare_launch(home, "windows", "retina-app", prefix, NULL, exe);
+    assert(access(log, F_OK) != 0);
+
+    /* A Steam game with no Retina of its own after it: Settings > Graphics' (off here) goes back. */
+    ms_game_tuning_prepare_launch(home, "steam", "4000", prefix, game, exe);
+    text = slurp(log);
+    assert(text && strstr(text, "\"RetinaMode\"=\"N\"") && strstr(text, "\"LogPixels\"=dword:00000060"));
+    free(text);
+    (void)unlink(log);
+}
+
 int main(int argc, char** argv) {
     char temporary[] = "/tmp/metalsharp-game-tuning-test-XXXXXX";
     const char* home = argc > 1 ? argv[1] : mkdtemp(temporary);
@@ -403,6 +462,7 @@ int main(int argc, char** argv) {
     test_local_env(home);
     test_routes_and_launch(home);
     test_renderers_and_hud(home);
+    test_prefix_retina(home);
     printf("game tuning tests passed\n");
     return 0;
 }

@@ -752,6 +752,8 @@ pub struct MetalSharpApp {
     dock_slots: usize,
     /// Liquid Glass, Settings > General (macOS 26 and later; off in Low Performance Mode)
     liquid_glass: bool,
+    /// Liquid Glass's transparency, 0–100 % (Settings > Library & Display): 0 is the tinted look.
+    glass_transparency: u8,
     /// The window background last set (blurred for Liquid Glass)
     window_glass: Option<bool>,
     /// The right edge of the header's launcher button, as last painted: the glass sidebar ends there
@@ -832,6 +834,7 @@ impl MetalSharpApp {
             low_performance: false,
             dock_slots: DOCK_VISIBLE_CARDS,
             liquid_glass: true,
+            glass_transparency: 0,
             window_glass: None,
             launcher_edge: Default::default(),
             library_grid: false,
@@ -1495,6 +1498,7 @@ impl Render for MetalSharpApp {
                     } else {
                         self.theme.accent()
                     },
+                    self.glass_clarity(),
                 )
             }))
             .child(body)
@@ -1665,6 +1669,17 @@ impl MetalSharpApp {
         self.liquid_glass && !self.low_performance && game_settings_impl::macos_major() >= 26
     }
 
+    /// Liquid Glass's transparency as 0.0 (tinted) to 1.0 (clear).
+    fn glass_clarity(&self) -> f32 {
+        f32::from(self.glass_transparency.min(100)) / 100.0
+    }
+
+    /// `alpha` (0–255) of a wash GPUI paints over Liquid Glass, thinned as the glass is made clearer: at 100 % it
+    /// keeps 40 %, so text over it still reads.
+    fn glass_wash(&self, alpha: u32) -> u32 {
+        (alpha as f32 * (1.0 - 0.6 * self.glass_clarity())).round() as u32
+    }
+
     /// The theme's palette, with Liquid Glass when it is on.
     fn palette(&self) -> crate::page_palette::PagePalette {
         crate::page_palette::PagePalette {
@@ -1676,7 +1691,7 @@ impl MetalSharpApp {
     /// A dropdown's fill: the theme's menu color, or under Liquid Glass a veil of it over the menu's own glass.
     fn menu_fill(&self) -> gpui::Rgba {
         if self.glass() {
-            rgba((self.theme.menu_bg() << 8) | 0x8c)
+            rgba((self.theme.menu_bg() << 8) | self.glass_wash(0x8c).max(0x60))
         } else {
             rgba((self.theme.menu_bg() << 8) | 0xff)
         }
@@ -1704,7 +1719,10 @@ impl MetalSharpApp {
     fn chrome(&self) -> (gpui::Rgba, gpui::Rgba) {
         if self.glass() {
             // the glass itself is AppKit's, under GPUI: here a wash of the theme's accent over it, and its rim
-            (rgba((self.theme.accent() << 8) | 0x30), rgba(0xffffff4d))
+            (
+                rgba((self.theme.accent() << 8) | self.glass_wash(0x30)),
+                rgba(0xffffff4d),
+            )
         } else {
             (rgba(0x0c0f10b8), rgba(0xe7eaec4d))
         }
@@ -2903,7 +2921,7 @@ impl MetalSharpApp {
                 .border_t_1()
                 .border_color(rim)
                 .bg(fill)
-                .bg(rgba((theme.accent() << 8) | 0x1a))
+                .bg(rgba((theme.accent() << 8) | self.glass_wash(0x1a)))
                 .child(crate::liquid_glass::mark(
                     "library-footer",
                     crate::liquid_glass::Glass::Panel,
@@ -4656,6 +4674,11 @@ impl MetalSharpApp {
                         this.save_ui_state(cx);
                         cx.notify();
                     }
+                    E::GlassTransparency(value) => {
+                        this.glass_transparency = (*value).min(100);
+                        this.save_ui_state(cx);
+                        cx.notify();
+                    }
                     E::LibraryLayout(grid) => {
                         this.library_grid = *grid;
                         // The library behind Settings switches now too.
@@ -4715,6 +4738,7 @@ impl MetalSharpApp {
             low_performance: self.low_performance,
             liquid_glass: self.liquid_glass,
             liquid_glass_available: game_settings_impl::macos_major() >= 26,
+            glass_transparency: self.glass_transparency,
             library_grid: self.library_grid,
             window_size: self.window_size,
         }
@@ -5362,6 +5386,38 @@ impl MetalSharpApp {
                                 180.0,
                                 linear_color_stop(rgba(0x00000000), 0.34),
                                 linear_color_stop(rgba(0x050708e6), 1.0),
+                            )),
+                    )
+                    // The game's settings (Graphics, Runtime, Advanced, Presentation), as the front card
+                    // spread's gear opens them, without paging to the game there (#799). In the corner, so the
+                    // narrowest cards keep their engine and Play on one row.
+                    .child(
+                        div()
+                            .id(("collection-settings", index))
+                            .absolute()
+                            .top(px(layout.scaled(8.0)))
+                            .right(px(layout.scaled(8.0)))
+                            .size(px(layout.scaled(28.0)))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(999.0))
+                            .border_1()
+                            .border_color(rgb(theme.border()))
+                            .bg(rgba(control_bg << 8 | 0xd8))
+                            .cursor_pointer()
+                            .hover(|style| style.opacity(0.85))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.select_game(index, cx);
+                                this.open_game_settings(cx);
+                                this.load_game_tuning(cx);
+                                cx.notify();
+                            }))
+                            .child(control_icon(
+                                "launch-settings.svg",
+                                layout.scaled(15.0),
+                                theme.control_text(),
                             )),
                     )
                     .child(
@@ -6946,6 +7002,61 @@ fn render_feature(
 mod tests {
     use super::{LANGUAGES, MetalSharpApp, SetupCopy};
     use std::collections::HashMap;
+
+    // Game Settings > Advanced draws Report a problem and the Mullion switches, in a test window (TestPlatform: no
+    // real window, backend or data home), for a game whose settings have loaded
+    #[gpui::test]
+    fn advanced_settings_draw_the_report_button_and_mullion_switches(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (view, cx) = cx.add_window_view(|_, _| {
+            let mut app = MetalSharpApp::new();
+            let selected = app
+                .games
+                .iter()
+                .position(|game| app.tunable(game))
+                .expect("a preview game takes settings");
+            let key = app.games[selected]
+                .tuning_key()
+                .map(|(p, id)| (p.to_owned(), id));
+            app.selected_game = selected;
+            // Liquid Glass draws through the native window, which a test window has not: the plain look, a setting
+            app.liquid_glass = false;
+            app.window_glass = Some(false);
+            app.game_settings_open = true;
+            app.game_settings_tab = super::GameSettingsTab::Advanced;
+            app.live.tuning = super::live_impl::GameTuning {
+                key,
+                loaded: true,
+                env: "MULLION_LOSSY_TEXTURES=1".into(),
+                ..Default::default()
+            };
+            app
+        });
+        cx.simulate_resize(gpui::size(gpui::px(1400.0), gpui::px(2400.0)));
+        cx.run_until_parked();
+        for selector in [
+            "game-report-problem",
+            "mullion-memory-saver",
+            "mullion-keep-wired",
+            "mullion-detailed-log",
+        ] {
+            let bounds = cx.debug_bounds(selector);
+            assert!(
+                bounds.is_some_and(
+                    |b| f32::from(b.size.width) > 0.0 && f32::from(b.size.height) > 0.0
+                ),
+                "{selector} was not drawn: {bounds:?}"
+            );
+        }
+        // a switch's click saves through the backend, which a test has not: it is ignored, and nothing panics
+        let center = cx.debug_bounds("mullion-memory-saver").unwrap().center();
+        cx.simulate_click(center, gpui::Modifiers::none());
+        cx.run_until_parked();
+        view.update(cx, |app, _| {
+            assert_eq!(app.live.tuning.env, "MULLION_LOSSY_TEXTURES=1")
+        });
+    }
 
     #[test]
     fn narrow_library_uses_short_search_copy() {

@@ -53,6 +53,11 @@ private final class Host {
     let veil = FlippedView()
     var heroPath: String?
     var regions: [UInt64: NSView] = [:]
+    /// each region's kind, so a new transparency retints it in place
+    var kinds: [UInt64: Kind] = [:]
+    /// Settings' Glass Transparency, 0 (tinted) to 1 (clear): thins the veil and the panels' tint, and clears the
+    /// panels' blur, so the art and the desktop show through them
+    var clarity: CGFloat = 0
     /// the electric rim and glow of a selected surface, over its glass
     var glows: [UInt64: NSView] = [:]
     var painted = Set<UInt64>()
@@ -81,8 +86,40 @@ private final class Host {
         for view in regions.values { view.removeFromSuperview() }
         for view in glows.values { view.removeFromSuperview() }
         regions.removeAll()
+        kinds.removeAll()
         glows.removeAll()
         placed.removeAll()
+    }
+
+    /// The veil's alpha: what evens the desktop toward the theme, thinned as the glass is made clearer.
+    func veilAlpha() -> CGFloat {
+        (dark ? 0.52 : 0.40) * (1 - 0.85 * clarity)
+    }
+
+    /// A new transparency: the veil and every surface follow in place (a drag of the slider rebuilds nothing).
+    func setClarity(_ value: CGFloat) {
+        let value = min(max(value, 0), 1)
+        guard value != clarity else { return }
+        clarity = value
+        veil.layer?.backgroundColor = color(page, alpha: veilAlpha()).cgColor
+        if #available(macOS 26.0, *) {
+            for (id, view) in regions {
+                guard let glass = view as? NSGlassEffectView, let kind = kinds[id] else { continue }
+                glass.tintColor = tint(for: kind)
+                glass.style = style(for: kind)
+            }
+        }
+    }
+
+    /// Panels go from regular glass to clear, lightly blurred glass past the middle of the transparency; the
+    /// selected card is always clear, and deep glass (settings) stays regular so its text reads.
+    @available(macOS 26.0, *)
+    func style(for kind: Kind) -> NSGlassEffectView.Style {
+        switch kind {
+        case .selected: return .clear
+        case .panel, .control: return clarity >= 0.5 ? .clear : .regular
+        default: return .regular
+        }
     }
 
     init(gpuiView: NSView) {
@@ -124,7 +161,7 @@ private final class Host {
             container.addSubview(base, positioned: .below, relativeTo: veil)
             windowGlass = base
             veil.frame = container.bounds
-            veil.layer?.backgroundColor = color(page, alpha: dark ? 0.52 : 0.40).cgColor
+            veil.layer?.backgroundColor = color(page, alpha: veilAlpha()).cgColor
         }
     }
 
@@ -135,7 +172,7 @@ private final class Host {
     func makeGlass(kind: Kind, radius: CGFloat, tint: NSColor?) -> NSView {
         if #available(macOS 26.0, *) {
             let glass = NSGlassEffectView()
-            glass.style = kind == .selected ? .clear : .regular
+            glass.style = style(for: kind)
             glass.cornerRadius = radius
             glass.tintColor = tint
             return glass
@@ -151,13 +188,16 @@ private final class Host {
     }
 
     /// Each kind its own strength, so surfaces contrast: panels the quietest, then controls, then the primary action.
+    /// Glass Transparency thins the panels' and controls' tint (to a quarter at 100 %) and the deep glass's a little
+    /// (its text must still read); the primary action and the selected card keep theirs.
     func tint(for kind: Kind) -> NSColor? {
+        let thin = 1 - 0.75 * clarity
         switch kind {
-        case .panel: return color(accent, alpha: dark ? 0.14 : 0.24, towardWhite: 0.25)
-        case .control: return color(accent, alpha: dark ? 0.42 : 0.50, towardWhite: 0.20)
+        case .panel: return color(accent, alpha: (dark ? 0.14 : 0.24) * thin, towardWhite: 0.25)
+        case .control: return color(accent, alpha: (dark ? 0.42 : 0.50) * thin, towardWhite: 0.20)
         case .primary: return NSColor(white: 1.0, alpha: 0.80)
         case .selected: return color(glowColor, alpha: 0.50)
-        case .sheet: return color(page, alpha: dark ? 0.62 : 0.55)
+        case .sheet: return color(page, alpha: (dark ? 0.62 : 0.55) * (1 - 0.3 * clarity))
         }
     }
 
@@ -202,6 +242,7 @@ private final class Host {
         } else {
             view = makeGlass(kind: kind, radius: radius, tint: tint(for: kind))
             regions[id] = view
+            kinds[id] = kind
             if kind == .sheet {
                 sheets.insert(ObjectIdentifier(view))
                 container.addSubview(view)
@@ -264,6 +305,7 @@ private final class Host {
             sheets.remove(ObjectIdentifier(view))
             placed[ObjectIdentifier(view)] = nil
             regions[id] = nil
+            kinds[id] = nil
             if let glow = glows.removeValue(forKey: id) {
                 placed[ObjectIdentifier(glow)] = nil
                 glow.removeFromSuperview()
@@ -289,11 +331,13 @@ private final class Host {
 
 @_cdecl("ms_glass_begin")
 public func ms_glass_begin(
-    _ view: UnsafeMutableRawPointer, _ dark: Bool, _ page: UInt32, _ accent: UInt32, _ glow: UInt32
+    _ view: UnsafeMutableRawPointer, _ dark: Bool, _ page: UInt32, _ accent: UInt32, _ glow: UInt32,
+    _ clarity: Double
 ) {
     MainActor.assumeIsolated {
         guard let host = host(view) else { return }
         host.retheme(dark: dark, page: page, accent: accent, glow: glow)
+        host.setClarity(CGFloat(clarity))
         host.begin()
     }
 }

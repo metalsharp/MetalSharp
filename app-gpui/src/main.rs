@@ -21,7 +21,9 @@ mod markdown;
 #[allow(dead_code)]
 mod mini_browser;
 mod motion;
+mod mullion_switches;
 mod page_palette;
+mod problem_report;
 mod process_manager;
 mod scrollbar;
 mod search_input;

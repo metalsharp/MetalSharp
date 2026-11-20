@@ -2696,6 +2696,18 @@ int main(int argc, char** argv) {
         args = read_bounded_file(wine_log);
         assert(args && !strstr(args, "explorer\n") && strstr(args, "Windowed Game.exe\n"));
         free(args);
+        /* A wrapper an earlier MetalSharp wrote is replaced with this one's, so a game's window mode and
+         * resolution still reach it (issue 811); before, it was refused and they were dropped until a reinstall. */
+        fixture(home, "cache/metalsharp-wine-game-launcher", "#!/bin/sh\nexec \"$METALSHARP_WINE_BINARY\" \"$@\"\n");
+        assert(chmod(wrapper, 0700) == 0);
+        {
+            char* refreshed = ms_steam_wine_launch_wrapper_path(home);
+            char* text = refreshed ? read_bounded_file(refreshed) : NULL;
+            assert(refreshed && !strcmp(refreshed, wrapper) && access(refreshed, X_OK) == 0);
+            assert(text && strstr(text, "/desktop=$desktop"));
+            free(text);
+            free(refreshed);
+        }
         unsetenv("METALSHARP_GAME_WINDOW_MODE");
         unsetenv("METALSHARP_GAME_RESOLUTION");
         unsetenv("METALSHARP_WINE_BINARY");

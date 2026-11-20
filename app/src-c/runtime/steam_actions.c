@@ -241,10 +241,39 @@ char* ms_steam_wine_launch_wrapper_path(const char* home) {
         free(path);
         return NULL;
     }
-    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0700);
-    if (fd >= 0) {
+    /* The wrapper this MetalSharp writes, unless it is already there. One an earlier MetalSharp wrote (another
+     * wrapper text) is replaced, not kept: with it refused, a game's window mode and resolution were dropped until
+     * MetalSharp was reinstalled (metalsharp/MetalSharp#811). */
+    {
+        char* existing = read_bounded_file(path);
+        bool matches = existing && !strcmp(existing, wrapper) && access(path, X_OK) == 0;
+        free(existing);
+        if (matches) {
+            free(cache);
+            return path;
+        }
+    }
+    {
+        char temporary[PATH_MAX];
         size_t length = sizeof(wrapper) - 1;
         size_t offset = 0;
+        bool saved;
+        int fd;
+        static unsigned serial;
+        unsigned mine = __atomic_fetch_add(&serial, 1, __ATOMIC_RELAXED);
+        if ((size_t)snprintf(temporary, sizeof(temporary), "%s.%ld.%u.tmp", path, (long)getpid(), mine) >=
+            sizeof(temporary)) {
+            free(cache);
+            free(path);
+            return NULL;
+        }
+        (void)unlink(temporary);
+        fd = open(temporary, O_WRONLY | O_CREAT | O_EXCL, 0700);
+        if (fd < 0) {
+            free(cache);
+            free(path);
+            return NULL;
+        }
         while (offset < length) {
             ssize_t written = write(fd, wrapper + offset, length - offset);
             if (written < 0 && errno == EINTR)
@@ -253,28 +282,15 @@ char* ms_steam_wine_launch_wrapper_path(const char* home) {
                 break;
             offset += (size_t)written;
         }
-        bool saved = offset == length && fchmod(fd, 0700) == 0;
+        saved = offset == length && fchmod(fd, 0700) == 0;
         if (close(fd) != 0)
             saved = false;
-        if (!saved) {
-            (void)unlink(path);
+        if (!saved || rename(temporary, path) != 0) {
+            (void)unlink(temporary);
             free(cache);
             free(path);
             return NULL;
         }
-    } else if (errno == EEXIST) {
-        char* existing = read_bounded_file(path);
-        bool matches = existing && !strcmp(existing, wrapper) && access(path, X_OK) == 0;
-        free(existing);
-        if (!matches) {
-            free(cache);
-            free(path);
-            return NULL;
-        }
-    } else {
-        free(cache);
-        free(path);
-        return NULL;
     }
     free(cache);
     return path;
@@ -1107,6 +1123,8 @@ static void set_launch_cache_env(const char* home, unsigned id, const char* pipe
     char fex_subdir[64];
     const char* subdir = pipeline;
     char shader[PATH_MAX], cache[PATH_MAX], summary[PATH_MAX * 2];
+    /* the last launch's game folder is not this one's */
+    unsetenv("MULLION_LOG_PATH");
     /* Mullion's caches are not DXMT's: the fex build keeps its own. */
     if (ms_wine_is_fex()) {
         snprintf(fex_subdir, sizeof(fex_subdir), "fex-%s", pipeline);
@@ -1130,6 +1148,10 @@ static void set_launch_cache_env(const char* home, unsigned id, const char* pipe
             setenv("MULLION_SHADER_CACHE_PATH", shader, 1);
         snprintf(log_path, sizeof(log_path), "%s/logs/%s/%u/", home, subdir, id);
         (void)ensure_directory(log_path);
+        /* Mullion's own log of the game goes in it (a log per DLL, warnings and errors unless the game's settings ask
+         * for more), which Game Settings > Advanced > Report a problem puts in its zip. */
+        if (ms_wine_is_fex() || x86_64_metalsharp_wine())
+            setenv("MULLION_LOG_PATH", log_path, 1);
     } else if (!strcmp(pipeline, "vkd3d")) {
         setenv("DXVK_STATE_CACHE_PATH", shader, 1);
         setenv("DXVK_LOG_PATH", cache, 1);
@@ -6838,7 +6860,7 @@ static const char* const launch_env_route_names[] = {
     "VKD3D_CONFIG_FILE", "DXVK_CONFIG_FILE", "DXVK_CONFIG",
     "WINEDLLOVERRIDES", "OPENGL_BACKEND",
     "DXVK_STATE_CACHE_PATH", "DXVK_LOG_PATH", "DXVK_LOG_LEVEL", "VKD3D_DEBUG", "VKD3D_CONFIG", "VKD3D_FRAME_RATE",
-    "VKD3D_SHADER_CACHE_PATH", "MULLION_SHADER_CACHE_PATH", "MS_GSBASE_SWITCH",
+    "VKD3D_SHADER_CACHE_PATH", "MULLION_SHADER_CACHE_PATH", "MULLION_LOG_PATH", "MS_GSBASE_SWITCH",
     "METALSHARP_PIPELINE"};
 
 static const char* env_value(char** env, const char* name, size_t length) {

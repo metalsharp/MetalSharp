@@ -552,6 +552,10 @@ impl MetalSharpApp {
             .get("liquidGlass")
             .and_then(Value::as_bool)
             .unwrap_or(true);
+        self.glass_transparency = value
+            .get("glassTransparency")
+            .and_then(Value::as_u64)
+            .map_or(0, |percent| percent.min(100) as u8);
         self.library_grid = value.get("libraryLayout").and_then(Value::as_str) == Some("grid");
         self.window_size = value
             .get("windowSize")
@@ -609,6 +613,7 @@ impl MetalSharpApp {
             "developerMode": self.developer_mode,
             "lowPerformanceMode": self.low_performance,
             "liquidGlass": self.liquid_glass,
+            "glassTransparency": self.glass_transparency,
             "libraryLayout": if self.library_grid { "grid" } else { "steamDeck" },
             "windowSize": self.window_size,
             "libraryPage": self.page.storage_id(),
