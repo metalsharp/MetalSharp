@@ -1030,16 +1030,18 @@ static bool prefix_section_has(const char* prefix, const char* section, const ch
     return found;
 }
 
-/* A game in a bottle of its own (bottles/<id>): the prefix's Retina (Mac Driver RetinaMode and its DPI), the game's
- * own setting or else Settings > Graphics' (metalsharp/MetalSharp#797; Steam's prefix has it from Steam's start).
- * Imported only when the prefix's user.reg does not already hold it. */
-static void apply_bottle_retina(const char* home, const char* prefix, const ms_game_tuning* tuning) {
+/* The prefix's Retina (Mac Driver RetinaMode and its DPI) for the game about to start: the game's own setting or
+ * else Settings > Graphics' (metalsharp/MetalSharp#797). Every prefix, not only a bottle of the game's own: a Windows
+ * program runs in Steam's prefix, and its own setting was ignored there; and one program's setting stayed in Steam's
+ * prefix for every Steam game after it, until Steam's next start set Settings > Graphics' again (#811). Each launch
+ * now sets its own. Imported only when the prefix's user.reg does not already hold it. */
+static void apply_prefix_retina(const char* home, const char* prefix, const ms_game_tuning* tuning) {
     bool retina = tuning->retina >= 0 ? tuning->retina > 0 : ms_config_retina_enabled(home);
     const char* retina_line = retina ? "\"RetinaMode\"=\"Y\"" : "\"RetinaMode\"=\"N\"";
     const char* dpi_line = retina ? "\"LogPixels\"=dword:000000c0" : "\"LogPixels\"=dword:00000060";
     bool current;
     char reg[256];
-    if (!prefix || !strstr(prefix, "/bottles/"))
+    if (!prefix || !prefix[0])
         return;
     /* A bottle Wine has not made yet starts with Retina off at 96 DPI, so only Retina on needs writing to it. */
     if (!retina) {
@@ -1059,7 +1061,7 @@ static void apply_bottle_retina(const char* home, const char* prefix, const ms_g
              "[HKEY_CURRENT_USER\\Control Panel\\Desktop]\r\n\"LogPixels\"=dword:%08x\r\n",
              retina ? 'Y' : 'N', retina ? 192 : 96);
     if (!import_registry(home, prefix, reg))
-        ms_log_event(home, "Game settings: could not write the bottle's Retina setting");
+        ms_log_event(home, "Game settings: could not write the prefix's Retina setting");
 }
 
 void ms_game_tuning_prepare_launch(const char* home, const char* provider, const char* id, const char* prefix,
@@ -1074,7 +1076,7 @@ void ms_game_tuning_prepare_launch(const char* home, const char* provider, const
         free(exe_dir);
         return;
     }
-    apply_bottle_retina(home, prefix, &tuning);
+    apply_prefix_retina(home, prefix, &tuning);
     applied_load(home, provider, id, &state);
     if (ms_game_tuning_is_default(&tuning) && !state.prefix && !state.dirs[0]) {
         /* Never tuned: nothing to write or remove. */
