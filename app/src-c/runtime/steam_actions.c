@@ -4527,7 +4527,7 @@ static bool activate_wine_steam(const char* home, const char* steam, pid_t* pid,
     for (unsigned i = 0; i < 160; i++) {
         int wait_status;
         pid_t waited = waitpid(child, &wait_status, WNOHANG);
-        /* ECHILD: a process-wide SIGCHLD reaper collected it, so it exited. */
+        /* ECHILD: it is no longer this process's child, so it exited. */
         if (waited == child || (waited < 0 && errno == ECHILD))
             return true;
         if (waited < 0 && errno != EINTR)

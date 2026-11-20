@@ -9,7 +9,9 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <signal.h>
+#include <pthread.h>
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -539,35 +541,46 @@ static char* doctor_bottle_json(const char* home, const char* id) {
 }
 #define MAX_TRACKED_BOTTLE_CHILDREN 64
 
+/* A Windows version change or component installer running in a bottle: a thread of its own waits for that child alone
+ * (waitpid on its pid) and records how it ended, and the next bottle action applies that to the bottle
+ * (poll_windows_completion). Nothing reaps other children: a process-wide reaper (waitpid(-1) in a SIGCHLD handler)
+ * would take every child the backend and its forked workers wait for, popen's included, so their exit statuses would
+ * be lost. */
 typedef struct {
-    volatile sig_atomic_t pid;
-    volatile sig_atomic_t finished;
-    volatile sig_atomic_t status;
-    volatile sig_atomic_t operation;
+    pid_t pid;
+    bool finished;
+    int status;
+    int operation;
     char home[4096];
     char id[129];
     char component[129];
 } tracked_bottle_child;
 
 static tracked_bottle_child tracked_bottle_children[MAX_TRACKED_BOTTLE_CHILDREN];
+static pthread_mutex_t tracked_bottle_children_lock = PTHREAD_MUTEX_INITIALIZER;
 
-static void reap_bottle_children(int signal_number) {
-    int saved = errno, status;
-    pid_t child;
-    (void)signal_number;
-    while ((child = waitpid(-1, &status, WNOHANG)) > 0) {
-        for (size_t i = 0; i < MAX_TRACKED_BOTTLE_CHILDREN; i++) {
-            if (tracked_bottle_children[i].pid == child) {
-                tracked_bottle_children[i].status = status;
-                tracked_bottle_children[i].finished = 1;
-                break;
-            }
+static void* wait_bottle_child(void* raw) {
+    pid_t pid = (pid_t)(intptr_t)raw;
+    int status = 0;
+    pid_t waited;
+    while ((waited = waitpid(pid, &status, 0)) < 0 && errno == EINTR) {
+    }
+    pthread_mutex_lock(&tracked_bottle_children_lock);
+    for (size_t i = 0; i < MAX_TRACKED_BOTTLE_CHILDREN; i++) {
+        if (tracked_bottle_children[i].pid == pid) {
+            /* a status that could not be read counts as a failure */
+            tracked_bottle_children[i].status = waited == pid ? status : 1 << 8;
+            tracked_bottle_children[i].finished = true;
+            break;
         }
     }
-    errno = saved;
+    pthread_mutex_unlock(&tracked_bottle_children_lock);
+    return NULL;
 }
 
 static void track_bottle_child(const char* home, const char* id, pid_t pid, const char* component) {
+    pthread_t thread;
+    pthread_mutex_lock(&tracked_bottle_children_lock);
     for (size_t i = 0; i < MAX_TRACKED_BOTTLE_CHILDREN; i++) {
         if (!tracked_bottle_children[i].pid) {
             snprintf(tracked_bottle_children[i].home, sizeof(tracked_bottle_children[i].home), "%s", home);
@@ -576,11 +589,15 @@ static void track_bottle_child(const char* home, const char* id, pid_t pid, cons
                      component ? component : "");
             tracked_bottle_children[i].operation = component ? 2 : 1;
             tracked_bottle_children[i].status = 0;
-            tracked_bottle_children[i].finished = 0;
+            tracked_bottle_children[i].finished = false;
             tracked_bottle_children[i].pid = pid;
-            return;
+            break;
         }
     }
+    pthread_mutex_unlock(&tracked_bottle_children_lock);
+    /* untracked (every slot in use), it is still waited for, so it does not stay a zombie */
+    if (pthread_create(&thread, NULL, wait_bottle_child, (void*)(intptr_t)pid) == 0)
+        pthread_detach(thread);
 }
 
 static bool mark_windows_finished(const char* home, const char* id, int status) {
@@ -652,27 +669,21 @@ static bool mark_component_state(const char*, const char*, const char*, const ch
 
 static void poll_windows_completion(void) {
     for (size_t i = 0; i < MAX_TRACKED_BOTTLE_CHILDREN; i++) {
-        if (tracked_bottle_children[i].finished) {
-            char home[sizeof(tracked_bottle_children[i].home)];
-            char id[sizeof(tracked_bottle_children[i].id)];
-            char component[sizeof(tracked_bottle_children[i].component)];
-            int status = tracked_bottle_children[i].status;
-            int operation = tracked_bottle_children[i].operation;
-            snprintf(home, sizeof(home), "%s", tracked_bottle_children[i].home);
-            snprintf(id, sizeof(id), "%s", tracked_bottle_children[i].id);
-            snprintf(component, sizeof(component), "%s", tracked_bottle_children[i].component);
-            tracked_bottle_children[i].finished = 0;
-            tracked_bottle_children[i].pid = 0;
-            tracked_bottle_children[i].home[0] = 0;
-            tracked_bottle_children[i].id[0] = 0;
-            tracked_bottle_children[i].component[0] = 0;
-            tracked_bottle_children[i].operation = 0;
-            if (operation == 2)
-                (void)mark_component_state(home, id, component,
-                                           WIFEXITED(status) && WEXITSTATUS(status) == 0 ? "installed" : "missing");
-            else
-                (void)mark_windows_finished(home, id, status);
+        tracked_bottle_child done;
+        pthread_mutex_lock(&tracked_bottle_children_lock);
+        if (!tracked_bottle_children[i].finished) {
+            pthread_mutex_unlock(&tracked_bottle_children_lock);
+            continue;
         }
+        done = tracked_bottle_children[i];
+        memset(&tracked_bottle_children[i], 0, sizeof(tracked_bottle_children[i]));
+        pthread_mutex_unlock(&tracked_bottle_children_lock);
+        if (done.operation == 2)
+            (void)mark_component_state(done.home, done.id, done.component,
+                                       WIFEXITED(done.status) && WEXITSTATUS(done.status) == 0 ? "installed"
+                                                                                               : "missing");
+        else
+            (void)mark_windows_finished(done.home, done.id, done.status);
     }
 }
 static bool mark_windows_started(const char* home, const char* id, pid_t pid, const char* logpath) {
@@ -910,14 +921,8 @@ static char* start_windows_version_json(const char* home, const char* id, const 
     fprintf(log, "windows_version=%s\nprefix=%s\n--- wine output ---\n", version, prefix);
     fflush(log);
     int fd = fileno(log);
-    sigset_t blocked, oldmask;
-    sigemptyset(&blocked);
-    sigaddset(&blocked, SIGCHLD);
-    sigprocmask(SIG_BLOCK, &blocked, &oldmask);
-    signal(SIGCHLD, reap_bottle_children);
     pid = fork();
     if (pid < 0) {
-        sigprocmask(SIG_SETMASK, &oldmask, NULL);
         fclose(log);
         free(wine);
         free(prefix);
@@ -926,7 +931,6 @@ static char* start_windows_version_json(const char* home, const char* id, const 
         return NULL;
     }
     if (pid == 0) {
-        sigprocmask(SIG_SETMASK, &oldmask, NULL);
         char* args[] = {wine, "reg", "add", "HKCU\\Software\\Wine", "/v", "Version", "/d", (char*)version, "/f", NULL};
         setenv("WINEPREFIX", prefix, 1);
         setenv("WINEDEBUG", "-all", 1);
@@ -947,7 +951,6 @@ static char* start_windows_version_json(const char* home, const char* id, const 
     fclose(log);
     mark_windows_started(home, id, pid, logpath);
     track_bottle_child(home, id, pid, NULL);
-    sigprocmask(SIG_SETMASK, &oldmask, NULL);
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
     ms_json_writer_key(&w, "ok");
@@ -1239,19 +1242,12 @@ static char* start_component_installer_json(const char* home, const char* id, co
         goto fail_json;
     fprintf(log, "component=%s\ninstaller=%s\nprefix=%s\n", component, installer, prefix);
     fflush(log);
-    sigset_t blocked, oldmask;
-    sigemptyset(&blocked);
-    sigaddset(&blocked, SIGCHLD);
-    sigprocmask(SIG_BLOCK, &blocked, &oldmask);
-    signal(SIGCHLD, reap_bottle_children);
     pid = fork();
     if (pid < 0) {
-        sigprocmask(SIG_SETMASK, &oldmask, NULL);
         fclose(log);
         goto fail_json;
     }
     if (pid == 0) {
-        sigprocmask(SIG_SETMASK, &oldmask, NULL);
         char library_env[4096];
         int fd = fileno(log);
         setenv("WINEPREFIX", prefix, 1);
@@ -1270,7 +1266,6 @@ static char* start_component_installer_json(const char* home, const char* id, co
     }
     fclose(log);
     track_bottle_child(home, id, pid, component);
-    sigprocmask(SIG_SETMASK, &oldmask, NULL);
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
     ms_json_writer_key(&w, "ok");

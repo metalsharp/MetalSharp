@@ -88,24 +88,15 @@ static bool streaming_exec_capture(char* const args[], char* out, size_t out_siz
     int pipefd[2];
     pid_t pid;
     bool exited_ok = false;
-    sigset_t block, previous;
     if (pipe(pipefd) != 0)
         return false;
-    /* Bottle actions installs a process-wide SIGCHLD reaper (waitpid(-1)) and
-     * never restores it; block delivery on this thread across fork/waitpid so
-     * it cannot reap (and misreport) our short-lived children. */
-    sigemptyset(&block);
-    sigaddset(&block, SIGCHLD);
-    pthread_sigmask(SIG_BLOCK, &block, &previous);
     pid = fork();
     if (pid < 0) {
         close(pipefd[0]);
         close(pipefd[1]);
-        pthread_sigmask(SIG_SETMASK, &previous, NULL);
         return false;
     }
     if (pid == 0) {
-        pthread_sigmask(SIG_SETMASK, &previous, NULL);
         close(pipefd[0]);
         dup2(pipefd[1], STDOUT_FILENO);
         close(pipefd[1]);
@@ -132,16 +123,8 @@ static bool streaming_exec_capture(char* const args[], char* out, size_t out_siz
         do {
             waited = waitpid(pid, &status, 0);
         } while (waited < 0 && errno == EINTR);
-        if (waited < 0 && errno == ECHILD) {
-            /* Reaper stole the child despite the mask (delivered on another
-             * thread). Exit status unknowable — fail open rather than report
-             * a spurious failure for a command that ran. */
-            exited_ok = true;
-        } else {
-            exited_ok = waited == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
-        }
+        exited_ok = waited == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
     }
-    pthread_sigmask(SIG_SETMASK, &previous, NULL);
     return exited_ok;
 }
 
@@ -403,7 +386,7 @@ static void streaming_refresh_install(const char* home) {
         return;
     }
     if (g_install_pid > 0 && reaped < 0 && errno == ECHILD)
-        g_install_pid = 0; /* The reaper stole a possibly-still-running worker. */
+        g_install_pid = 0; /* no longer this process's child */
     if (!g_install_active)
         return;
     /* While an install is believed active, re-arbitrate from the progress

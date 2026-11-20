@@ -2008,9 +2008,8 @@ static pid_t g_install_pid = 0;
 
 static void refresh_installing(void) {
     int wait_status;
-    /* ECHILD means something else reaped the worker first (bottle actions
-     * install a process-wide SIGCHLD reaper that is never restored) — treat
-     * that as worker-gone or the installing flag sticks forever. */
+    /* ECHILD: the worker is no longer this process's child, so it is gone; otherwise the installing flag would
+     * stick forever. */
     pid_t reaped = g_install_pid > 0 ? waitpid(g_install_pid, &wait_status, WNOHANG) : 0;
     if (g_install_pid > 0 && (reaped == g_install_pid || (reaped < 0 && errno == ECHILD))) {
         g_install_pid = 0;
@@ -3159,8 +3158,7 @@ static bool g_vcpp_active = false;
 
 static void refresh_vcpp_worker(void) {
     int wait_status;
-    /* ECHILD: a process-wide SIGCHLD reaper (bottle actions) may have reaped
-     * the worker first — that still means worker-gone. */
+    /* ECHILD: the worker is no longer this process's child, so it is gone. */
     pid_t reaped = g_vcpp_pid > 0 ? waitpid(g_vcpp_pid, &wait_status, WNOHANG) : 0;
     if (g_vcpp_pid > 0 && (reaped == g_vcpp_pid || (reaped < 0 && errno == ECHILD))) {
         g_vcpp_pid = 0;
@@ -3270,11 +3268,6 @@ static void run_vcpp_install_worker(const char* home, bool x86) {
     int child_status = 0;
     pid_t pid, waited;
     bool wait_indeterminate = false;
-    /* Bottle actions install a process-wide SIGCHLD reaper and never restore
-     * it; the disposition is inherited across fork and would reap the Wine
-     * installer (and curl) children out from under us, turning successful
-     * installs into spurious failures. Restore default reaping semantics. */
-    (void)signal(SIGCHLD, SIG_DFL);
     if (pthread_create(&parent_monitor, NULL, install_parent_monitor, NULL) == 0)
         pthread_detach(parent_monitor);
     if (!wine || access(wine, X_OK) != 0) {
