@@ -37,6 +37,8 @@ const LANGUAGES: [(&str, &str); 20] = [
 #[derive(Clone, Debug)]
 pub enum SettingsPreviewEvent {
     LiquidGlass(bool),
+    /// Liquid Glass's transparency, 0–100 %: how much of the art and desktop shows through its panels (#807).
+    GlassTransparency(u8),
     Close,
     ReopenSetup,
     LanguageChanged(&'static str),
@@ -85,6 +87,8 @@ pub struct AppState {
     /// Liquid Glass, and whether this Mac has it (macOS 26 and later)
     pub liquid_glass: bool,
     pub liquid_glass_available: bool,
+    /// Liquid Glass's transparency, 0–100 % in steps of 10: 0 is the default, tinted look.
+    pub glass_transparency: u8,
     pub library_grid: bool,
     pub window_size: WindowSize,
 }
@@ -2242,6 +2246,68 @@ impl Render for SettingsPreview {
             )
             .opacity(if app.liquid_glass_available { 1.0 } else { 0.45 }),
         );
+        // Under Liquid Glass: how clear its panels are, from tinted (0 %) to clear (100 %), as macOS's own
+        // Liquid Glass setting goes from Tinted to Clear. A click or a drag along the track sets it, in tens.
+        let transparency_row = (app.liquid_glass && app.liquid_glass_available).then(|| {
+            let value = app.glass_transparency.min(100);
+            let mut track = div()
+                .id("glass-transparency")
+                .flex()
+                .items_center()
+                .w(px(170.))
+                .h(px(24.))
+                .gap(px(2.))
+                .cursor_pointer();
+            for step in 0..=10u8 {
+                let percent = step * 10;
+                let set = move |s: &mut Self, cx: &mut Context<Self>| {
+                    if s.app.glass_transparency != percent {
+                        s.app.glass_transparency = percent;
+                        cx.emit(SettingsPreviewEvent::GlassTransparency(percent));
+                        cx.notify();
+                    }
+                };
+                track = track.child(
+                    div()
+                        .id(("glass-transparency-step", step as usize))
+                        .flex_1()
+                        .h_full()
+                        .flex()
+                        .items_center()
+                        .on_mouse_down(
+                            gpui::MouseButton::Left,
+                            cx.listener(move |s, _, _, cx| set(s, cx)),
+                        )
+                        .on_mouse_move(cx.listener(move |s, event: &gpui::MouseMoveEvent, _, cx| {
+                            if event.pressed_button == Some(gpui::MouseButton::Left) {
+                                set(s, cx)
+                            }
+                        }))
+                        .child(
+                            div()
+                                .w_full()
+                                .h(px(if percent == value { 14. } else { 6. }))
+                                .rounded(px(999.))
+                                .bg(rgba(if percent <= value {
+                                    (p.accent << 8) | 0xff
+                                } else {
+                                    p.control_border
+                                })),
+                        ),
+                );
+            }
+            self.row(
+                "Glass Transparency",
+                "How much of the game's art and your desktop shows through Liquid Glass's panels, such as the \
+                 library's: 0 % is the tinted look, higher is clearer, with a lighter blur.",
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .child(track)
+                    .child(div().w(px(38.)).child(self.text_control(format!("{value}%")))),
+            )
+        });
         let library_layout = self.row(
             self.tr("ui.settings.libraryLayout"),
             self.tr("ui.settingsDesc.libraryLayout"),
@@ -2599,6 +2665,7 @@ impl Render for SettingsPreview {
                         .child(window_size)
                         .child(perf)
                         .child(glass_row)
+                        .children(transparency_row)
                         .child(retina.border_b_0()),
                     false,
                 ),
