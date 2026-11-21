@@ -41,6 +41,8 @@ private enum Kind: Int32 {
     case selected = 3
     /// a panel over the art (settings): deeper, so its text reads over anything
     case sheet = 4
+    /// the sidebar: regular glass in the page's color, not the accent's, so the theme's color doesn't wash into it
+    case sidebar = 5
 }
 
 @MainActor
@@ -112,7 +114,8 @@ private final class Host {
     }
 
     /// Panels go from regular glass to clear, lightly blurred glass past the middle of the transparency; the
-    /// selected card is always clear, and deep glass (settings) stays regular so its text reads.
+    /// selected card is always clear, and deep glass (settings) and the sidebar stay regular so their text reads
+    /// and no color washes into the sidebar.
     @available(macOS 26.0, *)
     func style(for kind: Kind) -> NSGlassEffectView.Style {
         switch kind {
@@ -198,6 +201,8 @@ private final class Host {
         case .primary: return NSColor(white: 1.0, alpha: 0.80)
         case .selected: return color(glowColor, alpha: 0.50)
         case .sheet: return color(page, alpha: (dark ? 0.62 : 0.55) * (1 - 0.3 * clarity))
+        // the transparency thins it as it does the panels, to two fifths at 100 %, but its hue stays the page's
+        case .sidebar: return color(page, alpha: (dark ? 0.50 : 0.42) * (1 - 0.6 * clarity))
         }
     }
 

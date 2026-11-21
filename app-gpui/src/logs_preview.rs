@@ -341,7 +341,7 @@ impl LogsPreview {
             .mr(px(12.0))
             .h(px(30.0))
             .rounded(px(7.0))
-            .bg(rgba(0x00000000))
+            .bg(rgba(crate::page_palette::tca(0x00000000)))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.open[index] = !this.open[index];
                 if index == 0 && this.open[index] {
@@ -368,9 +368,9 @@ impl LogsPreview {
             .py(px(13.0))
             .text_size(px(13.0))
             .font_weight(FontWeight::BOLD)
-            .text_color(rgb(0xeeeeed))
+            .text_color(rgb(crate::page_palette::tc(0xeeeeed)))
             .cursor_pointer()
-            .hover(|style| style.bg(rgba(0xffffff08)))
+            .hover(|style| style.bg(rgba(crate::page_palette::tca(0xffffff08))))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.open[index] = !this.open[index];
                 if index == 0 && this.open[index] {
@@ -388,7 +388,7 @@ impl LogsPreview {
             )
             .child(
                 div()
-                    .text_color(rgba(0xffffff66))
+                    .text_color(rgba(crate::page_palette::tca(0xffffff66)))
                     .child(if self.open[index] { "⌄" } else { "›" }),
             )
     }
@@ -404,11 +404,11 @@ impl LogsPreview {
             .border_color(if live {
                 rgba((self.palette.accent << 8) | 0x66)
             } else {
-                rgba(0xffffff14)
+                rgba(crate::page_palette::tca(0xffffff14))
             })
-            .bg(rgba(0xffffff06))
+            .bg(rgba(crate::page_palette::tca(0xffffff06)))
             .overflow_hidden()
-            .text_color(rgb(0xcfd1d0))
+            .text_color(rgb(crate::page_palette::tc(0xcfd1d0)))
     }
 }
 
@@ -451,7 +451,7 @@ impl Render for LogsPreview {
                 .mr(px(12.0))
                 .rounded(px(6.0))
                 .h(px(30.0))
-                .bg(rgba(0x00000000))
+                .bg(rgba(crate::page_palette::tca(0x00000000)))
         };
         let mut controls = div().flex().items_center().justify_between().flex_wrap().gap(px(16.0))
             .child(div().flex().items_center()
@@ -472,7 +472,7 @@ impl Render for LogsPreview {
                 div()
                     .w_full()
                     .text_size(px(11.0))
-                    .text_color(rgb(0xaeb3b2))
+                    .text_color(rgb(crate::page_palette::tc(0xaeb3b2)))
                     .child(notice),
             );
         }
@@ -485,7 +485,7 @@ impl Render for LogsPreview {
             .px(px(28.0))
             .pb(px(16.0))
             .border_b_1()
-            .border_color(rgba(0xffffff12))
+            .border_color(rgba(crate::page_palette::tca(0xffffff12)))
             .child(
                 div()
                     .flex()
@@ -495,7 +495,7 @@ impl Render for LogsPreview {
                             .mb(px(10.0))
                             .font_family("Georgia")
                             .text_size(px(10.0))
-                            .text_color(rgba(0xf0efe799))
+                            .text_color(rgba(crate::page_palette::tca(0xf0efe799)))
                             .child("M E T A L S H A R P  ·  D I A G N O S T I C S"),
                     )
                     .child(
@@ -504,14 +504,14 @@ impl Render for LogsPreview {
                             .font_weight(FontWeight::MEDIUM)
                             .text_size(px((f32::from(viewport.width) * 0.036).clamp(34.0, 54.0)))
                             .line_height(px((f32::from(viewport.width) * 0.036).clamp(34.0, 54.0)))
-                            .text_color(rgb(0xeee9dd))
+                            .text_color(rgb(crate::page_palette::tc(0xeee9dd)))
                             .child("LOGS"),
                     )
                     .child(
                         div()
                             .mt(px(8.0))
                             .text_size(px(13.5))
-                            .text_color(rgb(0xaeb3b2))
+                            .text_color(rgb(crate::page_palette::tc(0xaeb3b2)))
                             .child("Live MetalSharp runtime logs"),
                     ),
             )
@@ -535,7 +535,7 @@ impl Render for LogsPreview {
                     0x0c0f11ff
                 }))
                 .border_t_1()
-                .border_color(rgba(0xffffff12))
+                .border_color(rgba(crate::page_palette::tca(0xffffff12)))
                 .py(px(14.0))
                 .px(px(16.0))
                 .font_family("Menlo")
@@ -558,7 +558,7 @@ impl Render for LogsPreview {
                         .py(px(8.0))
                         .px(px(12.0))
                         .border_t_1()
-                        .border_color(rgba(0xffffff12))
+                        .border_color(rgba(crate::page_palette::tca(0xffffff12)))
                         .child(
                             action("logs-live-copy", "Copy")
                                 .opacity(if self.lines.is_empty() { 0.4 } else { 1.0 })
@@ -582,7 +582,7 @@ impl Render for LogsPreview {
                         .py(px(18.0))
                         .px(px(16.0))
                         .text_size(px(12.0))
-                        .text_color(rgb(0x8f958f))
+                        .text_color(rgb(crate::page_palette::tc(0x8f958f)))
                         .text_center()
                         .child("No crash reports found."),
                 );
@@ -616,24 +616,28 @@ impl Render for LogsPreview {
                                 .py(px(10.0))
                                 .px(px(16.0))
                                 .border_t_1()
-                                .border_color(rgba(0xffffff0f))
+                                .border_color(rgba(crate::page_palette::tca(0xffffff0f)))
                                 .text_size(px(12.0))
                                 .child(
                                     div()
                                         .font_weight(FontWeight::BOLD)
-                                        .text_color(rgb(0xf0f0ed))
+                                        .text_color(rgb(crate::page_palette::tc(0xf0f0ed)))
                                         .child(report.name.clone()),
                                 )
-                                .child(div().text_color(rgb(0x8f958f)).child(format!(
-                                    "{} - {} - {}",
-                                    report.source,
-                                    report.timestamp,
-                                    format_bytes(report.bytes)
-                                )))
+                                .child(
+                                    div()
+                                        .text_color(rgb(crate::page_palette::tc(0x8f958f)))
+                                        .child(format!(
+                                            "{} - {} - {}",
+                                            report.source,
+                                            report.timestamp,
+                                            format_bytes(report.bytes)
+                                        )),
+                                )
                                 .child(
                                     div()
                                         .text_size(px(10.0))
-                                        .text_color(rgb(0x8f958f))
+                                        .text_color(rgb(crate::page_palette::tc(0x8f958f)))
                                         .child(report.file.clone()),
                                 ),
                         );
@@ -663,13 +667,13 @@ impl Render for LogsPreview {
                             .py(px(12.0))
                             .px(px(16.0))
                             .border_t_1()
-                            .border_color(rgba(0xffffff0f))
+                            .border_color(rgba(crate::page_palette::tca(0xffffff0f)))
                             .child(
                                 div()
                                     .mb(px(8.0))
                                     .text_size(px(12.0))
                                     .font_weight(FontWeight::BOLD)
-                                    .text_color(rgb(0xe6e8e6))
+                                    .text_color(rgb(crate::page_palette::tc(0xe6e8e6)))
                                     .child(file.name.clone()),
                             )
                             .child(
@@ -679,7 +683,7 @@ impl Render for LogsPreview {
                                     .overflow_y_scroll()
                                     .p(px(12.0))
                                     .border_1()
-                                    .border_color(rgba(0xffffff12))
+                                    .border_color(rgba(crate::page_palette::tca(0xffffff12)))
                                     .rounded(px(8.0))
                                     .bg(rgba(if self.palette.glass {
                                         0x0c0f1180
@@ -689,7 +693,7 @@ impl Render for LogsPreview {
                                     .font_family("Menlo")
                                     .text_size(px(10.5))
                                     .line_height(px(16.8))
-                                    .text_color(rgb(0xb9bfb9))
+                                    .text_color(rgb(crate::page_palette::tc(0xb9bfb9)))
                                     .children(
                                         file.lines
                                             .iter()
@@ -717,8 +721,8 @@ impl Render for LogsPreview {
             .when(!self.palette.glass, |page| {
                 page.bg(linear_gradient(
                     180.0,
-                    linear_color_stop(rgb(0x171a1d), 0.0),
-                    linear_color_stop(rgb(0x111416), 1.0),
+                    linear_color_stop(rgb(crate::page_palette::tc(0x171a1d)), 0.0),
+                    linear_color_stop(rgb(crate::page_palette::tc(0x111416)), 1.0),
                 ))
             })
             .child(

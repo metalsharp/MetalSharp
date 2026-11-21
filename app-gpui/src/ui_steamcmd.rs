@@ -563,8 +563,8 @@ impl MetalSharpApp {
             .overflow_hidden()
             .rounded(px(8.0))
             .border_1()
-            .border_color(rgba(0xe0e2e03b))
-            .bg(rgb(0x242729))
+            .border_color(rgba(crate::page_palette::tca(0xe0e2e03b)))
+            .bg(rgb(crate::page_palette::tc(0x242729)))
             .shadow_lg()
             .child(match art {
                 Some(art) => crate::artwork::art_img(art)
@@ -594,8 +594,8 @@ impl MetalSharpApp {
                     .left(px(0.0))
                     .bg(linear_gradient(
                         180.0,
-                        linear_color_stop(rgba(0x00000000), 0.34),
-                        linear_color_stop(rgba(0x050708e6), 1.0),
+                        linear_color_stop(rgba(crate::page_palette::tca(0x00000000)), 0.34),
+                        linear_color_stop(rgba(crate::page_palette::tca(0x050708e6)), 1.0),
                     )),
             )
             .children(compat_badge(game))
@@ -612,7 +612,7 @@ impl MetalSharpApp {
                         div()
                             .text_size(px(14.0))
                             .font_weight(FontWeight::BOLD)
-                            .text_color(rgb(0xf0f0ed))
+                            .text_color(rgb(crate::page_palette::tc(0xf0f0ed)))
                             .child(name),
                     )
                     .children(detail.filter(|d| !d.is_empty()).map(|detail| {
@@ -630,7 +630,7 @@ impl MetalSharpApp {
                             .h(px(4.0))
                             .w_full()
                             .rounded(px(2.0))
-                            .bg(rgba(0xffffff26))
+                            .bg(rgba(crate::page_palette::tca(0xffffff26)))
                             .child(
                                 div()
                                     .h_full()
@@ -674,7 +674,7 @@ impl MetalSharpApp {
                     div()
                         .text_size(px(12.0))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(rgb(0xcfd2cf))
+                        .text_color(rgb(crate::page_palette::tc(0xcfd2cf)))
                         .child(label),
                 )
                 .child(
@@ -684,8 +684,8 @@ impl MetalSharpApp {
                         .items_center()
                         .rounded(px(8.0))
                         .border_1()
-                        .border_color(rgb(0x3b3e40))
-                        .bg(rgb(0x191c1f))
+                        .border_color(rgb(crate::page_palette::tc(0x3b3e40)))
+                        .bg(rgb(crate::page_palette::tc(0x191c1f)))
                         .px(px(12.0))
                         .text_size(px(13.0))
                         .child(div().w_full().child(input)),
@@ -713,7 +713,7 @@ impl MetalSharpApp {
                         div()
                             .text_size(px(12.5))
                             .line_height(px(18.0))
-                            .text_color(rgb(0xaeb3b2))
+                            .text_color(rgb(crate::page_palette::tc(0xaeb3b2)))
                             .child(format!(
                                 "steamcmd needs your Steam account once to download {name}. MetalSharp doesn't store your password; steamcmd keeps its own sign-in token."
                             )),
@@ -783,7 +783,7 @@ impl MetalSharpApp {
                     .child(
                         div()
                             .text_size(px(12.5))
-                            .text_color(rgb(0xaeb3b2))
+                            .text_color(rgb(crate::page_palette::tc(0xaeb3b2)))
                             .child("Choose the Steam library to install into."),
                     );
                 match libraries {
@@ -796,7 +796,7 @@ impl MetalSharpApp {
                     }
                     Some(libraries) if libraries.is_empty() => {
                         body = body
-                            .child(div().text_size(px(12.5)).text_color(rgb(0xf0a0a0)).child(
+                            .child(div().text_size(px(12.5)).text_color(rgb(crate::page_palette::tc(0xf0a0a0))).child(
                             "No Steam libraries found. Start Steam once so it creates its library.",
                         ));
                     }
@@ -834,15 +834,15 @@ impl MetalSharpApp {
                                     .p(px(12.0))
                                     .rounded(px(8.0))
                                     .border_1()
-                                    .border_color(rgba(0xffffff26))
-                                    .bg(rgb(0x1d2124))
+                                    .border_color(rgba(crate::page_palette::tca(0xffffff26)))
+                                    .bg(rgb(crate::page_palette::tc(0x1d2124)))
                                     .flex()
                                     .flex_col()
                                     .gap(px(4.0))
                                     .opacity(if available { 1.0 } else { 0.5 })
                                     .when(available, |row| {
                                         row.cursor_pointer()
-                                            .hover(|s| s.bg(rgb(0x262b2e)))
+                                            .hover(|s| s.bg(rgb(crate::page_palette::tc(0x262b2e))))
                                             .on_click(cx.listener(move |this, _, _, cx| {
                                                 this.start_steamcmd_install(
                                                     appid,
@@ -861,7 +861,7 @@ impl MetalSharpApp {
                                     .child(
                                         div()
                                             .text_size(px(11.5))
-                                            .text_color(rgb(0x9ea3a2))
+                                            .text_color(rgb(crate::page_palette::tc(0x9ea3a2)))
                                             .child(subtitle),
                                     ),
                             );
@@ -887,7 +887,7 @@ impl MetalSharpApp {
             .flex()
             .items_center()
             .justify_center()
-            .bg(rgba(0x000000a0))
+            .bg(rgba(crate::page_palette::tca(0x000000a0)))
             .child(
                 div()
                     .id("steamcmd-modal")
@@ -897,9 +897,9 @@ impl MetalSharpApp {
                     .p(px(22.0))
                     .rounded(px(12.0))
                     .border_1()
-                    .border_color(rgba(0xffffff1f))
-                    .bg(rgb(0x14171a))
-                    .text_color(rgb(0xe6e8e7))
+                    .border_color(rgba(crate::page_palette::tca(0xffffff1f)))
+                    .bg(rgb(crate::page_palette::tc(0x14171a)))
+                    .text_color(rgb(crate::page_palette::tc(0xe6e8e7)))
                     .child(body),
             )
     }

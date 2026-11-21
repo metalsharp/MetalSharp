@@ -18,6 +18,9 @@ pub enum Glass {
     Selected = 3,
     /// Deep glass: a panel over the art (settings), whose text must read over anything.
     Sheet = 4,
+    /// The sidebar: regular glass tinted with the page's own color, not the accent, so the theme's color doesn't
+    /// wash into it. Glass Transparency thins its tint, but it keeps its blur.
+    Sidebar = 5,
 }
 
 #[cfg(target_os = "macos")]

@@ -284,3 +284,89 @@ impl PagePalette {
             .child(label.into())
     }
 }
+
+/// How the library's own fixed colors (its literals) are shown in the current theme. Dark and Light are black and
+/// white UIs: their neutral colors (grays, the off-whites of text, the near-blacks of surfaces and scrims) are turned
+/// to the theme's, and every colored value (accents, status colors, art) is left as it is. The other themes keep
+/// every literal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tone {
+    /// the other themes: literals as they are
+    Keep,
+    /// Dark: neutral grays, and the dark surfaces deepened to black, under white text
+    Black,
+    /// Light: neutral grays inverted, so the dark surfaces are white and white text is black
+    White,
+}
+
+thread_local! {
+    static TONE: std::cell::Cell<Tone> = const { std::cell::Cell::new(Tone::Keep) };
+}
+
+/// The theme's tone, for everything painted after it this frame (MetalSharp's window sets it as it renders).
+pub fn set_tone(tone: Tone) {
+    TONE.set(tone);
+}
+
+/// A fixed color (0xRRGGBB) in the current theme's tone.
+pub fn tc(color: u32) -> u32 {
+    tone_rgb(TONE.get(), color)
+}
+
+/// A fixed color with alpha (0xRRGGBBAA) in the current theme's tone: the alpha is kept.
+pub fn tca(color: u32) -> u32 {
+    (tone_rgb(TONE.get(), color >> 8) << 8) | (color & 0xff)
+}
+
+fn tone_rgb(tone: Tone, color: u32) -> u32 {
+    if tone == Tone::Keep {
+        return color;
+    }
+    let channel = |shift: u32| ((color >> shift) & 0xff) as f32 / 255.0;
+    let (r, g, b) = (channel(16), channel(8), channel(0));
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    // colored: an accent, a status color, a hue meant to be seen
+    if max - min >= 0.2 {
+        return color;
+    }
+    let lightness = (max + min) / 2.0;
+    let gray = match tone {
+        Tone::Keep => unreachable!(),
+        // dark surfaces to black; text and lines stay as light as they were, without their warm or cool cast
+        Tone::Black if lightness < 0.25 => lightness * 0.35,
+        Tone::Black => lightness,
+        // inverted: white text black, dark surfaces white (the palest of them all the way)
+        Tone::White => {
+            let inverted = 1.0 - lightness;
+            if inverted > 0.88 {
+                (inverted + 1.0) / 2.0
+            } else {
+                inverted
+            }
+        }
+    };
+    let level = (gray.clamp(0.0, 1.0) * 255.0).round() as u32;
+    (level << 16) | (level << 8) | level
+}
+
+#[cfg(test)]
+mod tone_tests {
+    use super::{Tone, tone_rgb};
+
+    #[test]
+    fn dark_and_light_turn_neutrals_and_keep_colors() {
+        // white text: white on Dark, black on Light
+        assert_eq!(tone_rgb(Tone::Black, 0xffffff), 0xffffff);
+        assert_eq!(tone_rgb(Tone::White, 0xffffff), 0x000000);
+        // a near-black surface: black on Dark, white on Light
+        assert!(tone_rgb(Tone::Black, 0x111416) <= 0x080808);
+        assert!(tone_rgb(Tone::White, 0x111416) >= 0xf5f5f5);
+        // a warm off-white text is a neutral gray, dark on Light
+        assert!(tone_rgb(Tone::White, 0xefe7d6) < 0x303030);
+        // colors stay
+        assert_eq!(tone_rgb(Tone::White, 0x74d28a), 0x74d28a);
+        assert_eq!(tone_rgb(Tone::Black, 0xff9d9d), 0xff9d9d);
+        // the other themes keep every literal
+        assert_eq!(tone_rgb(Tone::Keep, 0x111416), 0x111416);
+    }
+}

@@ -385,12 +385,15 @@ impl MetalSharpApp {
                 .py(px(layout.scaled(7.0)))
                 .rounded(px(layout.scaled(7.0)))
                 .text_size(px(layout.scaled(13.0)))
-                .when(primary, |b| b.bg(rgb(0x2f6fdf)).text_color(rgb(0xffffff)))
+                .when(primary, |b| {
+                    b.bg(rgb(crate::page_palette::tc(0x2f6fdf)))
+                        .text_color(rgb(crate::page_palette::tc(0xffffff)))
+                })
                 .when(!primary, |b| b.text_color(rgb(text_color)))
                 .cursor_pointer()
                 .hover(move |style| {
                     if primary {
-                        style.bg(rgb(0x3d7ef0))
+                        style.bg(rgb(crate::page_palette::tc(0x3d7ef0)))
                     } else {
                         style.bg(rgb(theme.menu_hover()))
                     }
@@ -437,7 +440,7 @@ impl MetalSharpApp {
                 div()
                     .text_size(px(layout.scaled(12.5)))
                     .line_height(px(layout.scaled(18.0)))
-                    .text_color(rgb(0xaeb3b2))
+                    .text_color(rgb(crate::page_palette::tc(0xaeb3b2)))
                     .child(body),
             )
             .children(status.map(|status| {
@@ -449,7 +452,7 @@ impl MetalSharpApp {
             .children(switch.error.map(|error| {
                 div()
                     .text_size(px(layout.scaled(12.5)))
-                    .text_color(rgb(0xff7a6e))
+                    .text_color(rgb(crate::page_palette::tc(0xff7a6e)))
                     .child(error)
             }))
             .child(actions);
@@ -471,7 +474,7 @@ impl MetalSharpApp {
                         .top(px(0.0))
                         .left(px(0.0))
                         .size_full()
-                        .bg(rgba(0x000000a0))
+                        .bg(rgba(crate::page_palette::tca(0x000000a0)))
                         .on_click(cx.listener(|this, _, _, cx| {
                             if this
                                 .runtime_switch

@@ -172,7 +172,9 @@ impl Render for ToastHub {
                     .rounded(px(6.0))
                     .bg(rgb(bg))
                     .when(toast.kind == ToastKind::Info, |toast| {
-                        toast.border_1().border_color(rgba(0xffffff24))
+                        toast
+                            .border_1()
+                            .border_color(rgba(crate::page_palette::tca(0xffffff24)))
                     })
                     .shadow_lg()
                     .text_size(px(13.0))
@@ -187,12 +189,12 @@ impl Render for ToastHub {
                             .h(px(4.0))
                             .mt(px(8.0))
                             .rounded_full()
-                            .bg(rgba(0xffffff2e))
+                            .bg(rgba(crate::page_palette::tca(0xffffff2e)))
                             .child(
                                 div()
                                     .h(px(4.0))
                                     .rounded_full()
-                                    .bg(rgb(0xe8d6b7))
+                                    .bg(rgb(crate::page_palette::tc(0xe8d6b7)))
                                     .w(gpui::relative(progress)),
                             )
                     })),

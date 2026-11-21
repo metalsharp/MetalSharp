@@ -28,7 +28,7 @@ pub(super) fn live_pill(text: String) -> gpui::Div {
         .px(px(8.))
         .py(px(4.))
         .rounded(px(20.))
-        .bg(rgb(0x28251f))
+        .bg(rgb(crate::page_palette::tc(0x28251f)))
         .text_size(px(9.))
         .text_color(rgb(GOLD))
         .font_weight(FontWeight::BOLD)
@@ -316,9 +316,9 @@ impl SharpPreview {
         div()
             .p(px(10.0))
             .rounded(px(8.0))
-            .bg(gpui::rgba(0x00000028))
+            .bg(gpui::rgba(crate::page_palette::tca(0x00000028)))
             .border_1()
-            .border_color(gpui::rgba(0xffffff14))
+            .border_color(gpui::rgba(crate::page_palette::tca(0xffffff14)))
             .flex()
             .flex_col()
             .gap(px(8.0))
@@ -353,7 +353,7 @@ impl SharpPreview {
                 .flex()
                 .items_center()
                 .justify_center()
-                .bg(rgb(0x15181a))
+                .bg(rgb(crate::page_palette::tc(0x15181a)))
                 .child(
                     img(self.asset_root.join("metalsharp-logo.png"))
                         .size(px(banner_height * 0.55))
@@ -383,8 +383,8 @@ impl SharpPreview {
             .border_color(gpui::rgba(self.palette.control_border))
             .bg(gpui::linear_gradient(
                 180.0,
-                gpui::linear_color_stop(rgb(0x202427), 0.0),
-                gpui::linear_color_stop(rgb(0x171a1c), 1.0),
+                gpui::linear_color_stop(rgb(crate::page_palette::tc(0x202427)), 0.0),
+                gpui::linear_color_stop(rgb(crate::page_palette::tc(0x171a1c)), 1.0),
             ))
             .child(banner)
             .child(body)
@@ -407,7 +407,7 @@ impl SharpPreview {
                 div()
                     .text_size(px(14.0))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgb(0xf0f0ed))
+                    .text_color(rgb(crate::page_palette::tc(0xf0f0ed)))
                     .child(title),
             )
             .child(
@@ -434,7 +434,7 @@ impl SharpPreview {
                             .flex_1()
                             .h(px(5.0))
                             .rounded_full()
-                            .bg(rgb(0x2a2d30))
+                            .bg(rgb(crate::page_palette::tc(0x2a2d30)))
                             .child(
                                 div()
                                     .h(px(5.0))
@@ -468,8 +468,8 @@ impl SharpPreview {
             .opacity(if enabled { 1.0 } else { 0.45 });
         if danger {
             button
-                .text_color(rgb(0xff8585))
-                .border_color(gpui::rgba(0xff5c5c55))
+                .text_color(rgb(crate::page_palette::tc(0xff8585)))
+                .border_color(gpui::rgba(crate::page_palette::tca(0xff5c5c55)))
         } else {
             button
         }
@@ -522,7 +522,7 @@ impl SharpPreview {
                             .rounded(px(12.))
                             .border_1()
                             .border_color(gpui::rgba(self.palette.control_border))
-                            .bg(gpui::rgba(0x080a0d85))
+                            .bg(gpui::rgba(crate::page_palette::tca(0x080a0d85)))
                             .p(px(28.))
                             .flex()
                             .flex_col()
@@ -533,7 +533,7 @@ impl SharpPreview {
                                 gpui::svg()
                                     .path("source-empty-monitor.svg")
                                     .size(px(48.0))
-                                    .text_color(rgb(0x747c7f)),
+                                    .text_color(rgb(crate::page_palette::tc(0x747c7f))),
                             )
                             .child(
                                 div()
@@ -782,7 +782,7 @@ impl SharpPreview {
                                 .rounded(px(8.0))
                                 .border_1()
                                 .border_color(gpui::rgba(self.palette.control_border))
-                                .bg(gpui::rgba(0xffffff08))
+                                .bg(gpui::rgba(crate::page_palette::tca(0xffffff08)))
                                 .flex()
                                 .items_center()
                                 .justify_center()
@@ -989,7 +989,7 @@ impl SharpPreview {
                                 .rounded(px(8.0))
                                 .border_1()
                                 .border_color(gpui::rgba(self.palette.control_border))
-                                .bg(gpui::rgba(0xffffff08))
+                                .bg(gpui::rgba(crate::page_palette::tca(0xffffff08)))
                                 .flex()
                                 .items_center()
                                 .justify_center()
@@ -1366,7 +1366,7 @@ impl SharpPreview {
             .flex()
             .items_center()
             .justify_center()
-            .bg(gpui::rgba(0x000000aa))
+            .bg(gpui::rgba(crate::page_palette::tca(0x000000aa)))
             .on_click(cx.listener(|this, _, _, cx| {
                 this.live.as_mut().unwrap().confirm = None;
                 cx.notify();
