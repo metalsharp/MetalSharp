@@ -180,6 +180,13 @@ for f in "$DXVK"/LICENSE "$DXVK"/LICENSE.dxbc-spirv "$DXVK"/SHA256SUMS; do [ -e 
 # its builtin path, which takes only DLLs with Wine's builtin marker
 builtin "$M"/vkd3d/vkd3d-proton/x86_64-windows/*.dll "$L"/x86_64-windows/*.dll "$L"/i386-windows/*.dll
 basename "$DXVK" | sed 's/^dxvk-macos-\(.*\)-x86_64$/DXVK-MacOS \1/' > "$L/VERSION"
+# The lane's ddraw.dll (D3D7, 6, 5 and 3, d7vk's) passes DirectDraw itself on to Wine's own ddraw, which it loads as
+# ddraw_.dll: a copy that wineboot installs into the prefix like any builtin, and that ntdll does not give the
+# lane's ddraw.dll (is_d7vk_proxy_file())
+for a in x86_64-windows i386-windows; do
+  need "$C/lib/wine/$a/ddraw.dll"
+  cp -p "$C/lib/wine/$a/ddraw.dll" "$C/lib/wine/$a/ddraw_.dll"
+done
 
 # MoltenVK: one universal build, its Metal Shader Converter and DXBC converter next to it; the VKMT lane's
 # directory points at the same files
