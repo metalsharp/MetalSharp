@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Dark and Light themes are black and white** — Dark is a black UI with white text (white accent; the selected card keeps its blue glow), and Light a white UI with black text (blue accent, and the selected card glows blue, where the cream glow vanished on white). The library's fixed colors follow them: neutral grays, off-whites and near-blacks turn to the theme's black or white, and colored values (accents, status, art) stay. The other themes are unchanged.
+- **Lava is a calm cabernet** — a slightly bright cabernet red (`#B0394D`) in place of the bright lava red, with softer surfaces and glow.
+- **One sidebar with Liquid Glass and without** — the classic sidebar behaves as the Liquid Glass one does: as wide as the header's launcher button, with the larger rows and text, and always beside the page.
+
+### Removed
+
+- **The Skeleton theme.** A saved Skeleton choice opens in Dark.
+
+### Fixed
+
+- **Glass Transparency reaches every store page** — a launcher page with no games (Battle.net, Rockstar, GOG, Epic, Windows Programs) had no glass for the slider to clear; it is now a pane of glass, as the library's shelf is. A game without art (most Windows programs) has a glass hero in place of dark scrims over nothing.
+- **No theme color in the Liquid Glass sidebar** — the sidebar has its own neutral glass, tinted with the page's color instead of the accent, and keeps its blur at any transparency, so the theme's color doesn't wash into it.
+- **The graphics selector reads over anything** — its list is a dark overlay of the theme's menu color that Glass Transparency doesn't thin, so the art and cards behind it don't show through.
+
 ## v1.4.0 — 2026-11-17
 
 MetalSharp 1.4.0 runs on [MetalSharp Wine 8.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v8.0) on both runtimes, with one game settings panel for every library, MetalVR headsets and Liquid Glass.
