@@ -1711,7 +1711,7 @@ impl SettingsPreview {
             .items_center()
             .justify_center()
             .p(px(24.0))
-            .bg(rgba(0x00000088))
+            .bg(rgba(crate::page_palette::tca(0x00000088)))
             .on_click(cx.listener(|this, _, _, cx| {
                 this.confirm = None;
                 cx.stop_propagation();
@@ -2201,8 +2201,8 @@ impl Render for SettingsPreview {
             self.tr("ui.settings.forceKill"),
             self.tr("ui.settingsDesc.forceKill"),
             self.action_button("force-kill", self.tr("ui.settings.forceKill"), false)
-                .bg(rgba(0xff5c5c1f))
-                .border_color(rgba(0xff5c5c8c))
+                .bg(rgba(crate::page_palette::tca(0xff5c5c1f)))
+                .border_color(rgba(crate::page_palette::tca(0xff5c5c8c)))
                 .text_color(rgb(if p.light { 0xa33131 } else { 0xff8585 }))
                 .on_click(cx.listener(|s, _, _, cx| {
                     s.confirm = Some(ConfirmAction::ForceKill);
@@ -2640,8 +2640,8 @@ impl Render for SettingsPreview {
                 label,
                 desc,
                 self.action_button(id, label, false)
-                    .bg(rgba(0xff5c5c1f))
-                    .border_color(rgba(0xff5c5c8c))
+                    .bg(rgba(crate::page_palette::tca(0xff5c5c1f)))
+                    .border_color(rgba(crate::page_palette::tca(0xff5c5c8c)))
                     .text_color(rgb(if p.light { 0xa33131 } else { 0xff8585 }))
                     .on_click(cx.listener(move |s, _, _, cx| {
                         s.confirm = Some(ConfirmAction::UninstallRuntime(variant));
@@ -2654,8 +2654,8 @@ impl Render for SettingsPreview {
             self.tr("ui.settings.uninstall"),
             self.tr("ui.settingsDesc.uninstall"),
             self.action_button("uninstall", self.tr("ui.settings.uninstall"), false)
-                .bg(rgba(0xff5c5c1f))
-                .border_color(rgba(0xff5c5c8c))
+                .bg(rgba(crate::page_palette::tca(0xff5c5c1f)))
+                .border_color(rgba(crate::page_palette::tca(0xff5c5c8c)))
                 .text_color(rgb(if p.light { 0xa33131 } else { 0xff8585 }))
                 .on_click(cx.listener(|s, _, _, cx| {
                     s.confirm = Some(ConfirmAction::Uninstall);

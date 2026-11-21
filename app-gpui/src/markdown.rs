@@ -262,8 +262,8 @@ fn style(span: Span) -> HighlightStyle {
             ..Default::default()
         },
         Span::Code => HighlightStyle {
-            background_color: Some(rgba(0xffffff1a).into()),
-            color: Some(rgb(0xf0d9a8).into()),
+            background_color: Some(rgba(crate::page_palette::tca(0xffffff1a)).into()),
+            color: Some(rgb(crate::page_palette::tc(0xf0d9a8)).into()),
             ..Default::default()
         },
         Span::Strike => HighlightStyle {
@@ -388,7 +388,7 @@ pub fn render(id: &str, source: &str) -> Vec<AnyElement> {
                 Block::Quote(inline) => div()
                     .pl(px(10.0))
                     .border_l_2()
-                    .border_color(rgba(0xffffff2e))
+                    .border_color(rgba(crate::page_palette::tca(0xffffff2e)))
                     .text_size(px(13.0))
                     .line_height(px(19.0))
                     .text_color(rgb(MUTED))
@@ -397,7 +397,7 @@ pub fn render(id: &str, source: &str) -> Vec<AnyElement> {
                 Block::Code(text) => div()
                     .p(px(10.0))
                     .rounded(px(6.0))
-                    .bg(rgba(0xffffff0d))
+                    .bg(rgba(crate::page_palette::tca(0xffffff0d)))
                     .font_family("Menlo")
                     .text_size(px(12.0))
                     .line_height(px(17.0))
@@ -407,14 +407,14 @@ pub fn render(id: &str, source: &str) -> Vec<AnyElement> {
                 Block::Rule => div()
                     .h(px(1.0))
                     .my(px(4.0))
-                    .bg(rgba(0xffffff1f))
+                    .bg(rgba(crate::page_palette::tca(0xffffff1f)))
                     .into_any_element(),
                 Block::Row { header, cells } => div()
                     .flex()
                     .gap(px(12.0))
                     .py(px(4.0))
                     .border_b_1()
-                    .border_color(rgba(0xffffff14))
+                    .border_color(rgba(crate::page_palette::tca(0xffffff14)))
                     .text_size(px(12.5))
                     .text_color(rgb(TEXT))
                     .when(header, |row| row.font_weight(FontWeight::SEMIBOLD))

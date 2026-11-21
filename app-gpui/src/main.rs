@@ -67,9 +67,6 @@ impl gpui::AssetSource for PreviewIcons {
             "icon-play.svg" => Some(Cow::Borrowed(include_bytes!("../assets/icon-play.svg"))),
             "stream-tv.svg" => Some(Cow::Borrowed(include_bytes!("../assets/stream-tv.svg"))),
             "stream-wifi.svg" => Some(Cow::Borrowed(include_bytes!("../assets/stream-wifi.svg"))),
-            "theme-skeleton.svg" => Some(Cow::Borrowed(include_bytes!(
-                "../assets/theme-skeleton.svg"
-            ))),
             "theme-forest.svg" => Some(Cow::Borrowed(include_bytes!("../assets/theme-forest.svg"))),
             "theme-orange.svg" => Some(Cow::Borrowed(include_bytes!("../assets/theme-orange.svg"))),
             "source-installers.svg" => Some(Cow::Borrowed(include_bytes!(
@@ -125,7 +122,6 @@ impl gpui::AssetSource for PreviewIcons {
             "icon-play.svg".into(),
             "stream-tv.svg".into(),
             "stream-wifi.svg".into(),
-            "theme-skeleton.svg".into(),
             "theme-forest.svg".into(),
             "theme-orange.svg".into(),
             "launch-settings.svg".into(),

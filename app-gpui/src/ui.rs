@@ -248,7 +248,6 @@ pub(crate) fn control_icon(asset: &'static str, size: f32, color: u32) -> gpui::
 enum PreviewTheme {
     Dark,
     Light,
-    Skeleton,
     Forest,
     OrangePeel,
     Dragonfruit,
@@ -257,10 +256,9 @@ enum PreviewTheme {
 }
 
 impl PreviewTheme {
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 7] = [
         Self::Dark,
         Self::Light,
-        Self::Skeleton,
         Self::Forest,
         Self::OrangePeel,
         Self::Dragonfruit,
@@ -272,7 +270,6 @@ impl PreviewTheme {
         match self {
             Self::Dark => "Dark",
             Self::Light => "Light",
-            Self::Skeleton => "Skeleton",
             Self::Forest => "Forest",
             Self::OrangePeel => "Orange Peel",
             Self::Dragonfruit => "Dragonfruit",
@@ -285,7 +282,6 @@ impl PreviewTheme {
         let asset = match self {
             Self::Dark => Some("theme-moon.svg"),
             Self::Light => Some("theme-sun.svg"),
-            Self::Skeleton => Some("theme-skeleton.svg"),
             Self::Forest => Some("theme-forest.svg"),
             Self::OrangePeel => Some("theme-orange.svg"),
             Self::Dragonfruit => Some("theme-dragonfruit.svg"),
@@ -312,7 +308,7 @@ impl PreviewTheme {
 
     fn button_border(self) -> u32 {
         if self == Self::Light {
-            0xffffff
+            0xd4d4d4
         } else {
             self.accent()
         }
@@ -328,7 +324,7 @@ impl PreviewTheme {
 
     fn menu_hover(self) -> u32 {
         if self == Self::Light {
-            0xececec
+            0xeeeeee
         } else {
             self.control_hover()
         }
@@ -336,13 +332,14 @@ impl PreviewTheme {
 
     fn accent(self) -> u32 {
         match self {
-            Self::Dark => 0xe8d6b7,
+            // black and white: the accent is white
+            Self::Dark => 0xf2f2f2,
             Self::Light => 0x4db8ff,
-            Self::Skeleton => 0xd6d0c4,
             Self::Forest => 0x6fce88,
             Self::OrangePeel => 0xff9a45,
             Self::Dragonfruit => 0xff66aa,
-            Self::Lava => 0xf23a2e,
+            // a calm, slightly bright cabernet
+            Self::Lava => 0xb0394d,
             Self::Space => 0xb48cff,
         }
     }
@@ -350,12 +347,12 @@ impl PreviewTheme {
     fn dock_glow(self) -> u32 {
         match self {
             Self::Dark => 0x2aa1ff,
-            Self::Light => 0xfff3dc,
-            Self::Skeleton => 0xd6d0c4,
+            // a white page: the glow is the accent's blue (cream vanished on it)
+            Self::Light => 0x4db8ff,
             Self::Forest => 0x6fce88,
             Self::OrangePeel => 0xff7a1a,
             Self::Dragonfruit => 0xff2e88,
-            Self::Lava => 0xff2418,
+            Self::Lava => 0xc8455c,
             // Purple underglow beneath the dock's cards.
             Self::Space => 0x8a3dff,
         }
@@ -363,26 +360,24 @@ impl PreviewTheme {
 
     fn control_bg(self) -> u32 {
         match self {
-            Self::Dark => 0x080a0d,
-            Self::Light => 0xfdfbf7,
-            Self::Skeleton => 0x242424,
+            Self::Dark => 0x000000,
+            Self::Light => 0xffffff,
             Self::Forest => 0x182219,
             Self::OrangePeel => 0x231610,
             Self::Dragonfruit => 0x2c182a,
-            Self::Lava => 0x2a0a0c,
+            Self::Lava => 0x22090e,
             Self::Space => 0x120d24,
         }
     }
 
     fn control_hover(self) -> u32 {
         match self {
-            Self::Dark => 0x171a1e,
-            Self::Light => 0xffffff,
-            Self::Skeleton => 0x303030,
+            Self::Dark => 0x161616,
+            Self::Light => 0xf0f0f0,
             Self::Forest => 0x1e2b20,
             Self::OrangePeel => 0x2b1b12,
             Self::Dragonfruit => 0x361e33,
-            Self::Lava => 0x3c0e10,
+            Self::Lava => 0x320f16,
             Self::Space => 0x1c1535,
         }
     }
@@ -390,11 +385,10 @@ impl PreviewTheme {
     fn control_text(self) -> u32 {
         match self {
             Self::Light => 0x000000,
-            Self::Skeleton => 0xeeeeee,
             Self::Forest => 0xdce8dc,
             Self::OrangePeel => 0xf2e4d8,
             Self::Dragonfruit => 0xf8e4f0,
-            Self::Lava => 0xfff2ee,
+            Self::Lava => 0xfbeef0,
             Self::Space => 0xece6ff,
             Self::Dark => 0xffffff,
         }
@@ -402,13 +396,12 @@ impl PreviewTheme {
 
     fn border(self) -> u32 {
         match self {
-            Self::Dark => 0x515456,
-            Self::Light => 0xffffff,
-            Self::Skeleton => 0x555555,
+            Self::Dark => 0x3a3a3a,
+            Self::Light => 0xd4d4d4,
             Self::Forest => 0x45634b,
             Self::OrangePeel => 0x65452f,
             Self::Dragonfruit => 0x70405e,
-            Self::Lava => 0x74282a,
+            Self::Lava => 0x6a2a35,
             Self::Space => 0x4a3a78,
         }
     }
@@ -419,12 +412,11 @@ impl PreviewTheme {
             border: self.border(),
             control_border: match self {
                 Self::Dark => 0xffffff38,
-                Self::Light => 0x1e27323d,
-                Self::Skeleton => 0xeeeeee3d,
+                Self::Light => 0x0000002e,
                 Self::Forest => 0x8cbe963d,
                 Self::OrangePeel => 0xffaa783d,
                 Self::Dragonfruit => 0xffaad23d,
-                Self::Lava => 0xf5463a4d,
+                Self::Lava => 0xd0607a4d,
                 Self::Space => 0xb48cff3d,
             },
             control_bg: self.control_bg(),
@@ -442,17 +434,17 @@ impl PreviewTheme {
     fn spectrum(self) -> [gpui::Hsla; 3] {
         if self == Self::Dark {
             return [
-                rgb(0x5fe1ff).into(),
-                rgb(0x3d7bff).into(),
-                rgb(0x9b7bff).into(),
+                rgb(crate::page_palette::tc(0x5fe1ff)).into(),
+                rgb(crate::page_palette::tc(0x3d7bff)).into(),
+                rgb(crate::page_palette::tc(0x9b7bff)).into(),
             ];
         }
         // Galaxy: cosmic blue → violet → nebula magenta.
         if self == Self::Space {
             return [
-                rgb(0x6a7dff).into(),
-                rgb(0x9b5cff).into(),
-                rgb(0xe36bff).into(),
+                rgb(crate::page_palette::tc(0x6a7dff)).into(),
+                rgb(crate::page_palette::tc(0x9b5cff)).into(),
+                rgb(crate::page_palette::tc(0xe36bff)).into(),
             ];
         }
         let base: gpui::Hsla = rgb(self.accent()).into();
@@ -468,6 +460,8 @@ impl PreviewTheme {
     /// Page background behind the library and collection views.
     fn page_bg(self) -> u32 {
         match self {
+            Self::Dark => 0x000000,
+            Self::Light => 0xffffff,
             Self::Space => 0x0a0818,
             _ => 0x111416,
         }
@@ -476,6 +470,8 @@ impl PreviewTheme {
     /// The lighter top of gradients that fade into `page_bg`.
     fn page_bg_raised(self) -> u32 {
         match self {
+            Self::Dark => 0x0b0b0b,
+            Self::Light => 0xf4f4f4,
             Self::Space => 0x140f2a,
             _ => 0x1a1d20,
         }
@@ -484,6 +480,8 @@ impl PreviewTheme {
     /// Chrome bar ink: (the lighter edge, the deep edge).
     fn chrome_ink(self) -> (u32, u32) {
         match self {
+            Self::Dark => (0x080808, 0x000000),
+            Self::Light => (0xf7f7f7, 0xffffff),
             Self::Space => (0x110c26, 0x07051a),
             _ => (0x0d1018, 0x07080d),
         }
@@ -493,9 +491,19 @@ impl PreviewTheme {
 impl PreviewTheme {
     fn hero_title(self) -> u32 {
         match self {
-            Self::Skeleton => 0xeeeeee,
+            Self::Dark => 0xffffff,
+            Self::Light => 0x000000,
             Self::Space => 0xe4dcff,
             _ => 0xefcf9d,
+        }
+    }
+
+    /// How the library's fixed colors are shown: black and white for Dark and Light, as they are otherwise.
+    fn tone(self) -> crate::page_palette::Tone {
+        match self {
+            Self::Dark => crate::page_palette::Tone::Black,
+            Self::Light => crate::page_palette::Tone::White,
+            _ => crate::page_palette::Tone::Keep,
         }
     }
 
@@ -504,7 +512,6 @@ impl PreviewTheme {
         match self {
             Self::Dark => "dark",
             Self::Light => "light",
-            Self::Skeleton => "skeleton",
             Self::Forest => "forest",
             Self::OrangePeel => "orange-peel",
             Self::Dragonfruit => "dragonfruit",
@@ -756,7 +763,7 @@ pub struct MetalSharpApp {
     glass_transparency: u8,
     /// The window background last set (blurred for Liquid Glass)
     window_glass: Option<bool>,
-    /// The right edge of the header's launcher button, as last painted: the glass sidebar ends there
+    /// The right edge of the header's launcher button, as last painted: the sidebar ends there
     launcher_edge: std::rc::Rc<std::cell::Cell<f32>>,
     /// The library's layout, and the tab it opens on: Grid (Collection) or Steam Deck (Play).
     library_grid: bool,
@@ -964,8 +971,8 @@ impl MetalSharpApp {
                     .flex()
                     .items_center()
                     .rounded(px(8.0))
-                    .bg(rgb(0xefe7d6))
-                    .text_color(rgb(0x14161a))
+                    .bg(rgb(crate::page_palette::tc(0xefe7d6)))
+                    .text_color(rgb(crate::page_palette::tc(0x14161a)))
                     .font_weight(FontWeight::BOLD)
                     .cursor_pointer()
                     .on_click(cx.listener(|this, _, _, cx| this.retry_boot(cx)))
@@ -997,7 +1004,7 @@ impl MetalSharpApp {
                     .p(px(28.0))
                     .rounded(px(14.0))
                     .border_1()
-                    .border_color(rgb(0x292b2d))
+                    .border_color(rgb(crate::page_palette::tc(0x292b2d)))
                     .bg(rgb(PANEL_BG))
                     .flex()
                     .flex_col()
@@ -1028,7 +1035,7 @@ impl MetalSharpApp {
                             .h(px(8.0))
                             .w_full()
                             .rounded_full()
-                            .bg(rgb(0x2a2d30))
+                            .bg(rgb(crate::page_palette::tc(0x2a2d30)))
                             .child(
                                 div()
                                     .h(px(8.0))
@@ -1045,8 +1052,8 @@ impl MetalSharpApp {
                             .items_center()
                             .justify_center()
                             .rounded(px(8.0))
-                            .bg(rgb(0xefe7d6))
-                            .text_color(rgb(0x14161a))
+                            .bg(rgb(crate::page_palette::tc(0xefe7d6)))
+                            .text_color(rgb(crate::page_palette::tc(0x14161a)))
                             .font_weight(FontWeight::BOLD)
                             .cursor_pointer()
                             .on_click(
@@ -1102,7 +1109,7 @@ impl MetalSharpApp {
                 let notes = if notes.trim().is_empty() {
                     vec![
                         body("No release notes were published for this update.".into())
-                            .text_color(rgb(0x9aa09e))
+                            .text_color(rgb(crate::page_palette::tc(0x9aa09e)))
                             .into_any_element(),
                     ]
                 } else {
@@ -1123,7 +1130,7 @@ impl MetalSharpApp {
                                 .children(name.map(|name| {
                                     div()
                                         .text_size(px(12.0))
-                                        .text_color(rgb(0x9aa09e))
+                                        .text_color(rgb(crate::page_palette::tc(0x9aa09e)))
                                         .child(name)
                                 })),
                         )
@@ -1182,11 +1189,13 @@ impl MetalSharpApp {
                             .p(px(14.0))
                             .rounded(px(9.0))
                             .border_1()
-                            .border_color(rgba(0xffffff24))
-                            .bg(rgba(0xffffff08))
+                            .border_color(rgba(crate::page_palette::tca(0xffffff24)))
+                            .bg(rgba(crate::page_palette::tca(0xffffff08)))
                             .when(!installed, |option| {
                                 option.cursor_pointer().hover(|style| {
-                                    style.border_color(rgba(0x5fb7e8ff)).bg(rgba(0x5fb7e81a))
+                                    style
+                                        .border_color(rgba(crate::page_palette::tca(0x5fb7e8ff)))
+                                        .bg(rgba(crate::page_palette::tca(0x5fb7e81a)))
                                 })
                             })
                             .opacity(if installed { 0.6 } else { 1.0 })
@@ -1203,7 +1212,7 @@ impl MetalSharpApp {
                                 div()
                                     .text_size(px(12.0))
                                     .line_height(px(17.0))
-                                    .text_color(rgb(0x9aa09e))
+                                    .text_color(rgb(crate::page_palette::tc(0x9aa09e)))
                                     .child(detail),
                             )
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -1369,7 +1378,7 @@ impl MetalSharpApp {
             .flex()
             .items_center()
             .justify_center()
-            .bg(rgba(0x000000a0))
+            .bg(rgba(crate::page_palette::tca(0x000000a0)))
             .on_click(cx.listener(move |this, _, _, cx| close(this, cx)))
             .child(
                 div()
@@ -1380,9 +1389,9 @@ impl MetalSharpApp {
                     .p(px(22.0))
                     .rounded(px(12.0))
                     .border_1()
-                    .border_color(rgba(0xffffff1f))
-                    .bg(rgb(0x14171a))
-                    .text_color(rgb(0xe6e8e7))
+                    .border_color(rgba(crate::page_palette::tca(0xffffff1f)))
+                    .bg(rgb(crate::page_palette::tc(0x14171a)))
+                    .text_color(rgb(crate::page_palette::tc(0xe6e8e7)))
                     .child(content),
             )
     }
@@ -1390,6 +1399,8 @@ impl MetalSharpApp {
 
 impl Render for MetalSharpApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Dark and Light are black and white UIs: the fixed colors painted this frame follow the theme
+        crate::page_palette::set_tone(self.theme.tone());
         self.ensure_inputs(cx);
         // Liquid Glass: the desktop shows through the window, blurred, under the translucent page.
         // Liquid Glass: AppKit's glass under GPUI's view (liquid_glass.rs, glass/MSGlass.swift), which GPUI leaves
@@ -1475,7 +1486,7 @@ impl Render for MetalSharpApp {
                         .overflow_hidden()
                         .rounded(px(18.0))
                         .border_1()
-                        .border_color(rgb(0x292b2d))
+                        .border_color(rgb(crate::page_palette::tc(0x292b2d)))
                         .bg(rgb(PANEL_BG))
                         .shadow_lg()
                         .child(render_visual(asset, self.copy.steps.clone(), self.step))
@@ -1563,7 +1574,7 @@ fn render_visual(
         .flex()
         .flex_col()
         .overflow_hidden()
-        .bg(rgb(0x0b0e12))
+        .bg(rgb(crate::page_palette::tc(0x0b0e12)))
         .child(
             img(asset("setup-backdrop.png"))
                 .absolute()
@@ -1697,12 +1708,22 @@ impl MetalSharpApp {
         }
     }
 
+    /// The graphics selector's fill: a dark overlay of the theme's menu color, nearly opaque and not thinned by
+    /// Glass Transparency, so the art and cards behind it don't show through its list.
+    fn overlay_menu_fill(&self) -> gpui::Rgba {
+        if self.glass() {
+            rgba((self.theme.menu_bg() << 8) | 0xeb)
+        } else {
+            rgba((self.theme.menu_bg() << 8) | 0xff)
+        }
+    }
+
     /// A dropdown row's fill: the chosen (or hovered) row is lit; the others show the menu itself, which under
     /// Liquid Glass is glass.
     fn menu_item_fill(&self, lit: bool) -> gpui::Rgba {
         match (self.glass(), lit) {
-            (true, true) => rgba(0xffffff29),
-            (true, false) => rgba(0x00000000),
+            (true, true) => rgba(crate::page_palette::tca(0xffffff29)),
+            (true, false) => rgba(crate::page_palette::tca(0x00000000)),
             (false, true) => rgba((self.theme.menu_hover() << 8) | 0xff),
             (false, false) => rgba((self.theme.menu_bg() << 8) | 0xff),
         }
@@ -1721,10 +1742,13 @@ impl MetalSharpApp {
             // the glass itself is AppKit's, under GPUI: here a wash of the theme's accent over it, and its rim
             (
                 rgba((self.theme.accent() << 8) | self.glass_wash(0x30)),
-                rgba(0xffffff4d),
+                rgba(crate::page_palette::tca(0xffffff4d)),
             )
         } else {
-            (rgba(0x0c0f10b8), rgba(0xe7eaec4d))
+            (
+                rgba(crate::page_palette::tca(0x0c0f10b8)),
+                rgba(crate::page_palette::tca(0xe7eaec4d)),
+            )
         }
     }
 
@@ -1806,17 +1830,15 @@ impl MetalSharpApp {
         }
         let show_search = self.page != LibraryPage::Logs
             && matches!(self.active_tab, LibraryTab::Play | LibraryTab::Collection);
-        // Narrow enough to end left of the header's launcher button.
-        // under Liquid Glass it ends where the header's launcher button does (measured as that is painted)
-        let sidebar_full = if self.glass() {
+        // It ends where the header's launcher button does (measured as that is painted), with Liquid Glass and
+        // without
+        let sidebar_full = {
             let edge = self.launcher_edge.get();
             if edge > 0.0 {
                 edge + layout.scaled(10.0)
             } else {
                 layout.scaled(264.0)
             }
-        } else {
-            layout.scaled(186.0)
         };
         let sidebar_width = sidebar_full * self.sidebar_slide_fraction();
         // In a narrow window the sidebar slides over the page instead of
@@ -2005,9 +2027,9 @@ impl MetalSharpApp {
                         ),
                     )
                 })
-                .text_color(rgb(0xffffff))
+                .text_color(rgb(crate::page_palette::tc(0xffffff)))
                 .cursor_pointer()
-                .hover(|style| style.bg(rgba(0xffffff1f)))
+                .hover(|style| style.bg(rgba(crate::page_palette::tca(0xffffff1f))))
         };
         let header = div()
             .id("library-header")
@@ -2029,7 +2051,7 @@ impl MetalSharpApp {
                     .gap(px(layout.scaled(10.0)))
                     .text_size(px(layout.scaled(15.0)))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgb(0xe9edf7))
+                    .text_color(rgb(crate::page_palette::tc(0xe9edf7)))
                     // the sidebar toggle sits in the corner on its own: no logo or name before it
                     .child(
                         plain_icon("library-sidebar-toggle")
@@ -2091,7 +2113,7 @@ impl MetalSharpApp {
                                 ))
                             })
                             .text_size(px(layout.scaled(14.0)))
-                            .text_color(rgb(0xaaaaaa))
+                            .text_color(rgb(crate::page_palette::tc(0xaaaaaa)))
                             .cursor(gpui::CursorStyle::IBeam)
                             .on_click(cx.listener(|this, _, window, cx| {
                                 if let Some(input) = &this.search_input {
@@ -2195,7 +2217,7 @@ impl MetalSharpApp {
             .overflow_hidden()
             .font_family("Rethink Sans")
             .bg(if self.glass() {
-                rgba(0x00000000)
+                rgba(crate::page_palette::tca(0x00000000))
             } else {
                 rgba((self.theme.page_bg() << 8) | 0xff)
             })
@@ -2502,10 +2524,10 @@ impl MetalSharpApp {
         if opening { eased } else { 1.0 - eased }
     }
 
-    /// Below this width the sidebar covers the page rather than narrowing it.
-    fn sidebar_overlays(&self, viewport: gpui::Size<gpui::Pixels>) -> bool {
-        // under Liquid Glass it is always beside the page: glass over the page would show the page through it
-        !self.glass() && f32::from(viewport.width) < 1180.0
+    /// Whether the sidebar covers the page rather than narrowing it: never. It is always beside the page, with
+    /// Liquid Glass (whose glass over the page would show the page through it) and without, so both behave alike.
+    fn sidebar_overlays(&self, _viewport: gpui::Size<gpui::Pixels>) -> bool {
+        false
     }
 
     fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
@@ -2548,8 +2570,8 @@ impl MetalSharpApp {
         let accent = theme.accent();
         let (ink, _) = theme.chrome_ink();
         let glass = self.glass();
-        // the wider glass pane has larger rows and text
-        let k = if glass { 1.12 } else { 1.0 };
+        // the wide pane has larger rows and text, with Liquid Glass and without
+        let k = 1.12;
         let item = |page: LibraryPage, index: usize, cx: &mut Context<Self>| {
             let selected = page == self.page;
             div()
@@ -2570,7 +2592,7 @@ impl MetalSharpApp {
                 .text_color(rgb(if selected { 0xffffff } else { 0xc3cbd8 }))
                 .when(selected, |d| d.bg(rgba((accent << 8) | 0x2e)))
                 .cursor_pointer()
-                .hover(|style| style.bg(rgba(0xffffff14)))
+                .hover(|style| style.bg(rgba(crate::page_palette::tca(0xffffff14))))
                 .on_click(cx.listener(move |this, _, _, cx| this.set_page(page, cx)))
                 .child(
                     div()
@@ -2625,9 +2647,10 @@ impl MetalSharpApp {
                     .px(px(layout.scaled(10.0)))
                     .when(!glass, |panel| panel.bg(rgba((ink << 8) | 0xf0)))
                     .when(glass, |panel| {
+                        // its own neutral glass, in the page's color: the accent tinted it and washed into it
                         panel.child(crate::liquid_glass::mark(
                             "library-sidebar",
-                            crate::liquid_glass::Glass::Panel,
+                            crate::liquid_glass::Glass::Sidebar,
                             0.0,
                         ))
                     })
@@ -2656,27 +2679,25 @@ impl MetalSharpApp {
                 .flex()
                 .flex_none()
                 .when(glass, |group| {
-                    let edge = self.launcher_edge.clone();
-                    group
-                        .rounded_full()
-                        .border_1()
-                        .border_color(border)
-                        .child(crate::liquid_glass::mark(
+                    group.rounded_full().border_1().border_color(border).child(
+                        crate::liquid_glass::mark(
                             "launcher-group",
                             crate::liquid_glass::Glass::Control,
                             999.0,
-                        ))
-                        // where the group ends: the sidebar ends there too
-                        .child(
-                            gpui::canvas(
-                                |_, _, _| (),
-                                move |bounds, (), _, _| edge.set(f32::from(bounds.right())),
-                            )
-                            .absolute()
-                            .top_0()
-                            .left_0()
-                            .size_full(),
-                        )
+                        ),
+                    )
+                })
+                // where the group ends: the sidebar ends there too, with Liquid Glass and without
+                .child({
+                    let edge = self.launcher_edge.clone();
+                    gpui::canvas(
+                        |_, _, _| (),
+                        move |bounds, (), _, _| edge.set(f32::from(bounds.right())),
+                    )
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full()
                 })
                 .child(
                     div()
@@ -2694,7 +2715,7 @@ impl MetalSharpApp {
                         .when(glass, |d| d.border_0().rounded_l(px(999.0)))
                         .text_size(px(layout.scaled(13.0)))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(rgb(0xffffff))
+                        .text_color(rgb(crate::page_palette::tc(0xffffff)))
                         .when(busy, |d| d.opacity(0.7))
                         .when(!busy, |d| {
                             d.cursor_pointer().hover(move |style| {
@@ -2778,7 +2799,7 @@ impl MetalSharpApp {
                 .bg(rgba(if primary { 0x5fb7e833 } else { 0xffffff0a }))
                 .text_size(px(11.5))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(0xe6e8e7))
+                .text_color(rgb(crate::page_palette::tc(0xe6e8e7)))
                 .cursor_pointer()
                 .child(label)
         };
@@ -2792,12 +2813,12 @@ impl MetalSharpApp {
                 .gap(px(12.0))
                 .px(px(16.0))
                 .py(px(8.0))
-                .bg(rgb(0x15191c))
+                .bg(rgb(crate::page_palette::tc(0x15191c)))
                 .border_b_1()
-                .border_color(rgba(0x8caac814))
+                .border_color(rgba(crate::page_palette::tca(0x8caac814)))
                 .text_size(px(12.0))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(0xe6e8e7))
+                .text_color(rgb(crate::page_palette::tc(0xe6e8e7)))
                 .child(if downloading {
                     div().child(self.live.update_message.clone())
                 } else {
@@ -2805,19 +2826,23 @@ impl MetalSharpApp {
                         .flex()
                         .gap(px(8.0))
                         .child(format!("MetalSharp v{version} is available"))
-                        .child(div().text_color(rgb(0x9aa09e)).child(changelog))
+                        .child(
+                            div()
+                                .text_color(rgb(crate::page_palette::tc(0x9aa09e)))
+                                .child(changelog),
+                        )
                 })
                 .children(downloading.then(|| {
                     div()
                         .w(px(160.0))
                         .h(px(5.0))
                         .rounded_full()
-                        .bg(rgb(0x2a2d30))
+                        .bg(rgb(crate::page_palette::tc(0x2a2d30)))
                         .child(
                             div()
                                 .h(px(5.0))
                                 .rounded_full()
-                                .bg(rgb(0x5fb7e8))
+                                .bg(rgb(crate::page_palette::tc(0x5fb7e8)))
                                 .w(relative(
                                     (self.live.update_progress / 100.0).clamp(0.0, 1.0),
                                 )),
@@ -2937,7 +2962,7 @@ impl MetalSharpApp {
             .justify_between()
             .gap(px(layout.scaled(22.0)))
             .px(px(layout.page_padding))
-            .text_color(rgb(0xd8dad9))
+            .text_color(rgb(crate::page_palette::tc(0xd8dad9)))
             .flex_none()
             .child(
                 div()
@@ -2953,7 +2978,7 @@ impl MetalSharpApp {
                             .items_center()
                             .justify_center()
                             .text_size(px(layout.scaled(20.0)))
-                            .text_color(rgb(0x74d28a))
+                            .text_color(rgb(crate::page_palette::tc(0x74d28a)))
                             .child("✓"),
                     )
                     .child(
@@ -2966,7 +2991,7 @@ impl MetalSharpApp {
                                 div()
                                     .text_size(px(layout.scaled(13.0)))
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(rgb(0xe2e4e3))
+                                    .text_color(rgb(crate::page_palette::tc(0xe2e4e3)))
                                     .truncate()
                                     .child(ready_label),
                             )
@@ -2988,9 +3013,9 @@ impl MetalSharpApp {
                     .py(px(layout.scaled(7.0)))
                     .rounded(px(layout.scaled(10.0)))
                     .border_1()
-                    .border_color(rgba(0xaabeff1f))
-                    .bg(rgba(0xffffff08))
-                    .text_color(rgb(0xd8dad9))
+                    .border_color(rgba(crate::page_palette::tca(0xaabeff1f)))
+                    .bg(rgba(crate::page_palette::tca(0xffffff08)))
+                    .text_color(rgb(crate::page_palette::tc(0xd8dad9)))
                     .flex_none()
                     .id("footer-stream")
                     .cursor_pointer()
@@ -3025,7 +3050,7 @@ impl MetalSharpApp {
                                         gpui::svg()
                                             .path("stream-wifi.svg")
                                             .size(px(layout.scaled(9.0)))
-                                            .text_color(rgb(0x0f1214)),
+                                            .text_color(rgb(crate::page_palette::tc(0x0f1214))),
                                     ),
                             ),
                     )
@@ -3102,7 +3127,7 @@ impl MetalSharpApp {
                                 div()
                                     .text_size(px(layout.scaled(13.0)))
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(rgb(0xe2e4e3))
+                                    .text_color(rgb(crate::page_palette::tc(0xe2e4e3)))
                                     .truncate()
                                     .child(update_title),
                             )
@@ -3118,12 +3143,12 @@ impl MetalSharpApp {
                                     .w(px(layout.scaled(140.0)))
                                     .h(px(layout.scaled(3.0)))
                                     .rounded_full()
-                                    .bg(rgb(0x2a2d30))
+                                    .bg(rgb(crate::page_palette::tc(0x2a2d30)))
                                     .child(
                                         div()
                                             .h(px(layout.scaled(3.0)))
                                             .rounded_full()
-                                            .bg(rgb(0x74d28a))
+                                            .bg(rgb(crate::page_palette::tc(0x74d28a)))
                                             .w(relative(progress as f32 / 100.0)),
                                     )
                             })),
@@ -3185,7 +3210,7 @@ impl MetalSharpApp {
                     button
                         .relative()
                         .rounded_full()
-                        .border_color(rgba(0xffffffa6))
+                        .border_color(rgba(crate::page_palette::tca(0xffffffa6)))
                         .bg(rgba((theme.accent() << 8) | 0xeb))
                         .text_color(rgb(ink_on(theme.accent())))
                         .child(crate::liquid_glass::mark(
@@ -3267,6 +3292,15 @@ impl MetalSharpApp {
             .min_h_0()
             .overflow_y_scroll()
             .when(!self.glass(), |page| page.bg(rgb(self.theme.page_bg())))
+            // under Liquid Glass the page is a pane of glass, as the library's shelf is, so Glass Transparency
+            // reaches a launcher's page with no games (it had no glass, and the slider changed nothing there)
+            .when(self.glass(), |page| {
+                page.relative().child(crate::liquid_glass::mark(
+                    ("library-empty", self.page),
+                    crate::liquid_glass::Glass::Panel,
+                    0.0,
+                ))
+            })
             .flex()
             .flex_col()
             .child(
@@ -3288,7 +3322,9 @@ impl MetalSharpApp {
                         ))
                     })
                     .child(if searching {
-                        div().text_color(rgb(0xd4d5d4)).child("No matching games")
+                        div()
+                            .text_color(rgb(crate::page_palette::tc(0xd4d5d4)))
+                            .child("No matching games")
                     } else {
                         div()
                             .max_w(px(560.0))
@@ -3303,7 +3339,7 @@ impl MetalSharpApp {
                                 div()
                                     .text_size(px(11.0))
                                     .font_weight(FontWeight::BOLD)
-                                    .text_color(rgb(0xb9b0a1))
+                                    .text_color(rgb(crate::page_palette::tc(0xb9b0a1)))
                                     .child(format!(
                                         "YOUR {} LIBRARY",
                                         self.page.label().to_uppercase()
@@ -3320,7 +3356,7 @@ impl MetalSharpApp {
                                 div()
                                     .text_size(px(14.0))
                                     .line_height(px(21.0))
-                                    .text_color(rgb(0xaeb3b2))
+                                    .text_color(rgb(crate::page_palette::tc(0xaeb3b2)))
                                     .child(description),
                             )
                             .children(action)
@@ -3401,6 +3437,10 @@ impl MetalSharpApp {
             })
         };
         let playtime = library_model::playtime_label(game.playtime_forever);
+        // Under Liquid Glass a game without art (a Windows program, most often) has no art to keep legible: its
+        // hero is a pane of glass like the shelf, which Glass Transparency clears, not dark scrims over nothing,
+        // which the slider couldn't reach
+        let glass_pane_hero = glass && hero_art.is_none();
         let hero = div()
             .relative()
             .w_full()
@@ -3412,33 +3452,42 @@ impl MetalSharpApp {
             .overflow_hidden()
             // Scrim only where the title and Play button sit; the rest of the
             // art shows at full brightness.
-            .child(
-                div()
-                    .absolute()
-                    .top(px(0.0))
-                    .right(px(0.0))
-                    .bottom(px(0.0))
-                    .left(px(0.0))
-                    .bg(linear_gradient(
-                        90.0,
-                        linear_color_stop(rgba(0x060809e8), 0.0),
-                        linear_color_stop(rgba(0x06080900), 0.72),
-                    )),
-            )
-            // Keeps the header and launcher row legible over bright art.
-            .child(
-                div()
-                    .absolute()
-                    .top(px(0.0))
-                    .right(px(0.0))
-                    .left(px(0.0))
-                    .h(px(top_inset + layout.scaled(24.0)))
-                    .bg(linear_gradient(
-                        180.0,
-                        linear_color_stop(rgba(0x0608098c), 0.0),
-                        linear_color_stop(rgba(0x06080900), 1.0),
-                    )),
-            )
+            .when(!glass_pane_hero, |hero| {
+                hero.child(
+                    div()
+                        .absolute()
+                        .top(px(0.0))
+                        .right(px(0.0))
+                        .bottom(px(0.0))
+                        .left(px(0.0))
+                        .bg(linear_gradient(
+                            90.0,
+                            linear_color_stop(rgba(crate::page_palette::tca(0x060809e8)), 0.0),
+                            linear_color_stop(rgba(crate::page_palette::tca(0x06080900)), 0.72),
+                        )),
+                )
+                // Keeps the header and launcher row legible over bright art.
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(0.0))
+                        .right(px(0.0))
+                        .left(px(0.0))
+                        .h(px(top_inset + layout.scaled(24.0)))
+                        .bg(linear_gradient(
+                            180.0,
+                            linear_color_stop(rgba(crate::page_palette::tca(0x0608098c)), 0.0),
+                            linear_color_stop(rgba(crate::page_palette::tca(0x06080900)), 1.0),
+                        )),
+                )
+            })
+            .when(glass_pane_hero, |hero| {
+                hero.child(crate::liquid_glass::mark(
+                    ("library-hero-pane", self.page),
+                    crate::liquid_glass::Glass::Panel,
+                    0.0,
+                ))
+            })
             .child(
                 div()
                     .relative()
@@ -3454,7 +3503,7 @@ impl MetalSharpApp {
                             .mb(px(layout.scaled(12.0)))
                             .text_size(px(layout.scaled(11.0)))
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgb(0xc3cbd8))
+                            .text_color(rgb(crate::page_palette::tc(0xc3cbd8)))
                             .child("IN YOUR LIBRARY"),
                     )
                     .child(
@@ -3469,7 +3518,7 @@ impl MetalSharpApp {
                                 54.0
                             })))
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgb(0xf7f8fc))
+                            .text_color(rgb(crate::page_palette::tc(0xf7f8fc)))
                             .child(game.name.clone()),
                     )
                     .children(badge.map(|badge| {
@@ -3492,14 +3541,14 @@ impl MetalSharpApp {
                             })
                             .text_size(px(layout.scaled(11.0)))
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgb(0xf0f0ee))
+                            .text_color(rgb(crate::page_palette::tc(0xf0f0ee)))
                             .child(badge)
                     }))
                     .children(playtime.map(|playtime| {
                         div()
                             .mt(px(layout.scaled(8.0)))
                             .text_size(px(layout.scaled(12.0)))
-                            .text_color(rgb(0xc3cbd8))
+                            .text_color(rgb(crate::page_palette::tc(0xc3cbd8)))
                             .child(playtime)
                     }))
                     .child(
@@ -3528,7 +3577,9 @@ impl MetalSharpApp {
                                         // the brightest glass in the app: the one action that matters
                                         play.relative()
                                             .rounded_full()
-                                            .border_color(rgba(0xffffffa6))
+                                            .border_color(rgba(crate::page_palette::tca(
+                                                0xffffffa6,
+                                            )))
                                             // the theme's accent, lit, over its glass
                                             .bg(rgba((accent << 8) | 0xeb))
                                             .child(crate::liquid_glass::mark(
@@ -3558,7 +3609,7 @@ impl MetalSharpApp {
                                         div()
                                             .size(px(layout.scaled(13.0)))
                                             .rounded(px(2.0))
-                                            .bg(rgb(0xffffff))
+                                            .bg(rgb(crate::page_palette::tc(0xffffff)))
                                             .into_any_element()
                                     } else {
                                         control_icon(
@@ -3653,7 +3704,7 @@ impl MetalSharpApp {
                                                 )
                                             })
                                             .text_size(px(layout.scaled(16.0)))
-                                            .text_color(rgb(0xf0f0ee))
+                                            .text_color(rgb(crate::page_palette::tc(0xf0f0ee)))
                                             .cursor_pointer()
                                             .on_click(cx.listener(|this, _, _, cx| {
                                                 this.open_steam_art_manager(cx)
@@ -3690,7 +3741,9 @@ impl MetalSharpApp {
                                                         )
                                                     })
                                                     .text_size(px(layout.scaled(12.0)))
-                                                    .text_color(rgb(0xf0f0ee))
+                                                    .text_color(rgb(crate::page_palette::tc(
+                                                        0xf0f0ee,
+                                                    )))
                                                     .cursor_pointer()
                                                     .on_click(cx.listener(|this, _, _, cx| {
                                                         if this.live.pipeline_saving {
@@ -3737,7 +3790,7 @@ impl MetalSharpApp {
                                                     )
                                                 })
                                                 .text_size(px(layout.scaled(17.0)))
-                                                .text_color(rgb(0xf0f0ee))
+                                                .text_color(rgb(crate::page_palette::tc(0xf0f0ee)))
                                                 .cursor_pointer()
                                                 .on_click(cx.listener(|this, _, _, cx| {
                                                     let open = !this.game_settings_open;
@@ -3790,7 +3843,7 @@ impl MetalSharpApp {
                                                     )
                                                 })
                                                 .text_size(px(layout.scaled(13.0)))
-                                                .text_color(rgb(0xf0f0ee))
+                                                .text_color(rgb(crate::page_palette::tc(0xf0f0ee)))
                                                 .cursor_pointer()
                                                 .on_click(cx.listener(|this, _, _, cx| {
                                                     this.toggle_vr_server(cx)
@@ -3968,7 +4021,7 @@ impl MetalSharpApp {
                                 .rounded(px(layout.scaled(7.0)))
                                 .border_1()
                                 .border_color(rgb(if selected_card { accent } else { 0x54595b }))
-                                .bg(rgb(0x242729))
+                                .bg(rgb(crate::page_palette::tc(0x242729)))
                                 .shadow_lg()
                         })
                         .child(match card_art {
@@ -4005,7 +4058,7 @@ impl MetalSharpApp {
                                     div()
                                         .text_size(px(layout.scaled(11.0)))
                                         .text_center()
-                                        .text_color(rgb(0xd8dad9))
+                                        .text_color(rgb(crate::page_palette::tc(0xd8dad9)))
                                         .child(card_game.name.clone()),
                                 )
                                 .into_any_element(),
@@ -4057,7 +4110,7 @@ impl MetalSharpApp {
                                         .px(px(layout.scaled(12.0)))
                                         .rounded(px(layout.scaled(6.0)))
                                         .border_1()
-                                        .border_color(rgba(0xffffff80))
+                                        .border_color(rgba(crate::page_palette::tca(0xffffff80)))
                                         .bg(rgb(if running { 0xa52d2d } else { 0xeee5d6 }))
                                         .text_size(px(layout.scaled(12.0)))
                                         .font_weight(FontWeight::BOLD)
@@ -4159,7 +4212,7 @@ impl MetalSharpApp {
                                 div()
                                     .text_size(px(layout.scaled(17.0)))
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(rgb(0xf0f3f8))
+                                    .text_color(rgb(crate::page_palette::tc(0xf0f3f8)))
                                     .child("Your library"),
                             )
                             .child(
@@ -4176,9 +4229,9 @@ impl MetalSharpApp {
                             .flex()
                             .items_center()
                             .text_size(px(layout.scaled(13.0)))
-                            .text_color(rgb(0xbfc8d7))
+                            .text_color(rgb(crate::page_palette::tc(0xbfc8d7)))
                             .cursor_pointer()
-                            .hover(|style| style.text_color(rgb(0xffffff)))
+                            .hover(|style| style.text_color(rgb(crate::page_palette::tc(0xffffff))))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.set_page_collection(true, cx);
                             }))
@@ -4228,11 +4281,11 @@ impl MetalSharpApp {
                             .bg(if glass {
                                 chrome_fill
                             } else {
-                                rgb(0x292d2f).into()
+                                rgb(crate::page_palette::tc(0x292d2f)).into()
                             })
                             .opacity(if can_scroll_back { 1.0 } else { 0.28 })
                             .text_size(px(layout.scaled(20.0)))
-                            .text_color(rgb(0xffffff))
+                            .text_color(rgb(crate::page_palette::tc(0xffffff)))
                             .cursor_pointer()
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.scroll_dock(-1, cx);
@@ -4273,11 +4326,11 @@ impl MetalSharpApp {
                             .bg(if glass {
                                 chrome_fill
                             } else {
-                                rgb(0x292d2f).into()
+                                rgb(crate::page_palette::tc(0x292d2f)).into()
                             })
                             .opacity(if can_scroll_forward { 1.0 } else { 0.28 })
                             .text_size(px(layout.scaled(20.0)))
-                            .text_color(rgb(0xffffff))
+                            .text_color(rgb(crate::page_palette::tc(0xffffff)))
                             .cursor_pointer()
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.scroll_dock(1, cx);
@@ -4305,7 +4358,9 @@ impl MetalSharpApp {
             .right(px(0.0))
             .h(px(art_height))
             .overflow_hidden()
-            .when(!glass, |backdrop| backdrop.bg(rgb(0x242629)))
+            .when(!glass, |backdrop| {
+                backdrop.bg(rgb(crate::page_palette::tc(0x242629)))
+            })
             .when(glass, |backdrop| {
                 backdrop.child(crate::liquid_glass::hero(hero_art.clone()))
             })
@@ -4929,12 +4984,15 @@ impl MetalSharpApp {
                 .py(px(layout.scaled(7.0)))
                 .rounded(px(layout.scaled(7.0)))
                 .text_size(px(layout.scaled(13.0)))
-                .when(primary, |b| b.bg(rgb(0xb3261e)).text_color(rgb(0xffffff)))
+                .when(primary, |b| {
+                    b.bg(rgb(crate::page_palette::tc(0xb3261e)))
+                        .text_color(rgb(crate::page_palette::tc(0xffffff)))
+                })
                 .when(!primary, |b| b.text_color(rgb(text_color)))
                 .cursor_pointer()
                 .hover(move |style| {
                     if primary {
-                        style.bg(rgb(0xc9372c))
+                        style.bg(rgb(crate::page_palette::tc(0xc9372c)))
                     } else {
                         style.bg(rgb(theme.menu_hover()))
                     }
@@ -4967,7 +5025,7 @@ impl MetalSharpApp {
                     div()
                         .text_size(px(layout.scaled(12.5)))
                         .line_height(px(layout.scaled(18.0)))
-                        .text_color(rgb(0xaeb3b2))
+                        .text_color(rgb(crate::page_palette::tc(0xaeb3b2)))
                         .child(keeps),
                 )
                 .child(
@@ -5016,7 +5074,7 @@ impl MetalSharpApp {
                         .top(px(0.0))
                         .left(px(0.0))
                         .size_full()
-                        .bg(rgba(0x000000a0))
+                        .bg(rgba(crate::page_palette::tca(0x000000a0)))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.game_uninstall_prompt = None;
                             cx.notify();
@@ -5055,7 +5113,7 @@ impl MetalSharpApp {
             .rounded(px(8.0))
             .border_1()
             .border_color(rgb(self.theme.button_border()))
-            .bg(self.menu_fill())
+            .bg(self.overlay_menu_fill())
             .children(self.menu_glass("pipeline-menu"))
             .shadow_lg()
             .text_size(px(12.0))
@@ -5381,8 +5439,8 @@ impl MetalSharpApp {
                     .overflow_hidden()
                     .rounded(px(layout.scaled(8.0)))
                     .border_1()
-                    .border_color(rgba(0xe0e2e03b))
-                    .bg(rgb(0x242729))
+                    .border_color(rgba(crate::page_palette::tca(0xe0e2e03b)))
+                    .bg(rgb(crate::page_palette::tc(0x242729)))
                     .shadow_lg()
                     .child(match art {
                         Some(art) => crate::artwork::art_img(art)
@@ -5411,8 +5469,8 @@ impl MetalSharpApp {
                             .left(px(0.0))
                             .bg(linear_gradient(
                                 180.0,
-                                linear_color_stop(rgba(0x00000000), 0.34),
-                                linear_color_stop(rgba(0x050708e6), 1.0),
+                                linear_color_stop(rgba(crate::page_palette::tca(0x00000000)), 0.34),
+                                linear_color_stop(rgba(crate::page_palette::tca(0x050708e6)), 1.0),
                             )),
                     )
                     // The game's settings (Graphics, Runtime, Advanced, Presentation), as the front card
@@ -5460,14 +5518,14 @@ impl MetalSharpApp {
                                 div()
                                     .text_size(px(layout.scaled(14.0)))
                                     .font_weight(FontWeight::BOLD)
-                                    .text_color(rgb(0xf0f0ed))
+                                    .text_color(rgb(crate::page_palette::tc(0xf0f0ed)))
                                     .child(game.name.clone()),
                             )
                             .children(badge.map(|badge| {
                                 div()
                                     .text_size(px(layout.scaled(10.0)))
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(rgb(0xd8dad9))
+                                    .text_color(rgb(crate::page_palette::tc(0xd8dad9)))
                                     .child(badge)
                             }))
                             .child(
@@ -5588,7 +5646,7 @@ impl MetalSharpApp {
                         div()
                             .mb(px(layout.scaled(12.0)))
                             .text_size(px(layout.scaled(11.0)))
-                            .text_color(rgb(0xb9b0a1))
+                            .text_color(rgb(crate::page_palette::tc(0xb9b0a1)))
                             .child("GAME COLLECTION"),
                     )
                     .child(
@@ -5596,7 +5654,7 @@ impl MetalSharpApp {
                             .text_size(px(layout.scaled(42.0)))
                             .line_height(px(layout.scaled(48.0)))
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgb(0xeee9dd))
+                            .text_color(rgb(crate::page_palette::tc(0xeee9dd)))
                             .child(if uninstalled_view {
                                 "Uninstalled games"
                             } else {
@@ -5607,7 +5665,7 @@ impl MetalSharpApp {
                         div()
                             .mt(px(layout.scaled(13.0)))
                             .text_size(px(layout.scaled(14.0)))
-                            .text_color(rgb(0xaeb3b2))
+                            .text_color(rgb(crate::page_palette::tc(0xaeb3b2)))
                             .child(if uninstalled_view {
                                 format!(
                                     "{} games in your Steam library aren't installed yet. Install them with steamcmd.",
@@ -5633,10 +5691,10 @@ impl MetalSharpApp {
                             .px(px(layout.scaled(14.0)))
                             .rounded(px(layout.scaled(8.0)))
                             .border_1()
-                            .border_color(rgba(0xe7eaec3b))
-                            .bg(rgb(0x292d2f))
+                            .border_color(rgba(crate::page_palette::tca(0xe7eaec3b)))
+                            .bg(rgb(crate::page_palette::tc(0x292d2f)))
                             .text_size(px(layout.scaled(13.0)))
-                            .text_color(rgb(0xe1e3e2))
+                            .text_color(rgb(crate::page_palette::tc(0xe1e3e2)))
                             .cursor_pointer()
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.active_tab = LibraryTab::Play;
@@ -5653,12 +5711,12 @@ impl MetalSharpApp {
                     .flex_col()
                     .items_center()
                     .gap(px(layout.scaled(10.0)))
-                    .text_color(rgb(0xaeb3b2))
+                    .text_color(rgb(crate::page_palette::tc(0xaeb3b2)))
                     .child(div().text_size(px(layout.scaled(36.0))).child("▦"))
                     .child(
                         div()
                             .text_size(px(layout.scaled(20.0)))
-                            .text_color(rgb(0xeee9dd))
+                            .text_color(rgb(crate::page_palette::tc(0xeee9dd)))
                             .child("No uninstalled games"),
                     )
                     .child(div().text_size(px(layout.scaled(13.0))).child(
@@ -5672,12 +5730,12 @@ impl MetalSharpApp {
                     .flex_col()
                     .items_center()
                     .gap(px(layout.scaled(10.0)))
-                    .text_color(rgb(0xaeb3b2))
+                    .text_color(rgb(crate::page_palette::tc(0xaeb3b2)))
                     .child(div().text_size(px(layout.scaled(36.0))).child("▦"))
                     .child(
                         div()
                             .text_size(px(layout.scaled(20.0)))
-                            .text_color(rgb(0xeee9dd))
+                            .text_color(rgb(crate::page_palette::tc(0xeee9dd)))
                             .child("No installed games found"),
                     )
                     .child(
@@ -5715,7 +5773,7 @@ impl MetalSharpApp {
             div()
                 .text_size(px(14.0))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(0xe6e8e7))
+                .text_color(rgb(crate::page_palette::tc(0xe6e8e7)))
                 .child(label)
         };
         let card = || {
@@ -5725,9 +5783,9 @@ impl MetalSharpApp {
                 .px(px(18.0))
                 .rounded(px(12.0))
                 .border_1()
-                .border_color(rgba(0xffffff12))
-                .bg(rgba(0xffffff05))
-                .text_color(rgb(0x9aa09e))
+                .border_color(rgba(crate::page_palette::tca(0xffffff12)))
+                .bg(rgba(crate::page_palette::tca(0xffffff05)))
+                .text_color(rgb(crate::page_palette::tc(0x9aa09e)))
         };
         let button = |id: &'static str, label: &'static str, primary: bool| {
             div()
@@ -5879,7 +5937,7 @@ impl MetalSharpApp {
                 div()
                     .mt(px(10.0))
                     .text_size(px(11.5))
-                    .text_color(rgb(0x7d8381))
+                    .text_color(rgb(crate::page_palette::tc(0x7d8381)))
                     .child(format!(
                         "Version {} · {}",
                         status
@@ -5898,7 +5956,7 @@ impl MetalSharpApp {
         let moonlight_line = gpui::StyledText::new(moonlight_instruction).with_highlights(vec![(
             links_start..links_start + "App Store / Google Play".len(),
             gpui::HighlightStyle {
-                color: Some(rgb(0x74d2c8).into()),
+                color: Some(rgb(crate::page_palette::tc(0x74d2c8)).into()),
                 ..Default::default()
             },
         )]);
@@ -5911,8 +5969,8 @@ impl MetalSharpApp {
             .items_center()
             .rounded(px(8.0))
             .border_1()
-            .border_color(rgba(0xffffff24))
-            .bg(rgba(0xffffff0a))
+            .border_color(rgba(crate::page_palette::tca(0xffffff24)))
+            .bg(rgba(crate::page_palette::tca(0xffffff0a)))
             .children(self.streaming_pin.clone());
         let mut pairing = card()
             .opacity(if running { 1.0 } else { 0.55 })
@@ -6004,8 +6062,8 @@ impl MetalSharpApp {
                     false,
                 )
                 .mt(px(12.0))
-                .text_color(rgb(0xff9d9d))
-                .border_color(rgba(0xff7a7a4d))
+                .text_color(rgb(crate::page_palette::tc(0xff9d9d)))
+                .border_color(rgba(crate::page_palette::tca(0xff7a7a4d)))
                 .on_click(cx.listener(|this, _, _, cx| {
                     if this.streaming_unpair_confirm
                         && this
@@ -6044,7 +6102,7 @@ impl MetalSharpApp {
             .items_center()
             .justify_center()
             .p(px(24.0))
-            .bg(rgba(0x040608b8))
+            .bg(rgba(crate::page_palette::tca(0x040608b8)))
             .on_click(cx.listener(|this, _, _, cx| this.close_streaming_panel(cx)))
             .child(
                 div()
@@ -6058,8 +6116,8 @@ impl MetalSharpApp {
                     .rounded(px(16.0))
                     .overflow_hidden()
                     .border_1()
-                    .border_color(rgba(0xffffff17))
-                    .bg(rgb(0x14171a))
+                    .border_color(rgba(crate::page_palette::tca(0xffffff17)))
+                    .bg(rgb(crate::page_palette::tc(0x14171a)))
                     .shadow_lg()
                     .text_size(px(12.5))
                     .on_click(|_, _, cx| cx.stop_propagation())
@@ -6073,7 +6131,7 @@ impl MetalSharpApp {
                             .py(px(18.0))
                             .px(px(22.0))
                             .border_b_1()
-                            .border_color(rgba(0xffffff12))
+                            .border_color(rgba(crate::page_palette::tca(0xffffff12)))
                             .child(
                                 div()
                                     .flex()
@@ -6088,13 +6146,13 @@ impl MetalSharpApp {
                                             .justify_center()
                                             .rounded(px(11.0))
                                             .border_1()
-                                            .border_color(rgba(0x74d2c859))
-                                            .bg(rgba(0x74d2c814))
+                                            .border_color(rgba(crate::page_palette::tca(0x74d2c859)))
+                                            .bg(rgba(crate::page_palette::tca(0x74d2c814)))
                                             .child(
                                                 gpui::svg()
                                                     .path("stream-tv.svg")
                                                     .size(px(20.0))
-                                                    .text_color(rgb(0x74d2c8)),
+                                                    .text_color(rgb(crate::page_palette::tc(0x74d2c8))),
                                             ),
                                     )
                                     .child(
@@ -6107,10 +6165,10 @@ impl MetalSharpApp {
                                                 div()
                                                     .text_size(px(18.0))
                                                     .font_weight(FontWeight::SEMIBOLD)
-                                                    .text_color(rgb(0xeef0ef))
+                                                    .text_color(rgb(crate::page_palette::tc(0xeef0ef)))
                                                     .child("Game Streaming"),
                                             )
-                                            .child(div().text_size(px(12.0)).text_color(rgb(0x989e9c)).child(
+                                            .child(div().text_size(px(12.0)).text_color(rgb(crate::page_palette::tc(0x989e9c))).child(
                                                 "Stream your MetalSharp games to a phone or tablet with Sunshine + Moonlight",
                                             )),
                                     ),
@@ -6122,12 +6180,12 @@ impl MetalSharpApp {
                                     .size(px(30.0))
                                     .rounded(px(8.0))
                                     .border_1()
-                                    .border_color(rgba(0xffffff24))
+                                    .border_color(rgba(crate::page_palette::tca(0xffffff24)))
                                     .flex()
                                     .items_center()
                                     .justify_center()
                                     .text_size(px(20.0))
-                                    .text_color(rgba(0xffffff99))
+                                    .text_color(rgba(crate::page_palette::tca(0xffffff99)))
                                     .cursor_pointer()
                                     .child("×")
                                     .on_click(cx.listener(|this, _, _, cx| this.close_streaming_panel(cx))),
@@ -6180,14 +6238,14 @@ impl MetalSharpApp {
                     .gap(px(8.0))
                     .rounded(px(8.0))
                     .border_1()
-                    .border_color(rgb(0x343638))
-                    .bg(rgb(0x1a1d20))
+                    .border_color(rgb(crate::page_palette::tc(0x343638)))
+                    .bg(rgb(crate::page_palette::tc(0x1a1d20)))
                     .px(px(11.0))
                     .py(px(7.0))
                     .text_size(px(11.0))
-                    .text_color(rgb(0xc5c5c1))
+                    .text_color(rgb(crate::page_palette::tc(0xc5c5c1)))
                     .cursor_pointer()
-                    .hover(|style| style.bg(rgb(0x25282b)))
+                    .hover(|style| style.bg(rgb(crate::page_palette::tc(0x25282b))))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.language_menu_open = !this.language_menu_open;
                         cx.notify();
@@ -6207,8 +6265,8 @@ impl MetalSharpApp {
                 .overflow_y_scroll()
                 .rounded(px(8.0))
                 .border_1()
-                .border_color(rgb(0x343638))
-                .bg(rgb(0x101316))
+                .border_color(rgb(crate::page_palette::tc(0x343638)))
+                .bg(rgb(crate::page_palette::tc(0x101316)))
                 .shadow_lg()
                 .p(px(4.0));
             for (index, (code, native_name)) in LANGUAGES.iter().copied().enumerate() {
@@ -6224,7 +6282,7 @@ impl MetalSharpApp {
                         .text_color(rgb(if is_selected { 0xefe7d6 } else { 0xd3d3cf }))
                         .bg(rgb(if is_selected { 0x2b2d2e } else { 0x101316 }))
                         .cursor_pointer()
-                        .hover(|style| style.bg(rgb(0x303336)))
+                        .hover(|style| style.bg(rgb(crate::page_palette::tc(0x303336))))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.change_language(code, cx);
                             this.language_menu_open = false;
@@ -6259,12 +6317,12 @@ impl MetalSharpApp {
                     .h(px(52.0))
                     .px(px(32.0))
                     .rounded(px(10.0))
-                    .bg(rgb(0xefe7d6))
+                    .bg(rgb(crate::page_palette::tc(0xefe7d6)))
                     .text_size(px(16.0))
                     .font_weight(FontWeight::BOLD)
-                    .text_color(rgb(0x14161a))
+                    .text_color(rgb(crate::page_palette::tc(0x14161a)))
                     .cursor_pointer()
-                    .hover(|style| style.bg(rgb(0xf7efdf)))
+                    .hover(|style| style.bg(rgb(crate::page_palette::tc(0xf7efdf))))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.step = 1;
                         cx.notify();
@@ -6289,11 +6347,11 @@ impl MetalSharpApp {
                         .px(px(18.0))
                         .rounded(px(8.0))
                         .border_1()
-                        .border_color(rgb(0x414345))
+                        .border_color(rgb(crate::page_palette::tc(0x414345)))
                         .text_size(px(14.0))
-                        .text_color(rgb(0xd8d5cc))
+                        .text_color(rgb(crate::page_palette::tc(0xd8d5cc)))
                         .cursor_pointer()
-                        .hover(|style| style.bg(rgb(0x222528)))
+                        .hover(|style| style.bg(rgb(crate::page_palette::tc(0x222528))))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.step = 0;
                             cx.notify();
@@ -6310,12 +6368,12 @@ impl MetalSharpApp {
                         .h(px(52.0))
                         .px(px(32.0))
                         .rounded(px(10.0))
-                        .bg(rgb(0xefe7d6))
+                        .bg(rgb(crate::page_palette::tc(0xefe7d6)))
                         .text_size(px(16.0))
                         .font_weight(FontWeight::BOLD)
-                        .text_color(rgb(0x14161a))
+                        .text_color(rgb(crate::page_palette::tc(0x14161a)))
                         .cursor_pointer()
-                        .hover(|style| style.bg(rgb(0xf7efdf)))
+                        .hover(|style| style.bg(rgb(crate::page_palette::tc(0xf7efdf))))
                         .on_click(cx.listener(|this, _, _, cx| {
                             if this.live.enabled {
                                 this.setup_go_to_done(cx);
@@ -6337,12 +6395,12 @@ impl MetalSharpApp {
                     .h(px(52.0))
                     .px(px(32.0))
                     .rounded(px(10.0))
-                    .bg(rgb(0xefe7d6))
+                    .bg(rgb(crate::page_palette::tc(0xefe7d6)))
                     .text_size(px(16.0))
                     .font_weight(FontWeight::BOLD)
-                    .text_color(rgb(0x14161a))
+                    .text_color(rgb(crate::page_palette::tc(0x14161a)))
                     .cursor_pointer()
-                    .hover(|style| style.bg(rgb(0xf7efdf)))
+                    .hover(|style| style.bg(rgb(crate::page_palette::tc(0xf7efdf))))
                     .on_click(cx.listener(|this, _, _, cx| {
                         if this.live.enabled {
                             this.setup_finish(cx);
@@ -6368,11 +6426,11 @@ impl MetalSharpApp {
             .flex()
             .flex_col()
             .border_l_1()
-            .border_color(rgb(0x242628))
+            .border_color(rgb(crate::page_palette::tc(0x242628)))
             .bg(linear_gradient(
                 180.0,
-                linear_color_stop(rgb(0x171a1e), 0.0),
-                linear_color_stop(rgb(0x131518), 1.0),
+                linear_color_stop(rgb(crate::page_palette::tc(0x171a1e)), 0.0),
+                linear_color_stop(rgb(crate::page_palette::tc(0x131518)), 1.0),
             ))
             .px(px(49.0))
             .pt(px(49.0))
@@ -6381,7 +6439,7 @@ impl MetalSharpApp {
                 div()
                     .text_size(px(11.0))
                     .font_weight(FontWeight::BOLD)
-                    .text_color(rgb(0x999994))
+                    .text_color(rgb(crate::page_palette::tc(0x999994)))
                     .child(step_label),
             )
             .child(
@@ -6398,7 +6456,7 @@ impl MetalSharpApp {
                 div()
                     .mt(px(12.0))
                     .text_size(px(18.0))
-                    .text_color(rgb(0xe9e7e0))
+                    .text_color(rgb(crate::page_palette::tc(0xe9e7e0)))
                     .child(tagline),
             )
             .child(
@@ -6423,9 +6481,9 @@ impl MetalSharpApp {
                     .justify_center()
                     .rounded(px(8.0))
                     .border_1()
-                    .border_color(rgb(0x343638))
-                    .bg(rgb(0x1a1d20))
-                    .text_color(rgb(0xc5c5c1))
+                    .border_color(rgb(crate::page_palette::tc(0x343638)))
+                    .bg(rgb(crate::page_palette::tc(0x1a1d20)))
+                    .text_color(rgb(crate::page_palette::tc(0xc5c5c1)))
                     .cursor_pointer()
                     .on_click(cx.listener(|this, _, _, cx| this.setup_close(cx)))
                     .child("✕")
@@ -6496,7 +6554,7 @@ impl MetalSharpApp {
                     .mb(px(10.0))
                     .text_size(px(10.5))
                     .font_weight(FontWeight::BOLD)
-                    .text_color(rgb(0x999994))
+                    .text_color(rgb(crate::page_palette::tc(0x999994)))
                     .child(copy.bundled_tools.clone()),
             )
             .child(render_tool_row(
@@ -6615,8 +6673,8 @@ impl MetalSharpApp {
                     .overflow_y_scroll()
                     .rounded(px(10.0))
                     .border_1()
-                    .border_color(rgb(0x292b2d))
-                    .bg(rgb(0x0c0f11))
+                    .border_color(rgb(crate::page_palette::tc(0x292b2d)))
+                    .bg(rgb(crate::page_palette::tc(0x0c0f11)))
                     .px(px(14.0))
                     .py(px(12.0))
                     .text_size(px(11.5))
@@ -6771,7 +6829,7 @@ fn render_done_body(
                 gpui::StyledText::new(format!("{title} — {text}")).with_highlights(vec![(
                     0..title.len(),
                     gpui::HighlightStyle {
-                        color: Some(rgb(0xeceae3).into()),
+                        color: Some(rgb(crate::page_palette::tc(0xeceae3)).into()),
                         font_weight: Some(FontWeight::SEMIBOLD),
                         ..Default::default()
                     },
@@ -6791,10 +6849,10 @@ fn render_done_body(
                 .justify_center()
                 .rounded_full()
                 .border_1()
-                .border_color(rgb(0x4a7044))
-                .bg(rgb(0x17221a))
+                .border_color(rgb(crate::page_palette::tc(0x4a7044)))
+                .bg(rgb(crate::page_palette::tc(0x17221a)))
                 .text_size(px(30.0))
-                .text_color(rgb(0x7cbf6a))
+                .text_color(rgb(crate::page_palette::tc(0x7cbf6a)))
                 .child("✓"),
         )
         .child(
@@ -6869,7 +6927,7 @@ fn render_done_form_group(
             div()
                 .text_size(px(12.0))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(0xcfd2cf))
+                .text_color(rgb(crate::page_palette::tc(0xcfd2cf)))
                 .child(label),
         )
         .child(
@@ -6880,18 +6938,18 @@ fn render_done_form_group(
                 .items_center()
                 .rounded(px(8.0))
                 .border_1()
-                .border_color(rgb(0x3b3e40))
-                .bg(rgb(0x191c1f))
+                .border_color(rgb(crate::page_palette::tc(0x3b3e40)))
+                .bg(rgb(crate::page_palette::tc(0x191c1f)))
                 .px(px(12.0))
                 .text_size(px(13.0))
-                .text_color(rgb(0xeceae3))
+                .text_color(rgb(crate::page_palette::tc(0xeceae3)))
                 .child(field),
         )
         .child(
             div()
                 .id(gpui::SharedString::from(format!("{id}-hint")))
                 .text_size(px(11.5))
-                .text_color(rgb(0x838987))
+                .text_color(rgb(crate::page_palette::tc(0x838987)))
                 .when(help.is_some(), |style| style.cursor_pointer().underline())
                 .on_click(move |_, _, cx| {
                     if let Some((purpose, url)) = help {
@@ -6912,7 +6970,7 @@ fn render_tool_row(title: &'static str, description: String, divider: bool) -> g
         .child(
             div()
                 .text_size(px(14.0))
-                .text_color(rgb(0xeceae3))
+                .text_color(rgb(crate::page_palette::tc(0xeceae3)))
                 .child(title),
         )
         .child(
@@ -6923,7 +6981,8 @@ fn render_tool_row(title: &'static str, description: String, divider: bool) -> g
                 .child(description),
         );
     if divider {
-        row.border_t_1().border_color(rgb(0x292b2d))
+        row.border_t_1()
+            .border_color(rgb(crate::page_palette::tc(0x292b2d)))
     } else {
         row
     }
@@ -6964,7 +7023,7 @@ fn render_install_button(
                 .bottom(px(0.0))
                 .left(px(0.0))
                 .w(relative(progress as f32 / 100.0))
-                .bg(rgb(0xd8d0bc)),
+                .bg(rgb(crate::page_palette::tc(0xd8d0bc))),
         );
     }
     button.child(div().relative().text_center().child(if complete {
@@ -6993,10 +7052,10 @@ fn render_feature(
                 .justify_center()
                 .rounded(px(11.0))
                 .border_1()
-                .border_color(rgb(0x353638))
-                .bg(rgb(0x191b1e))
+                .border_color(rgb(crate::page_palette::tc(0x353638)))
+                .bg(rgb(crate::page_palette::tc(0x191b1e)))
                 .text_size(px(20.0))
-                .text_color(rgb(0xd8d5cc))
+                .text_color(rgb(crate::page_palette::tc(0xd8d5cc)))
                 .child(icon),
         )
         .child(
@@ -7008,18 +7067,19 @@ fn render_feature(
                     div()
                         .text_size(px(15.5))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(rgb(0xeceae3))
+                        .text_color(rgb(crate::page_palette::tc(0xeceae3)))
                         .child(title),
                 )
                 .child(
                     div()
                         .text_size(px(13.0))
-                        .text_color(rgb(0x9aa09e))
+                        .text_color(rgb(crate::page_palette::tc(0x9aa09e)))
                         .child(description),
                 ),
         );
     if divider {
-        row.border_t_1().border_color(rgb(0x292b2d))
+        row.border_t_1()
+            .border_color(rgb(crate::page_palette::tc(0x292b2d)))
     } else {
         row
     }
@@ -7109,7 +7169,11 @@ mod tests {
         let icon = std::fs::read_to_string(super::asset_path("theme-galaxy.svg")).unwrap();
         assert!(icon.starts_with("<svg") && icon.contains("currentColor"));
         for theme in super::PreviewTheme::ALL {
-            if theme == space {
+            // Dark and Light are black and white UIs (black_and_white_themes)
+            if matches!(
+                theme,
+                super::PreviewTheme::Space | super::PreviewTheme::Dark | super::PreviewTheme::Light
+            ) {
                 continue;
             }
             assert_eq!(theme.page_bg(), 0x111416);
@@ -7119,13 +7183,35 @@ mod tests {
     }
 
     #[test]
-    fn light_theme_has_readable_white_menus_and_creamy_glow() {
+    fn black_and_white_themes() {
+        use crate::page_palette::Tone;
+        // Light: a white UI with black text
         let light = super::PreviewTheme::Light;
         assert_eq!(light.control_text(), 0x000000);
+        assert_eq!(light.hero_title(), 0x000000);
+        assert_eq!(light.page_bg(), 0xffffff);
+        assert_eq!(light.control_bg(), 0xffffff);
         assert_eq!(light.menu_bg(), 0xffffff);
-        assert_eq!(light.button_border(), 0xffffff);
-        assert_eq!(light.border(), 0xffffff);
-        assert_eq!(light.dock_glow(), 0xfff3dc);
+        assert_eq!(light.button_border(), 0xd4d4d4);
+        assert_eq!(light.dock_glow(), 0x4db8ff);
+        assert_eq!(light.tone(), Tone::White);
+        // Dark: a black UI with white text
+        let dark = super::PreviewTheme::Dark;
+        assert_eq!(dark.control_text(), 0xffffff);
+        assert_eq!(dark.hero_title(), 0xffffff);
+        assert_eq!(dark.page_bg(), 0x000000);
+        assert_eq!(dark.control_bg(), 0x000000);
+        assert_eq!(dark.chrome_ink(), (0x080808, 0x000000));
+        assert_eq!(dark.tone(), Tone::Black);
+        // the color themes keep their colors; Skeleton is gone, and Lava is a calm cabernet
+        assert_eq!(super::PreviewTheme::Forest.tone(), Tone::Keep);
+        assert_eq!(super::PreviewTheme::ALL.len(), 7);
+        assert!(
+            super::PreviewTheme::ALL
+                .iter()
+                .all(|theme| theme.storage_id() != "skeleton")
+        );
+        assert_eq!(super::PreviewTheme::Lava.accent(), 0xb0394d);
         for theme in super::PreviewTheme::ALL {
             assert!(!theme.storage_id().is_empty());
         }

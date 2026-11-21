@@ -248,7 +248,7 @@ impl MetalSharpApp {
                             .child(
                                 div()
                                     .text_size(px(layout.scaled(11.5)))
-                                    .text_color(rgb(0x96a1b2))
+                                    .text_color(rgb(crate::page_palette::tc(0x96a1b2)))
                                     .truncate()
                                     .child(format!("{root}/{} · {free}", folder_name(prompt.page))),
                             ),
@@ -279,7 +279,7 @@ impl MetalSharpApp {
                 div()
                     .text_size(px(layout.scaled(12.5)))
                     .line_height(px(layout.scaled(18.0)))
-                    .text_color(rgb(0xaeb3b2))
+                    .text_color(rgb(crate::page_palette::tc(0xaeb3b2)))
                     .child(drive_description(prompt.page)),
             )
             .child(rows)
@@ -311,7 +311,7 @@ impl MetalSharpApp {
                 .flex()
                 .items_center()
                 .justify_center()
-                .bg(rgba(0x000000a0))
+                .bg(rgba(crate::page_palette::tca(0x000000a0)))
                 .occlude()
                 .child(panel),
         )
@@ -459,9 +459,9 @@ impl MetalSharpApp {
                         .rounded(px(4.0))
                         .border_1()
                         .border_color(rgb(if on { 0xd9534f } else { 0x96a1b2 }))
-                        .when(on, |d| d.bg(rgb(0xd9534f)))
+                        .when(on, |d| d.bg(rgb(crate::page_palette::tc(0xd9534f))))
                         .text_size(px(layout.scaled(11.0)))
-                        .text_color(rgb(0xffffff))
+                        .text_color(rgb(crate::page_palette::tc(0xffffff)))
                         .children(on.then_some("✓")),
                 )
                 .child(
@@ -480,7 +480,7 @@ impl MetalSharpApp {
                         .child(
                             div()
                                 .text_size(px(layout.scaled(11.5)))
-                                .text_color(rgb(0x96a1b2))
+                                .text_color(rgb(crate::page_palette::tc(0x96a1b2)))
                                 .child(folder),
                         ),
                 )
@@ -510,7 +510,7 @@ impl MetalSharpApp {
                 div()
                     .text_size(px(layout.scaled(12.5)))
                     .line_height(px(layout.scaled(18.0)))
-                    .text_color(rgb(0xaeb3b2))
+                    .text_color(rgb(crate::page_palette::tc(0xaeb3b2)))
                     .child(what),
             )
             .children(checkbox)
@@ -543,13 +543,13 @@ impl MetalSharpApp {
                             .px(px(layout.scaled(14.0)))
                             .py(px(layout.scaled(7.0)))
                             .rounded(px(layout.scaled(7.0)))
-                            .bg(rgb(0xa52d2d))
+                            .bg(rgb(crate::page_palette::tc(0xa52d2d)))
                             .text_size(px(layout.scaled(13.0)))
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgb(0xffffff))
+                            .text_color(rgb(crate::page_palette::tc(0xffffff)))
                             .when(prompt.busy, |d| d.opacity(0.6))
                             .cursor_pointer()
-                            .hover(|style| style.bg(rgb(0xbb3c3c)))
+                            .hover(|style| style.bg(rgb(crate::page_palette::tc(0xbb3c3c))))
                             .on_click(cx.listener(|this, _, _, cx| this.run_uninstall(cx)))
                             .child(if prompt.busy {
                                 "Uninstalling…"
@@ -570,7 +570,7 @@ impl MetalSharpApp {
                 .flex()
                 .items_center()
                 .justify_center()
-                .bg(rgba(0x000000a0))
+                .bg(rgba(crate::page_palette::tca(0x000000a0)))
                 .occlude()
                 .child(panel),
         )

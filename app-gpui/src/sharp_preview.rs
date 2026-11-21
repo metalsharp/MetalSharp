@@ -677,7 +677,7 @@ impl SharpPreview {
             .flex()
             .items_center()
             .justify_center()
-            .bg(gpui::rgba(0x000000aa))
+            .bg(gpui::rgba(crate::page_palette::tca(0x000000aa)))
             .on_click(cx.listener(|this, _, _, cx| {
                 this.state.dialog = None;
                 cx.notify();
@@ -728,7 +728,7 @@ impl SharpPreview {
                     .rounded(px(8.0))
                     .border_1()
                     .border_color(gpui::rgba(self.palette.control_border))
-                    .bg(gpui::rgba(0xffffff08))
+                    .bg(gpui::rgba(crate::page_palette::tca(0xffffff08)))
                     .flex()
                     .items_center()
                     .justify_center()
@@ -782,8 +782,8 @@ impl SharpPreview {
                         )
                         .h(px(32.0))
                         .rounded(px(6.0))
-                        .text_color(rgb(0xff8585))
-                        .border_color(gpui::rgba(0xff5c5c55))
+                        .text_color(rgb(crate::page_palette::tc(0xff8585)))
+                        .border_color(gpui::rgba(crate::page_palette::tca(0xff5c5c55)))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if !running {
                                 this.state.selected_card = Some(title);
@@ -839,7 +839,7 @@ impl SharpPreview {
                 div()
                     .text_size(px(14.0))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgb(0xf0f0ed))
+                    .text_color(rgb(crate::page_palette::tc(0xf0f0ed)))
                     .child(title),
             )
             .child(
@@ -927,9 +927,9 @@ impl SharpPreview {
             let mut tools = div()
                 .p(px(10.0))
                 .rounded(px(8.0))
-                .bg(gpui::rgba(0x00000028))
+                .bg(gpui::rgba(crate::page_palette::tca(0x00000028)))
                 .border_1()
-                .border_color(gpui::rgba(0xffffff14))
+                .border_color(gpui::rgba(crate::page_palette::tca(0xffffff14)))
                 .flex()
                 .flex_col()
                 .gap(px(8.0))
@@ -980,8 +980,8 @@ impl SharpPreview {
             .border_color(gpui::rgba(self.palette.control_border))
             .bg(gpui::linear_gradient(
                 180.0,
-                gpui::linear_color_stop(rgb(0x202427), 0.0),
-                gpui::linear_color_stop(rgb(0x171a1c), 1.0),
+                gpui::linear_color_stop(rgb(crate::page_palette::tc(0x202427)), 0.0),
+                gpui::linear_color_stop(rgb(crate::page_palette::tc(0x171a1c)), 1.0),
             ))
             .child(
                 img(self.asset_root.join(cover))
@@ -1026,7 +1026,7 @@ impl Render for SharpPreview {
                 div()
                     .mb(px(10.0))
                     .text_size(px(10.0))
-                    .text_color(gpui::rgba(0xf0efe799))
+                    .text_color(gpui::rgba(crate::page_palette::tca(0xf0efe799)))
                     .font_family("Georgia")
                     .child(
                         eyebrow
@@ -1041,7 +1041,7 @@ impl Render for SharpPreview {
                     .text_size(px(title_size))
                     .line_height(px(title_size))
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(rgb(0xeee9dd))
+                    .text_color(rgb(crate::page_palette::tc(0xeee9dd)))
                     .child(title.to_uppercase()),
             )
             .child(
@@ -1049,7 +1049,7 @@ impl Render for SharpPreview {
                     .mt(px(8.0))
                     .text_size(px(13.0))
                     .line_height(px(17.55))
-                    .text_color(rgb(0xaeb3b2))
+                    .text_color(rgb(crate::page_palette::tc(0xaeb3b2)))
                     .child(subtitle),
             );
         let header_copy = if stacked {
@@ -1078,8 +1078,8 @@ impl Render for SharpPreview {
             .border_color(gpui::rgba(self.palette.control_border))
             .bg(gpui::linear_gradient(
                 115.0,
-                gpui::linear_color_stop(gpui::rgba(0xffffff09), 0.0),
-                gpui::linear_color_stop(gpui::rgba(0xffffff00), 1.0),
+                gpui::linear_color_stop(gpui::rgba(crate::page_palette::tca(0xffffff09)), 0.0),
+                gpui::linear_color_stop(gpui::rgba(crate::page_palette::tca(0xffffff00)), 1.0),
             ))
             .child(header_copy);
         let source_picker = div()
@@ -1393,7 +1393,7 @@ impl Render for SharpPreview {
                             .rounded(px(12.))
                             .border_1()
                             .border_color(gpui::rgba(self.palette.control_border))
-                            .bg(gpui::rgba(0x080a0d85))
+                            .bg(gpui::rgba(crate::page_palette::tca(0x080a0d85)))
                             .p(px(28.))
                             .flex()
                             .flex_col()
@@ -1404,7 +1404,7 @@ impl Render for SharpPreview {
                                 gpui::svg()
                                     .path("source-empty-monitor.svg")
                                     .size(px(48.0))
-                                    .text_color(rgb(0x747c7f)),
+                                    .text_color(rgb(crate::page_palette::tc(0x747c7f))),
                             )
                             .child(
                                 div()
@@ -1503,8 +1503,8 @@ impl Render for SharpPreview {
             ))
             .bg(gpui::linear_gradient(
                 145.0,
-                gpui::linear_color_stop(gpui::rgba(0xffffff07), 0.0),
-                gpui::linear_color_stop(gpui::rgba(0xffffff02), 1.0),
+                gpui::linear_color_stop(gpui::rgba(crate::page_palette::tca(0xffffff07)), 0.0),
+                gpui::linear_color_stop(gpui::rgba(crate::page_palette::tca(0xffffff02)), 1.0),
             ))
             .flex()
             .gap(px(gap))
@@ -1530,8 +1530,8 @@ impl Render for SharpPreview {
                     .h(px(gamejolt_frame))
                     .rounded_t(px(8.0))
                     .border_1()
-                    .border_color(rgb(0xffffff))
-                    .bg(rgb(0xffffff))
+                    .border_color(rgb(crate::page_palette::tc(0xffffff)))
+                    .bg(rgb(crate::page_palette::tc(0xffffff)))
                     .shadow(vec![gpui::BoxShadow {
                         color: gpui::rgba(0xffffff1f).into(),
                         offset: gpui::point(px(0.0), px(0.0)),
@@ -1546,7 +1546,7 @@ impl Render for SharpPreview {
                             .right(px(5.0))
                             .bottom(px(5.0))
                             .rounded(px(5.0))
-                            .bg(rgb(0xffffff))
+                            .bg(rgb(crate::page_palette::tc(0xffffff)))
                             .child(
                                 gpui::canvas(
                                     |_, _, _| (),
@@ -1576,13 +1576,13 @@ impl Render for SharpPreview {
                                     .w(px(54.0))
                                     .h(px(18.0))
                                     .rounded_full()
-                                    .bg(rgb(0xffffff))
+                                    .bg(rgb(crate::page_palette::tc(0xffffff)))
                                     .flex()
                                     .items_center()
                                     .justify_center()
                                     .text_size(px(15.0))
                                     .font_weight(FontWeight::BLACK)
-                                    .text_color(rgb(0x222222))
+                                    .text_color(rgb(crate::page_palette::tc(0x222222)))
                                     .child("↕"),
                             )
                             .on_mouse_down(
@@ -1611,7 +1611,7 @@ impl Render for SharpPreview {
                     .right_0()
                     .h(px(frame_height))
                     .rounded_t(px(8.0))
-                    .bg(rgb(0xffffff))
+                    .bg(rgb(crate::page_palette::tc(0xffffff)))
                     .p(px(5.0))
                     .child(
                         div()
@@ -1622,7 +1622,7 @@ impl Render for SharpPreview {
                             .right_0()
                             .h(px(18.0))
                             .text_center()
-                            .text_color(rgb(0x15181a))
+                            .text_color(rgb(crate::page_palette::tc(0x15181a)))
                             .cursor_ns_resize()
                             .child("↕")
                             .on_mouse_down(
@@ -1643,7 +1643,7 @@ impl Render for SharpPreview {
                             .items_center()
                             .justify_center()
                             .text_size(px(12.0))
-                            .text_color(rgb(0x6f777a))
+                            .text_color(rgb(crate::page_palette::tc(0x6f777a)))
                             .child("GameJolt browser · disabled in the offline preview"),
                     ),
             );
@@ -1661,7 +1661,7 @@ impl Render for SharpPreview {
             .flex_col()
             .bg(gpui::linear_gradient(
                 180.0,
-                gpui::linear_color_stop(rgb(0x171a1d), 0.0),
+                gpui::linear_color_stop(rgb(crate::page_palette::tc(0x171a1d)), 0.0),
                 gpui::linear_color_stop(rgb(BG), 1.0),
             ))
             .font_family("Rethink Sans")
@@ -1771,7 +1771,7 @@ fn pill(text: &'static str) -> gpui::Div {
         .px(px(8.))
         .py(px(4.))
         .rounded(px(20.))
-        .bg(rgb(0x28251f))
+        .bg(rgb(crate::page_palette::tc(0x28251f)))
         .text_size(px(9.))
         .text_color(rgb(GOLD))
         .font_weight(FontWeight::BOLD)
@@ -1797,7 +1797,7 @@ fn empty_state(palette: PagePalette, heading: &'static str, desc: &'static str) 
         .child(
             div()
                 .text_size(px(16.0))
-                .text_color(rgb(0xb1b8bb))
+                .text_color(rgb(crate::page_palette::tc(0xb1b8bb)))
                 .font_weight(FontWeight::BOLD)
                 .child(heading),
         )

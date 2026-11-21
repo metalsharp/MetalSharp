@@ -63,7 +63,7 @@ impl SharpPreview {
                     .rounded(px(6.0))
                     .border_1()
                     .border_color(rgb(self.palette.accent))
-                    .bg(rgb(0x111416))
+                    .bg(rgb(crate::page_palette::tc(0x111416)))
                     .flex()
                     .items_center()
                     .text_size(px(13.0))
@@ -147,7 +147,7 @@ impl SharpPreview {
             .w(px(width))
             .h(px(height))
             .overflow_hidden()
-            .bg(rgb(0x15181a));
+            .bg(rgb(crate::page_palette::tc(0x15181a)));
         let path = self.cover_path(&format!("sharp-app-{id}"), cx);
         match path {
             Some(path) => {
@@ -211,11 +211,11 @@ impl SharpPreview {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .bg(gpui::rgba(0x000000a0))
+                    .bg(gpui::rgba(crate::page_palette::tca(0x000000a0)))
                     .border_1()
-                    .border_color(gpui::rgba(0xffffff40))
+                    .border_color(gpui::rgba(crate::page_palette::tca(0xffffff40)))
                     .text_size(px(12.0))
-                    .text_color(rgb(0xffffff))
+                    .text_color(rgb(crate::page_palette::tc(0xffffff)))
                     .cursor_pointer()
                     .child("✕")
                     .on_click(cx.listener(move |this, _, _, cx| this.stop_app(app.clone(), cx))),
@@ -264,7 +264,7 @@ impl SharpPreview {
                         .top(px(6.0))
                         .h(px(4.0))
                         .rounded_full()
-                        .bg(rgb(0x2a2d30)),
+                        .bg(rgb(crate::page_palette::tc(0x2a2d30))),
                 )
                 .child(
                     div()
@@ -284,7 +284,7 @@ impl SharpPreview {
                         .ml(px(-7.0))
                         .size(px(14.0))
                         .rounded_full()
-                        .bg(rgb(0xf0f0ed)),
+                        .bg(rgb(crate::page_palette::tc(0xf0f0ed))),
                 )
                 .on_mouse_down(
                     gpui::MouseButton::Left,
@@ -323,8 +323,8 @@ impl SharpPreview {
                     .p(px(8.0))
                     .rounded(px(6.0))
                     .border_1()
-                    .border_color(gpui::rgba(0xff5c5c55))
-                    .bg(gpui::rgba(0xff5c5c14))
+                    .border_color(gpui::rgba(crate::page_palette::tca(0xff5c5c55)))
+                    .bg(gpui::rgba(crate::page_palette::tca(0xff5c5c14)))
                     .flex()
                     .flex_col()
                     .gap(px(2.0))
@@ -567,10 +567,10 @@ impl SharpPreview {
                             .overflow_y_scroll()
                             .p(px(6.0))
                             .rounded(px(4.0))
-                            .bg(rgb(0x0c0e10))
+                            .bg(rgb(crate::page_palette::tc(0x0c0e10)))
                             .font_family("Menlo")
                             .text_size(px(9.0))
-                            .text_color(rgb(0xc8ccc9))
+                            .text_color(rgb(crate::page_palette::tc(0xc8ccc9)))
                             .children(
                                 lines
                                     .unwrap_or_else(|| vec!["No recent log lines loaded.".into()])

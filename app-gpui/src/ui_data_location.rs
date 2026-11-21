@@ -287,7 +287,7 @@ impl MetalSharpApp {
                 .w(px(360.0))
                 .h(px(8.0))
                 .rounded(px(999.0))
-                .bg(rgb(0x292b2d))
+                .bg(rgb(crate::page_palette::tc(0x292b2d)))
                 .child(
                     div()
                         .h(px(8.0))
