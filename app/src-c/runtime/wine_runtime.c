@@ -163,11 +163,11 @@ const char* ms_wine_route_pipeline(const char* pipeline) {
             return "wine_bare";
         return pipeline;
     }
-    /* D3DMetal is Apple's and x86_64-only: its D3D12 games take VKD3D-Proton. DXVK's D3D9 replaces
-     * the D3D9 route (32-bit programs keep Wine's own D3D9, as DXVK is x86_64 here). */
+    /* D3DMetal is Apple's and x86_64-only: its D3D12 games take VKD3D-Proton. DXVK replaces the D3D9 route, for
+     * 32-bit programs too: MetalSharp Wine gives them its i386 DXVK lane (D3D7 to D3D9, with d7vk's ddraw.dll). */
     if (!strcmp(pipeline, "d3dmetal") || !strcmp(pipeline, "m13"))
         return "vkd3d";
-    if (!strcmp(pipeline, "d3d9"))
+    if (!strcmp(pipeline, "d3d9") || !strcmp(pipeline, "dxvk_32"))
         return "dxvk";
     /* FNA games run as Windows programs under FEX; the native Mono lane is the regular build's. */
     if (!strcmp(pipeline, "fna_arm64"))
