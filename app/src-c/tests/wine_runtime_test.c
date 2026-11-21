@@ -43,6 +43,9 @@ int main(int argc, char** argv) {
     EXPECT(!strcmp(ms_wine_fex_graphics_backend("vkd3d"), "vkd3d"));
     EXPECT(!strcmp(ms_wine_route_pipeline("m13"), "vkd3d"));
     EXPECT(!strcmp(ms_wine_route_pipeline("d3d9"), "dxvk"));
+    /* 32-bit programs too, D3D7 (d7vk's ddraw.dll) to D3D9 */
+    EXPECT(!strcmp(ms_wine_route_pipeline("dxvk_32"), "dxvk"));
+    EXPECT(!strcmp(ms_wine_fex_graphics_backend(ms_wine_route_pipeline("dxvk_32")), "dxvk"));
     EXPECT(!strcmp(ms_wine_route_pipeline("fna_arm64"), "dxmt"));
     EXPECT(!strcmp(ms_wine_fex_graphics_backend("wine_bare"), "wine"));
     EXPECT(!strcmp(ms_wine_fex_graphics_backend("dxvk"), "dxvk"));
