@@ -63,6 +63,16 @@ static const char* const UBISOFT_CONNECT_EXES[] = {"UbisoftConnect.exe", "upc.ex
 static const char* const UBISOFT_CONNECT_GPU[] = {"\"VideoPciVendorID\"=dword:00001002",
                                                   "\"VideoPciDeviceID\"=dword:000073bf"};
 
+/* The same GPU on Mullion (issue #824). MetalSharp-Wine-x86_64.app serves 32-bit Connect's D3D11 from its own
+ * Mullion, which reports the Mac's GPU and reads no wined3d AppDefaults, so DataDome blocked a fresh login again.
+ * Mullion takes the adapter from MULLION_CONFIG's dxgi.custom* options, here in a [<exe>] section for each of
+ * Connect's executables (and its renderer): a game Connect starts inherits the variable, but no section names it, so it
+ * keeps its own adapter. */
+static const char* const UBISOFT_CONNECT_MULLION_EXES[] = {"UbisoftConnect.exe", "upc.exe", "Uplay.exe",
+                                                           "UplayWebCore.exe"};
+static const char UBISOFT_CONNECT_MULLION_GPU[] =
+    "dxgi.customVendorId=1002;dxgi.customDeviceId=73bf;dxgi.customDeviceDesc=\"AMD Radeon RX 6800 XT\"";
+
 static pthread_mutex_t ubisoft_install_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool ubisoft_install_active;
 static pthread_mutex_t ubisoft_icon_jobs_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -527,6 +537,22 @@ static void seed_connect_gpu(const char* home, const char* wine, const char* pre
     (void)run_child_wait(wine, argv, home, prefix, NULL);
 }
 
+/* MULLION_CONFIG for Connect: UBISOFT_CONNECT_MULLION_GPU in each of its executables' sections. */
+static bool connect_mullion_config(char* out, size_t out_size) {
+    size_t used = 0;
+    if (!out || !out_size)
+        return false;
+    out[0] = '\0';
+    for (size_t i = 0; i < sizeof(UBISOFT_CONNECT_MULLION_EXES) / sizeof(UBISOFT_CONNECT_MULLION_EXES[0]); i++) {
+        int written = snprintf(out + used, out_size - used, "%s[%s];%s", used ? ";" : "",
+                               UBISOFT_CONNECT_MULLION_EXES[i], UBISOFT_CONNECT_MULLION_GPU);
+        if (written < 0 || (size_t)written >= out_size - used)
+            return false;
+        used += (size_t)written;
+    }
+    return true;
+}
+
 /* The lane Ubisoft Connect itself (and its installer) runs on: D3DMetal on the x86_64 runtime,
  * Mullion on MetalSharp Wine (the fex build). */
 static const char* connect_lane(void) {
@@ -587,6 +613,11 @@ static bool spawn_launcher(const char* home, const char* launcher, const char* p
             setenv("MS_FWD_COMPAT_GL_CTX", "1", 1);
             ms_steam_apply_launch_preferences(home);
             ms_steam_apply_graphics_route(home, pipeline ? pipeline : connect_lane());
+            {
+                char mullion_config[1024];
+                if (connect_mullion_config(mullion_config, sizeof(mullion_config)))
+                    setenv("MULLION_CONFIG", mullion_config, 1);
+            }
             execv(wine, args);
             _exit(127);
         }

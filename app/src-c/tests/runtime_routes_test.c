@@ -188,6 +188,24 @@ static void test_ubisoft_library(const char* home) {
                 assert(strcmp(UBISOFT_CONNECT_ARGS[i], forbidden[f]));
     }
     {
+        /* On Mullion too (#824): MULLION_CONFIG gives each of Connect's executables the
+         * same GPU in its own section, so a game Connect starts keeps its adapter. */
+        char config[1024];
+        assert(connect_mullion_config(config, sizeof(config)));
+        for (size_t i = 0; i < sizeof(UBISOFT_CONNECT_EXES) / sizeof(UBISOFT_CONNECT_EXES[0]); i++) {
+            char section[256];
+            snprintf(section, sizeof(section),
+                     "[%s];dxgi.customVendorId=1002;dxgi.customDeviceId=73bf;"
+                     "dxgi.customDeviceDesc=\"AMD Radeon RX 6800 XT\"",
+                     UBISOFT_CONNECT_EXES[i]);
+            assert(strstr(config, section));
+        }
+        assert(strstr(config, "[UplayWebCore.exe];dxgi.customVendorId=1002;"));
+        /* every option is in a section: none applies to an executable the sections don't name */
+        assert(config[0] == '[');
+        assert(!connect_mullion_config(config, 64));
+    }
+    {
         /* Connect's executables report an AMD Radeon RX 6800 XT through
          * wined3d's per-app PCI IDs (#718): the .reg file sets them, and the
          * prefix counts as seeded only once user.reg has them for every one. */
