@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Ubisoft Connect login blocked by bot protection again (#824)** — on 1.4.0's x86_64 runtime, a fresh login landed on DataDome's "Access is temporarily restricted" page, as before #723. MetalSharp-Wine-x86_64.app serves 32-bit Connect's D3D11 from its own Mullion, not wined3d, so the wined3d `AppDefaults` IDs #723 gave Connect no longer applied, and WebGL reported the Mac's GPU. Connect now starts with `MULLION_CONFIG` giving `UbisoftConnect.exe`, `upc.exe`, `Uplay.exe` and `UplayWebCore.exe` the same AMD Radeon RX 6800 XT (`dxgi.customVendorId=1002`, `dxgi.customDeviceId=73bf`), each in its own section, so a game Connect starts keeps its adapter. The SwiftShader switches MetalSharp Wine appends after Connect's own are a MetalSharp-Wine fix.
+
 ## v1.4.0 — 2026-11-17
 
 MetalSharp 1.4.0 runs on [MetalSharp Wine 8.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v8.0) on both runtimes, with one game settings panel for every library, MetalVR headsets and Liquid Glass.
