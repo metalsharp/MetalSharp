@@ -21,7 +21,7 @@ body:
     attributes:
       label: MetalSharp Version
       description: Shown in Settings > About.
-      placeholder: e.g. 1.4.0
+      placeholder: e.g. 1.5.0
     validations:
       required: true
 

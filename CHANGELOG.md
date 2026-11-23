@@ -1,9 +1,21 @@
 # Changelog
 
-## Unreleased
+## v1.5.0 — 2026-11-22
+
+MetalSharp 1.5.0 runs on [MetalSharp Wine 9.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v9.0) on both runtimes. VKD3D / DXVK is one lane on both of them, from Direct3D 12 down to Direct3D 3 with [MetalVulkan 7.0](https://github.com/metalsharp/MetalVulkan). This release also has game settings from the Collection grid, Report a problem, Glass Transparency, and black and white themes.
+
+### Added
+
+- **Game settings from the Collection grid** (#799) — each Collection card has a gear in its corner that opens the game's settings (Graphics, Runtime, Advanced, Presentation), so a game in a large library is one click away.
+- **Report a problem** — Game Settings > Advanced > **Make report** zips what a bug report about a game needs onto the Desktop: today's and yesterday's MetalSharp logs, the game's Mullion logs and the three newest crash reports. Advanced also has switches for Mullion's memory and logging features.
+- **Glass Transparency** (#807) — a slider under the Liquid Glass switch, from 0 % to 100 %: higher values let the game's art and the desktop show more clearly through the library's panels, like macOS's Tinted-to-Clear choice.
+- **Remove a Windows program from the Steam Deck view** (#809) — its art menu has **Remove from Library…**, and a Game Jolt game's has **Uninstall…**.
 
 ### Changed
 
+- **MetalSharp Wine 8.0 → 9.0** — both builds carry and download [MetalSharp Wine 9.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v9.0) (`MS_WINE_RELEASE_VERSION`, and Release CI's `METALSHARP_WINE_TAG`).
+- **VKD3D / DXVK is one lane on the FEX runtime too**, as on x86_64. VKD3D-Proton runs Direct3D 12, and DXVK runs DXGI and Direct3D 11 down to 3, for 64-bit and 32-bit games, with d7vk's ddraw for Direct3D 7 to 3. The pipeline menus, the Sharp engine picker, crash report groups and the welcome page show it as one lane. A game saved on DXVK, 32-bit DXVK or the D3D9 route runs on it.
+- **32-bit games on DXVK** (FEX build) — `dxvk_32` runs on MetalSharp Wine's i386 DXVK lane (Direct3D 7 to 9, with d7vk's ddraw) instead of falling back to Mullion. The x86_64 app carries Wine's own ddraw as `ddraw_.dll`, which d7vk passes DirectDraw to.
 - **Dark and Light themes are black and white** — Dark is a black UI with white text (white accent; the selected card keeps its blue glow), and Light a white UI with black text (blue accent, and the selected card glows blue, where the cream glow vanished on white). The library's fixed colors follow them: neutral grays, off-whites and near-blacks turn to the theme's black or white, and colored values (accents, status, art) stay. The other themes are unchanged.
 - **Lava is a calm cabernet** — a slightly bright cabernet red (`#B0394D`) in place of the bright lava red, with softer surfaces and glow.
 - **One sidebar with Liquid Glass and without** — the classic sidebar behaves as the Liquid Glass one does: as wide as the header's launcher button, with the larger rows and text, and always beside the page.
@@ -18,6 +30,9 @@
 - **Glass Transparency reaches every store page** — a launcher page with no games (Battle.net, Rockstar, GOG, Epic, Windows Programs) had no glass for the slider to clear; it is now a pane of glass, as the library's shelf is. A game without art (most Windows programs) has a glass hero in place of dark scrims over nothing.
 - **No theme color in the Liquid Glass sidebar** — the sidebar has its own neutral glass, tinted with the page's color instead of the accent, and keeps its blur at any transparency, so the theme's color doesn't wash into it.
 - **The graphics selector reads over anything** — its list is a dark overlay of the theme's menu color that Glass Transparency doesn't thin, so the art and cards behind it don't show through.
+- **Switching to FEX said MetalSharp lacked MetalSharp-Wine.app** (#811) — a Windows version change or a component install (VC++, DirectX, .NET) in a bottle left a process-wide child reaper that took the result of every command the backend waited for. Each bottle child is now waited for by its own pid.
+- **Uninstall FEX / x86_64 for a runtime that is only downloaded** (#813) — Settings > Advanced offered them only when both runtimes were fully installed. A runtime whose app or download is on disk can now be uninstalled on its own.
+- **A game's Retina setting in every prefix** — a Windows program running in Steam's prefix ignored its own High Resolution (Retina) choice, and a game that changed Steam's prefix left its value for the next ones. Each launch now sets its own. A stale launch wrapper is replaced at the next start.
 
 ## v1.4.0 — 2026-11-17
 
