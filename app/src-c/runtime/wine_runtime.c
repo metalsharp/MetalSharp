@@ -163,12 +163,12 @@ const char* ms_wine_route_pipeline(const char* pipeline) {
             return "wine_bare";
         return pipeline;
     }
-    /* D3DMetal is Apple's and x86_64-only: its D3D12 games take VKD3D-Proton. DXVK replaces the D3D9 route, for
-     * 32-bit programs too: MetalSharp Wine gives them its i386 DXVK lane (D3D7 to D3D9, with d7vk's ddraw.dll). */
-    if (!strcmp(pipeline, "d3dmetal") || !strcmp(pipeline, "m13"))
+    /* One VKD3D / DXVK lane, as on x86_64: MetalSharp Wine 9.0's VKD3D lane runs VKD3D-Proton's D3D12 with the full
+     * DXVK (D3D11 to D3D3, and i386 for 32-bit programs, with d7vk's ddraw.dll). D3DMetal is Apple's and x86_64-only:
+     * its D3D12 games take it too, as do games saved on DXVK or the D3D9 route. */
+    if (!strcmp(pipeline, "d3dmetal") || !strcmp(pipeline, "m13") || !strcmp(pipeline, "d3d9") ||
+        !strcmp(pipeline, "m9") || !strcmp(pipeline, "dxvk") || !strcmp(pipeline, "dxvk_32"))
         return "vkd3d";
-    if (!strcmp(pipeline, "d3d9") || !strcmp(pipeline, "dxvk_32"))
-        return "dxvk";
     /* FNA games run as Windows programs under FEX; the native Mono lane is the regular build's. */
     if (!strcmp(pipeline, "fna_arm64"))
         return "dxmt";
@@ -560,7 +560,7 @@ char* ms_app_resources_path(const char* name) {
 }
 
 /* The MetalSharp Wine release this MetalSharp carries and downloads. */
-#define MS_WINE_RELEASE_VERSION "8.0"
+#define MS_WINE_RELEASE_VERSION "9.0"
 
 const char* ms_wine_release_version(void) {
     return MS_WINE_RELEASE_VERSION;

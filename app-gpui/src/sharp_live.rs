@@ -10,7 +10,7 @@ use std::time::Duration;
 const MS: fn(u64) -> Duration = Duration::from_millis;
 
 /// The engine choices: the active runtime's lanes, as Steam games are offered them. On FEX
-/// Mullion (DXMT), VKD3D-Proton, DXVK and OpenGL; on x86_64 D3DMetal, VKD3D / DXVK, Mullion
+/// Mullion (DXMT), VKD3D / DXVK and OpenGL; on x86_64 D3DMetal, VKD3D / DXVK, Mullion
 /// (DXMT) and OpenGL.
 pub(super) fn engine_options() -> Vec<(String, String)> {
     let lanes: &[(&str, &str)] = if crate::variant::is_fex() {
