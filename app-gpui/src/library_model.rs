@@ -554,9 +554,8 @@ pub fn normalize_pipeline(id: &str) -> String {
 }
 
 /// `gamePipelineOptions`: Ubisoft, Rockstar and Battle.net games take the backend's list, which is the
-/// active runtime's lanes, as Steam games are offered them: on FEX Mullion (DXMT), VKD3D-Proton, DXVK and
-/// OpenGL (`variant::FEX_PIPELINE_OPTIONS`; DXVK is for x86_64 games only, which the backend checks at
-/// launch), on x86_64 D3DMetal, VKD3D / DXVK, Mullion (DXMT) and OpenGL. GOG, Epic and Windows programs use
+/// active runtime's lanes, as Steam games are offered them: on FEX Mullion (DXMT), VKD3D / DXVK and OpenGL
+/// (`variant::FEX_PIPELINE_OPTIONS`), on x86_64 D3DMetal, VKD3D / DXVK, Mullion (DXMT) and OpenGL. GOG, Epic and Windows programs use
 /// the runtime's list directly.
 pub fn game_pipeline_options(game: &LibGame) -> Vec<(String, String)> {
     game_pipeline_options_for(game, crate::variant::is_fex())
@@ -590,7 +589,7 @@ fn runtime_pipeline_options_for(game: &LibGame, fex: bool) -> Vec<(String, Strin
                 .map(|(id, label)| ((*id).to_owned(), (*label).to_owned()))
                 .collect()
         };
-        // The backend runs D3DMetal and GPTK on VKD3D-Proton and D3D9 on DXVK here: show each lane once.
+        // The backend runs D3DMetal, GPTK, DXVK and D3D9 on the VKD3D / DXVK lane here: show each lane once.
         return crate::variant::fex_options(options);
     }
     if !game.is_launcher_game() {
@@ -1086,16 +1085,16 @@ mod tests {
     }
 
     #[test]
-    fn fex_lists_mullion_vkd3d_dxvk_opengl_and_maps_saved_rosetta_pipelines() {
+    fn fex_lists_mullion_one_vkd3d_dxvk_lane_opengl_and_maps_saved_pipelines() {
         let g = game(json!({"appid":1,"name":"a","preferred_pipeline":"d3dmetal"}));
         let ids: Vec<String> = game_pipeline_options_for(&g, true)
             .into_iter()
             .map(|(id, _)| id)
             .collect();
-        assert_eq!(ids, ["dxmt", "metalvr", "vkd3d", "dxvk", "wine_bare"]);
+        assert_eq!(ids, ["dxmt", "metalvr", "vkd3d", "wine_bare"]);
         assert_eq!(effective_pipeline_for(&g, true), "vkd3d");
         assert_eq!(effective_pipeline_for(&g, false), "d3dmetal");
-        for (saved, lane) in [("m13", "vkd3d"), ("dxmt_32", "dxmt"), ("d3d9", "dxvk")] {
+        for (saved, lane) in [("m13", "vkd3d"), ("dxmt_32", "dxmt"), ("d3d9", "vkd3d"), ("dxvk", "vkd3d"), ("dxvk_32", "vkd3d")] {
             let g = game(json!({"appid":1,"name":"a","launch_method":saved}));
             assert_eq!(effective_pipeline_for(&g, true), lane);
         }
@@ -1108,9 +1107,8 @@ mod tests {
         assert_eq!(
             game_pipeline_options_for(&ubisoft, true),
             [
-                ("vkd3d".to_owned(), "VKD3D-Proton".to_owned()),
-                ("dxmt".to_owned(), "Mullion (DXMT)".to_owned()),
-                ("dxvk".to_owned(), "DXVK".to_owned())
+                ("vkd3d".to_owned(), "VKD3D / DXVK".to_owned()),
+                ("dxmt".to_owned(), "Mullion (DXMT)".to_owned())
             ]
         );
         assert_eq!(

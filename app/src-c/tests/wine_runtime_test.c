@@ -42,10 +42,12 @@ int main(int argc, char** argv) {
     EXPECT(!strcmp(ms_wine_route_pipeline("vkd3d"), "vkd3d"));
     EXPECT(!strcmp(ms_wine_fex_graphics_backend("vkd3d"), "vkd3d"));
     EXPECT(!strcmp(ms_wine_route_pipeline("m13"), "vkd3d"));
-    EXPECT(!strcmp(ms_wine_route_pipeline("d3d9"), "dxvk"));
-    /* 32-bit programs too, D3D7 (d7vk's ddraw.dll) to D3D9 */
-    EXPECT(!strcmp(ms_wine_route_pipeline("dxvk_32"), "dxvk"));
-    EXPECT(!strcmp(ms_wine_fex_graphics_backend(ms_wine_route_pipeline("dxvk_32")), "dxvk"));
+    /* one VKD3D / DXVK lane: DXVK and the D3D9 route run on it, 32-bit programs too (D3D7 to D3D9, d7vk's ddraw.dll) */
+    EXPECT(!strcmp(ms_wine_route_pipeline("d3d9"), "vkd3d"));
+    EXPECT(!strcmp(ms_wine_route_pipeline("m9"), "vkd3d"));
+    EXPECT(!strcmp(ms_wine_route_pipeline("dxvk"), "vkd3d"));
+    EXPECT(!strcmp(ms_wine_route_pipeline("dxvk_32"), "vkd3d"));
+    EXPECT(!strcmp(ms_wine_fex_graphics_backend(ms_wine_route_pipeline("dxvk_32")), "vkd3d"));
     EXPECT(!strcmp(ms_wine_route_pipeline("fna_arm64"), "dxmt"));
     EXPECT(!strcmp(ms_wine_fex_graphics_backend("wine_bare"), "wine"));
     EXPECT(!strcmp(ms_wine_fex_graphics_backend("dxvk"), "dxvk"));

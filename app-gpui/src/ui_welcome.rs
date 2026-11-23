@@ -25,12 +25,11 @@ pub(super) const FEX_WELCOME_PAGES: [(&str, &[&str]); 3] = [
     (
         "The new graphics layout",
         &[
-            "VKD3D-Proton: most Direct3D 12 games run here, on Vulkan through MetalSharp's MoltenVK to Metal. \
-             Games that used D3DMetal or GPTK on the x86_64 build move to this lane.",
+            "VKD3D / DXVK: one lane for Direct3D 12 down to 3 on Vulkan, through MetalSharp's MoltenVK to Metal: \
+             VKD3D-Proton runs Direct3D 12, and DXVK Direct3D 11 to 3, for 64-bit and 32-bit games. Games that \
+             used D3DMetal or GPTK on the x86_64 build, DXVK or the D3D9 route move to this lane.",
             "Mullion (DXMT): Direct3D 12, 11 and 10 straight to Metal for 64-bit games, and Direct3D 11 and \
              10 for 32-bit ones. It is the default lane, and the one for D3D11 and D3D10 games.",
-            "DXVK: Direct3D 9, 10 and 11 on Vulkan through MoltenVK, for 64-bit games. The x86_64 build's D3D9 \
-             route runs here, and it is worth a try when a game misbehaves on Mullion.",
             "OpenGL: Wine's own Direct3D on WineMetalGL; games with an OpenGL renderer (Unity, Unreal, Source) \
              are started with it.",
             "Each game's lane is in the pipeline menu on its card in the library.",
@@ -248,7 +247,7 @@ mod tests {
             "Welcome To MetalSharp 1.1.0: An Arm64 Wine with FEX"
         );
         let graphics = FEX_WELCOME_PAGES[1].1.join(" ");
-        for lane in ["VKD3D-Proton", "Mullion", "DXVK", "OpenGL"] {
+        for lane in ["VKD3D / DXVK", "Mullion", "OpenGL"] {
             assert!(graphics.contains(lane), "{lane}");
         }
     }

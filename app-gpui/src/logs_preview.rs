@@ -20,14 +20,13 @@ struct PreviewCrash {
     file: String,
 }
 
-/// Crash report groups, in display order. FEX runs D3DMetal and GPTK on VKD3D-Proton and D3D9 on
-/// DXVK, and has OpenGL, so its groups differ.
+/// Crash report groups, in display order. FEX runs D3DMetal, GPTK, DXVK and D3D9 on the VKD3D / DXVK
+/// lane, and has OpenGL, so its groups differ.
 fn crash_groups(fex: bool) -> &'static [&'static str] {
     if fex {
         &[
             "Mullion (DXMT)",
-            "VKD3D-Proton",
-            "DXVK",
+            "VKD3D / DXVK",
             "OpenGL",
             "System",
             "Other",
@@ -786,11 +785,11 @@ mod tests {
     fn fex_crash_groups_fold_rosetta_pipelines_into_mullion() {
         assert_eq!(crash_pipeline_for("dxmt_32", true), "Mullion (DXMT)");
         for raw in ["d3dmetal", "m13"] {
-            assert_eq!(crash_pipeline_for(raw, true), "VKD3D-Proton");
+            assert_eq!(crash_pipeline_for(raw, true), "VKD3D / DXVK");
         }
-        assert_eq!(crash_pipeline_for("d3d9", true), "DXVK");
-        assert_eq!(crash_pipeline_for("VKD3D", true), "VKD3D-Proton");
-        assert_eq!(crash_pipeline_for("dxvk", true), "DXVK");
+        assert_eq!(crash_pipeline_for("d3d9", true), "VKD3D / DXVK");
+        assert_eq!(crash_pipeline_for("VKD3D", true), "VKD3D / DXVK");
+        assert_eq!(crash_pipeline_for("dxvk", true), "VKD3D / DXVK");
         assert_eq!(crash_pipeline_for("wine_bare", true), "OpenGL");
         assert_eq!(crash_pipeline_for("fna_x86", true), "Mullion (DXMT)");
         assert_eq!(crash_pipeline_for("d3dmetal", false), "D3DMetal");
