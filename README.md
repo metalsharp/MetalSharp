@@ -23,7 +23,7 @@
 
 ## Quick start: 
 
-MetalSharp ships two different runtimes, both using the same graphics engines; 
+MetalSharp 1.5.0 ships two different runtimes, both [MetalSharp Wine 9.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v9.0) and both using the same graphics engines; 
 
 - X86_64 Wine 11.17 under Rosetta 2, for MacOS 15+
 - Arm64/Arm64EC Wine 11.20 with FEX, for MacOS 26.4+
@@ -37,7 +37,7 @@ Download your preferred DMG, and run it. Move MetalSharp into the applications f
 
 | Route | Engine |
 |---|---|
-| **_VKD3D/DXVK_** | VKD3D-Proton D3D12, DXVK D3D11/10/9 Through Vulkan -> MetalSharp's MoltenVK  -> Metal |
+| **_VKD3D/DXVK_** | One Lane For D3D12 Down To D3D3: VKD3D-Proton D3D12, DXVK D3D11/10/9/8, And D3D7/6/5/3 Through d7vk's DDraw, For 64-bit And 32-bit Games, Through Vulkan ([MetalVulkan](https://github.com/metalsharp/MetalVulkan)) -> MetalSharp's MoltenVK -> Metal. On Both Versions |
 | **_Mullion (DXMT Fork)_** | D3D12 / D3D11 / D3D10 -> Metal |
 | **_OpenGL_** | WineMetalGL (OpenGL 1.0 through 4.6) -> Metal |
 | **_MetalVR_** | Play VR Games Through Many Headsets With D3D11 / 12 |
@@ -62,7 +62,7 @@ Download your preferred DMG, and run it. Move MetalSharp into the applications f
 - Apple Silicon Mac M1-M5, MacOS 15+
 - About ~4 GB Free Space (Extra Prefixes, or 'Bottles' Take up More Space. 
 
-**_For Arm64 Version with FEX (MetalSharp Wine 4.0):_**
+**_For Arm64 Version with FEX (MetalSharp Wine 9.0):_**
 
 - Apple Silicon Mac M1-M5, MacOS 26.4+
 - About ~4 GB Free Space (Extra Prefixes, or 'Bottles' Take up More Space.
@@ -71,7 +71,8 @@ Download your preferred DMG, and run it. Move MetalSharp into the applications f
 
 - [Tested And Verified Games](https://github.com/metalsharp/MetalSharp/blob/main/docs/games-supported.md)
 - [MetalVR](https://github.com/metalsharp/MetalVR)
-- [VKD3D-Proton MacOS](https://github.com/metalsharp/VKD3D-Proton-MacOS)
+- [MetalSharp Wine](https://github.com/metalsharp/MetalSharp-Wine)
+- [MetalVulkan](https://github.com/metalsharp/MetalVulkan) (VKD3D-Proton, DXVK and MoltenVK; formerly VKD3D-Proton MacOS)
 - [WineMetalGL](https://github.com/metalsharp/WineMetalGL)
 - [Updates](https://github.com/metalsharp/MetalSharp/blob/main/docs/updates.md)
 
@@ -86,7 +87,9 @@ Licensed under the `GNU Affero General Public License v3.0` or later (AGPL-3.0-o
 [FEX-Emu](https://github.com/FEX-Emu/FEX), 
 [VKD3D-Proton](https://github.com/HansKristian-Work/vkd3d-proton), 
 [MoltenVK](https://github.com/KhronosGroup/MoltenVK), 
+[DXVK](https://github.com/doitsujin/dxvk), 
 [DXVK-MacOS](https://github.com/Gcenx/DXVK-macOS), 
+[d7vk](https://github.com/WinterSnowfall/d7vk), 
 [Steam Art Manager](https://github.com/Tormak9970/Steam-Art-Manager), 
 [GPUI](https://github.com/zed-industries/zed), 
 [Wine-Mono](https://github.com/wine-mono/wine-mono), 
