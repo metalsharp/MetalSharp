@@ -1094,7 +1094,13 @@ mod tests {
         assert_eq!(ids, ["dxmt", "metalvr", "vkd3d", "wine_bare"]);
         assert_eq!(effective_pipeline_for(&g, true), "vkd3d");
         assert_eq!(effective_pipeline_for(&g, false), "d3dmetal");
-        for (saved, lane) in [("m13", "vkd3d"), ("dxmt_32", "dxmt"), ("d3d9", "vkd3d"), ("dxvk", "vkd3d"), ("dxvk_32", "vkd3d")] {
+        for (saved, lane) in [
+            ("m13", "vkd3d"),
+            ("dxmt_32", "dxmt"),
+            ("d3d9", "vkd3d"),
+            ("dxvk", "vkd3d"),
+            ("dxvk_32", "vkd3d"),
+        ] {
             let g = game(json!({"appid":1,"name":"a","launch_method":saved}));
             assert_eq!(effective_pipeline_for(&g, true), lane);
         }
