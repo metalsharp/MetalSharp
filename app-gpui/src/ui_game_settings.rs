@@ -1324,7 +1324,7 @@ impl MetalSharpApp {
                 if installed {
                     "Installed in MetalSharp's folder (metalvr-runtime).".to_string()
                 } else {
-                    "Downloads MetalVR 0.2.1, checks it, and installs it in Terminal.".to_string()
+                    "Downloads MetalVR 0.2.5, checks it, and installs it in Terminal.".to_string()
                 },
                 Action::Step(if installed { "Reinstall" } else { "Install" }, "install"),
             ),

@@ -383,8 +383,8 @@ char* ms_metalvr_prepare(const char* home) {
 
 /* ---- the headset (the game settings' Headset tab) ---- */
 
-#define METALVR_RELEASE     "0.2.1"
-#define METALVR_RELEASE_SHA "f780ef88ad0f545f48e187587810eb0275afcc33b323db2878c5bc7393258a80"
+#define METALVR_RELEASE     "0.2.5"
+#define METALVR_RELEASE_SHA "0c832c8bd97b2cd4bdd4437d27b88f7b59ca88a2c27e5d53e4bddfff138cc13c"
 
 static char* headset_reply(const char* home, const char* error) {
     char server[1024], helper[1024];
