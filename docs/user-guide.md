@@ -7,6 +7,7 @@ MetalSharp 1.0.0 comes in two builds:
 
 - **x86_64** (`MetalSharp-<version>-arm64.dmg`, macOS 15+): Wine 11.17 under Rosetta, with the D3DMetal, DXMT, D3D9, VKD3D and Mono/FNA routes.
 - **Arm64 with FEX** (`MetalSharp-<version>-arm64-FEX.dmg`, macOS 26.4+, early access): MetalSharp Wine, a native Apple Silicon Wine that runs x86 games with FEX, with the Mullion, VKD3D-Proton, DXVK and OpenGL lanes. It needs no Rosetta.
+- **All Runtimes** (`MetalSharp-<version>-All-Runtimes.dmg`, from the release after 1.5.0): both runtimes in one larger download. It starts on x86_64, and the **FEX | x86_64** toggle switches to the other runtime without downloading it. Its updates keep both.
 
 1. Download a DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases) and drag MetalSharp into `/Applications`, or run `brew install --cask metalsharp/tap/metalsharp`.
 2. Open it. If macOS blocks it, go to **System Settings → Privacy & Security → Open Anyway**.

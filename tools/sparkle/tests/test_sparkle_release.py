@@ -25,6 +25,13 @@ class Names(unittest.TestCase):
         self.assertEqual(sr.delta_name("1.3.1", "fex", "1.3.0"), "MetalSharp-1.3.1-arm64-FEX-from1.3.0.delta")
         self.assertEqual(sr.appcast_name("regular"), "appcast.xml")
         self.assertEqual(sr.appcast_name("fex"), "appcast-fex.xml")
+        # the All Runtimes package (#837): no "arm64" or "FEX", which the DMG updaters pick the other builds by
+        self.assertEqual(sr.archive_name("1.6.0", "all"), "MetalSharp-1.6.0-All-Runtimes.zip")
+        self.assertEqual(sr.delta_name("1.6.1", "all", "1.6.0"), "MetalSharp-1.6.1-All-Runtimes-from1.6.0.delta")
+        self.assertEqual(sr.appcast_name("all"), "appcast-all.xml")
+        for name in (sr.archive_name("1.6.0", "all"), sr.delta_name("1.6.1", "all", "1.6.0")):
+            self.assertNotIn("fex", name.lower())
+            self.assertNotIn("arm64", name.lower())
         self.assertEqual(
             sr.download_url("1.3.1", "MetalSharp-1.3.1-arm64.zip"),
             "https://github.com/metalsharp/MetalSharp/releases/download/v1.3.1/MetalSharp-1.3.1-arm64.zip",
@@ -49,6 +56,10 @@ class PreviousVersions(unittest.TestCase):
         self.assertEqual(sr.previous_versions(releases, "1.4.0", "regular", 5), ["1.3.1", "1.3.0", "1.2.10"])
         self.assertEqual(sr.previous_versions(releases, "1.4.0", "fex", 2), ["1.3.2", "1.3.1"])
         self.assertEqual(sr.previous_versions(releases, "1.3.0", "regular", 2), ["1.2.10"])
+        # the All Runtimes package's deltas come only from its own archives
+        releases.insert(0, release("v1.6.0", "MetalSharp-1.6.0-arm64.zip", "MetalSharp-1.6.0-All-Runtimes.zip"))
+        self.assertEqual(sr.previous_versions(releases, "1.6.1", "all", 2), ["1.6.0"])
+        self.assertEqual(sr.previous_versions(releases, "1.6.0", "all", 2), [])
 
     def test_versions_compare_numerically(self):
         self.assertLess(sr.version_key("1.2.9"), sr.version_key("1.2.10"))

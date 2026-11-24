@@ -60,6 +60,20 @@ elif [ "$VARIANT" = "regular" ] && [ -n "${METALSHARP_WINE_APP:-}" ]; then
   OTHER_WINE_APP_NAME="MetalSharp-Wine.app"
   OTHER_WINE_APP_SOURCE="$METALSHARP_WINE_APP"
 fi
+# METALSHARP_PACKAGE=all: the All Runtimes package (#837), one MetalSharp.app with both runtimes. It is the regular
+# build (x86_64 first, MetalSharpVariant=regular) carrying MetalSharp-Wine-x86_64.app and MetalSharp-Wine.app, so the
+# FEX | x86_64 toggle never downloads a runtime. Its Info.plist says MetalSharpPackage=all, and Sparkle reads
+# appcast-all.xml, so its updates stay the All Runtimes package. METALSHARP_PACKAGE=single (the default) is unchanged.
+PACKAGE="${METALSHARP_PACKAGE:-single}"
+case "$PACKAGE" in
+  single) ;;
+  all)
+    [ "$VARIANT" = "regular" ] || { echo "METALSHARP_PACKAGE=all is the regular build carrying both runtimes; unset METALSHARP_VARIANT" >&2; exit 1; }
+    [ "$WINE_APP_NAME" = "MetalSharp-Wine-x86_64.app" ] || { echo "METALSHARP_PACKAGE=all needs METALSHARP_WINE_X86_64_APP" >&2; exit 1; }
+    [ "$OTHER_WINE_APP_NAME" = "MetalSharp-Wine.app" ] || { echo "METALSHARP_PACKAGE=all needs METALSHARP_WINE_APP" >&2; exit 1; }
+    ;;
+  *) echo "METALSHARP_PACKAGE must be single or all" >&2; exit 1 ;;
+esac
 if [ -n "$OTHER_WINE_APP_NAME" ]; then
   [ -x "$OTHER_WINE_APP_SOURCE/Contents/MacOS/wine" ] || { echo "Not a $OTHER_WINE_APP_NAME (no Contents/MacOS/wine): $OTHER_WINE_APP_SOURCE" >&2; exit 1; }
   codesign --verify --deep --strict "$OTHER_WINE_APP_SOURCE" || { echo "$OTHER_WINE_APP_NAME does not verify: $OTHER_WINE_APP_SOURCE" >&2; exit 1; }
@@ -291,12 +305,14 @@ if [ -n "$OTHER_WINE_APP_NAME" ]; then
   ditto "$OTHER_WINE_APP_SOURCE" "$CONTENTS/Resources/$OTHER_WINE_APP_NAME"
 fi
 
-# Sparkle's keys: this build's appcast (each release publishes appcast.xml for x86_64 and appcast-fex.xml for FEX),
+# Sparkle's keys: this build's appcast (each release publishes appcast.xml for x86_64, appcast-fex.xml for FEX and
+# appcast-all.xml for the All Runtimes package),
 # the EdDSA public key its updates are signed with, and no checks of Sparkle's own: MetalSharp asks for updates.
 SPARKLE_PLIST=""
 if [ "$SPARKLE" = "1" ]; then
   SPARKLE_FEED_NAME="appcast.xml"
   [ "$VARIANT" = "fex" ] && SPARKLE_FEED_NAME="appcast-fex.xml"
+  [ "$PACKAGE" = "all" ] && SPARKLE_FEED_NAME="appcast-all.xml"
   SPARKLE_FEED_URL="${METALSHARP_SPARKLE_FEED_URL:-https://github.com/metalsharp/MetalSharp/releases/latest/download/$SPARKLE_FEED_NAME}"
   SPARKLE_PUBLIC_KEY="$(tr -d '[:space:]' < "$ROOT/tools/sparkle/public-key.txt")"
   [ -n "$SPARKLE_PUBLIC_KEY" ] || { echo "tools/sparkle/public-key.txt is empty" >&2; exit 1; }
@@ -307,6 +323,10 @@ if [ "$SPARKLE" = "1" ]; then
   <key>SUVerifyUpdateBeforeExtraction</key><true/>
 "
 fi
+
+PACKAGE_PLIST=""
+[ "$PACKAGE" = "all" ] && PACKAGE_PLIST="  <key>MetalSharpPackage</key><string>all</string>
+"
 
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -323,7 +343,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
   <key>CFBundleVersion</key><string>$APP_BUILD_VERSION</string>
   <key>MetalSharpVariant</key><string>$VARIANT</string>
-$SPARKLE_PLIST  <key>LSMinimumSystemVersion</key><string>13.0</string>
+$PACKAGE_PLIST$SPARKLE_PLIST  <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSDocumentsFolderUsageDescription</key><string>Windows games and launchers running in Wine keep their saves and settings in your Documents folder.</string>
   <key>NSRemovableVolumesUsageDescription</key><string>Wine reaches Steam libraries and games installed on external drives.</string>
   <key>NSNetworkVolumesUsageDescription</key><string>Wine reaches Steam libraries and games installed on network drives.</string>

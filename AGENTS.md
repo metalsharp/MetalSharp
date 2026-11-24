@@ -116,6 +116,7 @@ ctest --test-dir build-native --output-on-failure
 tools/dmg/create-bundles.sh
 tools/dmg/build-dmg.sh   # packages the GPUI app and builds MetalSharp-<version>-arm64.dmg
 METALSHARP_VARIANT=fex METALSHARP_WINE_APP=/path/to/MetalSharp-Wine.app tools/dmg/build-dmg.sh   # MetalSharp-<version>-arm64-FEX.dmg
+METALSHARP_PACKAGE=all METALSHARP_WINE_X86_64_APP=/path/to/MetalSharp-Wine-x86_64.app METALSHARP_WINE_APP=/path/to/MetalSharp-Wine.app tools/dmg/build-dmg.sh   # MetalSharp-<version>-All-Runtimes.dmg
 ```
 
 Do not rebuild the runtime archive unless explicitly requested.
@@ -125,7 +126,7 @@ Do not rebuild the runtime archive unless explicitly requested.
 - `pr-ci.yml`: shell, rules (both rule sets), docs, Metal, C backend (both builds), native, and DMG workflow checks.
 - `gpui-preview.yml`: GPUI app format, tests, route inventory, and backend smoke tests.
 - `ci.yml`: equivalent main-branch validation.
-- `release.yml`: native build, C backend and GPUI app packaging, DMG verification, signing, and publication, for the regular DMG and (`build-fex`, around the pinned MetalSharp Wine release) the FEX DMG.
+- `release.yml`: native build, C backend and GPUI app packaging, DMG verification, signing, and publication, for the regular DMG, (`build-fex`, around the pinned MetalSharp Wine release) the FEX DMG, and (`build-all`) the All Runtimes DMG, which carries both Wine apps.
 
 ## Versioning
 

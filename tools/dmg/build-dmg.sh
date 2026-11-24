@@ -16,6 +16,13 @@ fi
 
 "$PROJECT_DIR/app-gpui/package-app.sh"
 "$SCRIPT_DIR/package-gpui-dmg.sh" "$PROJECT_DIR/app-gpui/target/MetalSharp.app" "$OUT_DIR"
+# METALSHARP_PACKAGE=all (with METALSHARP_WINE_X86_64_APP and METALSHARP_WINE_APP): the All Runtimes DMG.
+if [ "${METALSHARP_PACKAGE:-single}" = "all" ]; then
+  for dmg in "$OUT_DIR"/MetalSharp-*-All-Runtimes.dmg; do
+    "$SCRIPT_DIR/verify-all-runtimes-dmg.sh" "$dmg" "${METALSHARP_WINE_X86_64_APP:-}" "${METALSHARP_WINE_APP:-}"
+  done
+  exit 0
+fi
 # METALSHARP_VARIANT=fex (with METALSHARP_WINE_APP): the FEX DMG and its checks.
 if [ "${METALSHARP_VARIANT:-regular}" = "fex" ]; then
   for dmg in "$OUT_DIR"/MetalSharp-*-arm64-FEX.dmg; do

@@ -277,7 +277,9 @@ static void release_assets_find(const ms_json* release, release_assets* selected
     for (i = 0; i < ms_json_array_length(assets); ++i) {
         const ms_json* asset = ms_json_array_get(assets, i);
         char* name = release_field_json(asset, "name");
-        if (!has_dmg_suffix(name)) {
+        /* The All Runtimes DMG (MetalSharp-<ver>-All-Runtimes.dmg, #837) is neither build's: its app updates through
+         * its own Sparkle feed (appcast-all.xml). Its name has no "arm64", so an arm64 DMG wins over it here anyway. */
+        if (!has_dmg_suffix(name) || contains_case_insensitive(name, "All-Runtimes")) {
             free(name);
             continue;
         }

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **An All Runtimes DMG** (#837) — release CI builds a third DMG, `MetalSharp-<version>-All-Runtimes.dmg`: the x86_64 build carrying both MetalSharp Wine apps (`MetalSharp-Wine-x86_64.app` and `MetalSharp-Wine.app`, unchanged), so switching between the FEX and x86_64 runtimes downloads nothing. It updates through its own Sparkle feed (`appcast-all.xml`) and stays the All Runtimes package. The regular and FEX DMGs are unchanged, and no updater takes the new DMG for either: its name has neither `FEX` nor `arm64`, and the backend's updater skips it by name. Its build is optional in a release, like the FEX build's. Made with `METALSHARP_PACKAGE=all` (`package-app.sh`, `package-gpui-dmg.sh`, `build-dmg.sh`) and checked by `tools/dmg/verify-all-runtimes-dmg.sh`.
+
 ## v1.5.0 — 2026-11-22
 
 MetalSharp 1.5.0 runs on [MetalSharp Wine 9.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v9.0) on both runtimes. VKD3D / DXVK is one lane on both of them, from Direct3D 12 down to Direct3D 3 with [MetalVulkan 7.0](https://github.com/metalsharp/MetalVulkan). This release also has game settings from the Collection grid, Report a problem, Glass Transparency, and black and white themes.

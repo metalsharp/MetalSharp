@@ -145,6 +145,12 @@ def write_release(root: Path, version: str = VERSION, fex_asset: bool = True) ->
                 "name": f"MetalSharp v{version}",
                 "body": "Synthetic updater release",
                 "assets": [
+                    # the All Runtimes package (#837) is neither build's download, wherever it is listed
+                    {
+                        "name": f"MetalSharp-{version}-All-Runtimes.dmg",
+                        "browser_download_url": (root / "all-runtimes.dmg").as_uri(),
+                        "size": 1,
+                    },
                     {
                         "name": f"MetalSharp-{version}.dmg",
                         "browser_download_url": regular_fallback.as_uri(),

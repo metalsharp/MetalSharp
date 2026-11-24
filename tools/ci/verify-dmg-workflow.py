@@ -204,6 +204,36 @@ def check_workflows() -> None:
         if required not in release:
             fail(f"release workflow missing signing fallback contract: {required}")
 
+    # The All Runtimes package (#837): its own job, both MetalSharp Wine apps, its own DMG name (neither "FEX" nor
+    # "arm64", which the DMG updaters pick the other builds by) and Sparkle feed, and optional in the release.
+    for required in [
+        "build-all:",
+        "METALSHARP_PACKAGE: all",
+        'echo "METALSHARP_WINE_X86_64_APP=$WINE_APP" >> "$GITHUB_ENV"',
+        'echo "METALSHARP_WINE_APP=$WINE_APP" >> "$GITHUB_ENV"',
+        "--variant all",
+        "tools/dmg/verify-all-runtimes-dmg.sh dist/gpui-all/MetalSharp-*-All-Runtimes.dmg",
+        "tools/dmg/sign-notarize-dmg.sh dist/gpui-all/MetalSharp-*-All-Runtimes.dmg",
+        "tools/dmg/verify-notarization.sh dist/gpui-all/MetalSharp-*-All-Runtimes.dmg",
+        "DMG-SIGNING-ALL.txt",
+        "needs: [build, build-fex, build-all]",
+        "release-flat/appcast-all.xml",
+        "ALL_RESULT: ${{ needs.build-all.result }}",
+    ]:
+        if required not in release:
+            fail(f"release workflow missing the All Runtimes package's step: {required}")
+    if "needs.build.result == 'success'" not in release.split("\n  release:\n", 1)[1]:
+        fail("the release must not wait on the optional All Runtimes or FEX builds")
+    all_packaging = read("app-gpui/package-local-preview.sh")
+    for required in ['PACKAGE="${METALSHARP_PACKAGE:-single}"', "appcast-all.xml", "<key>MetalSharpPackage</key>"]:
+        if required not in all_packaging:
+            fail(f"GPUI packaging missing the All Runtimes package: {required}")
+    all_dmg = read("tools/dmg/package-gpui-dmg.sh")
+    if "MetalSharp-$VERSION-All-Runtimes.dmg" not in all_dmg:
+        fail("GPUI DMG builder missing the All Runtimes DMG")
+    if 'contains_case_insensitive(name, "All-Runtimes")' not in read("app/src-c/runtime/updater.c"):
+        fail("the backend's updater must never take the All Runtimes DMG for the regular or FEX build")
+
     dmg_job = release.split("\n  build:\n", 1)[1].split("\n  release:\n", 1)[0]
     for excluded in [
         "metalsharp-electron.tar.zst",

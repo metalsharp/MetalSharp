@@ -7,6 +7,7 @@ MetalSharp 1.0.0 comes in two builds from the same source. The backend picks its
 
 - **Regular** (`MetalSharp-<version>-arm64.dmg`): the x86_64 Wine 11.17 runtime under Rosetta. Most of this document describes it.
 - **Arm64 FEX** (`MetalSharp-<version>-arm64-FEX.dmg`): MetalSharp Wine, a native arm64 Wine 11.20 that runs x86 code with FEX. See [Arm64 FEX Build](#arm64-fex-build).
+- **All Runtimes** (`MetalSharp-<version>-All-Runtimes.dmg`, #837): the regular build carrying both Wine apps (`MetalSharp-Wine-x86_64.app` and `MetalSharp-Wine.app`) in `Resources/`, so the FEX | x86_64 toggle sets up either runtime without a download. It starts on x86_64, and updates through its own Sparkle feed (`appcast-all.xml`), so it stays the All Runtimes package.
 
 ## Launch Flow
 

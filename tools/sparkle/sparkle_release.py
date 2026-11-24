@@ -7,14 +7,15 @@ Run by .github/workflows/release.yml after the app is packaged and signed, befor
       notarizes the app itself and staples its ticket (Sparkle installs the app, not the DMG), with the notarytool
       credentials sign-notarize-dmg.sh takes.
 
-  sparkle_release.py publish --app MetalSharp.app --variant regular|fex --version X.Y.Z --out dist/gpui
-      MetalSharp-X.Y.Z-arm64[-FEX].zip: the app, as Sparkle's full update;
-      MetalSharp-X.Y.Z-arm64[-FEX]-from<old>.delta: a patch from each of the last --previous releases that published
+  sparkle_release.py publish --app MetalSharp.app --variant regular|fex|all --version X.Y.Z --out dist/gpui
+      MetalSharp-X.Y.Z-arm64[-FEX].zip (MetalSharp-X.Y.Z-All-Runtimes.zip for the All Runtimes package, #837): the
+        app, as Sparkle's full update;
+      MetalSharp-X.Y.Z-arm64[-FEX]-from<old>.delta (MetalSharp-X.Y.Z-All-Runtimes-from<old>.delta): a patch from each of the last --previous releases that published
         this build's Sparkle archive. Each is applied to a copy of that release's app, which must come out identical
         to this one and pass codesign --verify --deep --strict, or the release stops. A release whose app keeps a
         code signature in extended attributes (xattr_signed_file) gets no delta, from it or to it: BinaryDelta
         cannot diff those. The log says which file, and Sparkle installs the full archive;
-      appcast.xml (regular) or appcast-fex.xml (fex): one item, this version, its archive and its deltas, every file
+      appcast.xml (regular), appcast-fex.xml (fex) or appcast-all.xml (all): one item, this version, its archive and its deltas, every file
         signed with the EdDSA key in $SPARKLE_ED_PRIVATE_KEY (or --ed-key-file).
 
 The app reads its build's appcast from the latest release (SUFeedURL, releases/latest/download/<appcast>), and Sparkle
@@ -46,8 +47,14 @@ SIGNED_XATTRS = ("com.apple.cs.CodeDirectory", "com.apple.cs.CodeRequirements", 
                  "com.apple.cs.CodeSignature")
 
 
+VARIANTS = ("regular", "fex", "all")
+
+
 def asset_stem(version: str, variant: str) -> str:
-    """The release's name for this build: MetalSharp-1.3.0-arm64 or MetalSharp-1.3.0-arm64-FEX, as its DMG."""
+    """The release's name for this build, as its DMG: MetalSharp-1.3.0-arm64, MetalSharp-1.3.0-arm64-FEX, or
+    MetalSharp-1.6.0-All-Runtimes for the All Runtimes package (no "arm64" or "FEX", which the DMG updaters match)."""
+    if variant == "all":
+        return f"MetalSharp-{version}-All-Runtimes"
     return f"MetalSharp-{version}-arm64" + ("-FEX" if variant == "fex" else "")
 
 
@@ -60,7 +67,7 @@ def delta_name(version: str, variant: str, old_version: str) -> str:
 
 
 def appcast_name(variant: str) -> str:
-    return "appcast-fex.xml" if variant == "fex" else "appcast.xml"
+    return {"fex": "appcast-fex.xml", "all": "appcast-all.xml"}.get(variant, "appcast.xml")
 
 
 def download_url(version: str, name: str, repo: str = REPO, base_url: str = "") -> str:
@@ -100,7 +107,7 @@ class Item:
 def appcast_xml(item: Item) -> str:
     """The build's appcast: one item, sparkle:version and shortVersionString both the release version (MetalSharp's
     CFBundleVersion is its marketing version), the full archive and the deltas Sparkle chooses from by its version."""
-    title = f"MetalSharp {item.version}" + (" (Arm64 with FEX)" if item.variant == "fex" else "")
+    title = f"MetalSharp {item.version}" + {"fex": " (Arm64 with FEX)", "all": " (All Runtimes)"}.get(item.variant, "")
     lines = [
         '<?xml version="1.0" encoding="utf-8"?>',
         f'<rss version="2.0" xmlns:sparkle={quoteattr(SPARKLE_NS)}>',
@@ -330,7 +337,7 @@ def main(argv: list[str] | None = None) -> None:
     notarize_parser.add_argument("--app", required=True)
     publish_parser = commands.add_parser("publish", help="the update archive, its deltas and the appcast")
     publish_parser.add_argument("--app", required=True)
-    publish_parser.add_argument("--variant", choices=["regular", "fex"], required=True)
+    publish_parser.add_argument("--variant", choices=VARIANTS, required=True)
     publish_parser.add_argument("--version", required=True)
     publish_parser.add_argument("--out", required=True)
     publish_parser.add_argument("--repo", default=REPO)

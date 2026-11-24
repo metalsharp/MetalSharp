@@ -4,6 +4,8 @@
 # MetalSharp.app). Release CI and tools/dmg/build-dmg.sh build on this.
 # METALSHARP_VARIANT=fex (with METALSHARP_WINE_APP) packages the FEX build:
 # same identity, MetalSharp-Wine.app in Resources, no runtime bundles.
+# METALSHARP_PACKAGE=all (with METALSHARP_WINE_X86_64_APP and METALSHARP_WINE_APP) packages the All Runtimes app:
+# the regular build carrying both Wine apps, on its own Sparkle feed (appcast-all.xml).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

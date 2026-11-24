@@ -6,7 +6,7 @@ MetalSharp updates itself with [Sparkle](https://sparkle-project.org) 2.9.6. Met
 
 1. **Finding it.** The backend's `/update/check` compares the latest GitHub release with this build. That drives the update sheet: the release notes, the choice of builds, switching builds. This part hasn't changed.
 2. **Installing a newer version of the running build** (`ui_live.rs` `begin_update_download`, `sparkle.rs`, `app-gpui/sparkle/MSSparkleBridge.m`):
-   - Sparkle reads the build's appcast (`SUFeedURL`): `appcast.xml` for x86_64, `appcast-fex.xml` for FEX, both from `releases/latest/download/`.
+   - Sparkle reads the build's appcast (`SUFeedURL`): `appcast.xml` for x86_64, `appcast-fex.xml` for FEX and `appcast-all.xml` for the All Runtimes package (#837), all from `releases/latest/download/`.
    - It downloads the `.delta` made from the version that is running. If there isn't one, it downloads the full `.zip`.
    - It checks the download's EdDSA signature (`SUPublicEDKey`, `tools/sparkle/public-key.txt`) before extracting it. It checks the code signature against this app's.
    - When the update is ready, MetalSharp does what `update.sh` did before replacing the app: it stops Steam and Wine (`/steam/stop`), writes `~/.metalsharp/.post-update-migration` for the new version's first launch, and stops the backend.
@@ -36,8 +36,8 @@ Release CI (`.github/workflows/release.yml`), for each build, after the app is p
 
 1. **`sparkle_release.py notarize`:** notarizes the app itself and staples its ticket. Sparkle installs the app, not the DMG. The DMG is then made from the stapled app and notarized as before.
 2. **`sparkle_release.py publish`:**
-   - `MetalSharp-X.Y.Z-arm64[-FEX].zip`: the full update.
-   - `MetalSharp-X.Y.Z-arm64[-FEX]-from<old>.delta`: one from each of the last two releases that published this build's `.zip`. Each delta is applied to a copy of that release's app, which must come out byte-identical to the new app and pass `codesign --verify --deep --strict`. If not, the release stops.
+   - `MetalSharp-X.Y.Z-arm64[-FEX].zip` (`MetalSharp-X.Y.Z-All-Runtimes.zip` for the All Runtimes package): the full update.
+   - `MetalSharp-X.Y.Z-arm64[-FEX]-from<old>.delta` (`MetalSharp-X.Y.Z-All-Runtimes-from<old>.delta`): one from each of the last two releases that published this build's `.zip`. Each delta is applied to a copy of that release's app, which must come out byte-identical to the new app and pass `codesign --verify --deep --strict`. If not, the release stops.
    - The build's appcast, with one item: this version, its archive and its deltas, each signed with `SPARKLE_ED_PRIVATE_KEY`.
 
 The release job publishes them next to the DMGs. Since apps read `releases/latest/download/<appcast>`, the newest release's appcast is the feed. A release is in it once it's published and not a prerelease.
