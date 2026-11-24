@@ -20,6 +20,8 @@ const BG: u32 = 0x111416;
 const TEXT: u32 = 0xf1eee6;
 const MUTED: u32 = 0x9ba19f;
 const GOLD: u32 = 0xe8d6b7;
+/// The embedded Game Jolt browser's toolbar height, above the page (#822).
+const GAMEJOLT_TOOLBAR: f32 = 32.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SharpSource {
@@ -52,7 +54,7 @@ impl SharpSource {
             Self::Installers => "Installers",
             Self::Gog => "GOG",
             Self::Epic => "Epic",
-            Self::GameJolt => "GameJolt",
+            Self::GameJolt => "Game Jolt",
         }
     }
     fn menu_detail(self) -> &'static str {
@@ -73,7 +75,7 @@ impl SharpSource {
             ),
             Self::Gog => (e, "GOG Library", "GOG games library"),
             Self::Epic => (e, "Epic Library", "Epic games library"),
-            Self::GameJolt => (e, "GameJolt Library", "Indie games library"),
+            Self::GameJolt => (e, "Game Jolt Library", "Indie games library"),
         }
     }
 }
@@ -124,7 +126,8 @@ impl Default for PreviewState {
             launch_settings_open: false,
             launch_preferences: [2, 0, 1, 0, 0],
             resolution_open: false,
-            browser_height: 24.0,
+            // half the panel, so Game Jolt's pages are usable without dragging it up first (#822)
+            browser_height: 50.0,
             browser_drag: None,
         }
     }
@@ -220,10 +223,13 @@ impl PreviewState {
 }
 
 /// What the Sharp Library view asks of the app around it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SharpPreviewEvent {
     /// The header's Back to Play: the page's Steam Deck layout.
     BackToPlay,
+    /// A Collection card's gear: the game's settings (Graphics, Runtime, Advanced, Presentation), as the Steam
+    /// Collection grid's gear opens them (#833). `source` is the deck's ("gog", "epic", "windows", "gamejolt").
+    OpenGameSettings { source: &'static str, id: String },
 }
 
 impl gpui::EventEmitter<SharpPreviewEvent> for SharpPreview {}
@@ -251,13 +257,14 @@ impl SharpPreview {
             sources: &SharpSource::ALL,
         }
     }
-    /// Show one sidebar page's source: "gog", "epic", or "installers"
-    /// (Windows Programs, which also offers GameJolt).
+    /// Show one sidebar page's source: "gog", "epic", "gamejolt" (its own page since #822), or "installers"
+    /// (Windows Programs).
     pub fn show_source(&mut self, id: &str, cx: &mut Context<Self>) {
         self.sources = match id {
             "gog" => &[SharpSource::Gog],
             "epic" => &[SharpSource::Epic],
-            _ => &[SharpSource::Installers, SharpSource::GameJolt],
+            "gamejolt" => &[SharpSource::GameJolt],
+            _ => &[SharpSource::Installers],
         };
         if self.sources.contains(&self.state.source) {
             return;
@@ -683,6 +690,120 @@ impl SharpPreview {
                 cx.notify();
             }))
             .child(dialog)
+    }
+
+    /// The embedded Game Jolt browser's toolbar (#822): back, forward, reload and the Game Jolt games page on the left,
+    /// the drag handle that sizes the browser in the middle, and the page's zoom and full height on the right. Game
+    /// Jolt's pages are made for a browser window, so they need the room and the zoom, and a game's page needs a way
+    /// back after a download.
+    fn gamejolt_toolbar(&self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
+        use crate::mini_browser::{
+            GAMEJOLT_ZOOM_STEP, GameJoltBrowserAction as A, gamejolt_browser_action,
+            gamejolt_browser_state,
+        };
+        let (can_back, can_forward, zoom) = gamejolt_browser_state().unwrap_or((false, false, 1.0));
+        let ink = crate::page_palette::tc(0x222222);
+        let tool = |id: &'static str, label: String, enabled: bool| {
+            div()
+                .id(id)
+                .h(px(24.0))
+                .min_w(px(26.0))
+                .px(px(6.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(6.0))
+                .text_size(px(13.0))
+                .font_weight(FontWeight::BOLD)
+                .text_color(rgb(ink))
+                .opacity(if enabled { 1.0 } else { 0.35 })
+                .cursor_pointer()
+                .hover(|style| style.bg(gpui::rgba(crate::page_palette::tca(0x0000000f))))
+                .child(label)
+        };
+        let act = |action: A| {
+            cx.listener(move |_, _, _, cx| {
+                gamejolt_browser_action(action);
+                cx.notify();
+            })
+        };
+        let full = self.state.browser_height > 90.0;
+        div()
+            .id("gamejolt-browser-toolbar")
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .h(px(GAMEJOLT_TOOLBAR))
+            .px(px(6.0))
+            .flex()
+            .items_center()
+            .gap(px(2.0))
+            .child(tool("gamejolt-back", "←".into(), can_back).on_click(act(A::Back)))
+            .child(tool("gamejolt-forward", "→".into(), can_forward).on_click(act(A::Forward)))
+            .child(tool("gamejolt-reload", "↻".into(), true).on_click(act(A::Reload)))
+            .child(tool("gamejolt-home", "Games".into(), true).on_click(act(A::Home)))
+            .child(
+                div()
+                    .id("gamejolt-browser-handle")
+                    .flex_1()
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_ns_resize()
+                    .child(
+                        div()
+                            .w(px(54.0))
+                            .h(px(18.0))
+                            .rounded_full()
+                            .border_1()
+                            .border_color(gpui::rgba(crate::page_palette::tca(0x00000026)))
+                            .bg(rgb(crate::page_palette::tc(0xffffff)))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(15.0))
+                            .font_weight(FontWeight::BLACK)
+                            .text_color(rgb(ink))
+                            .child("↕"),
+                    )
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
+                            this.state.browser_drag =
+                                Some((f32::from(event.position.y), this.state.browser_height));
+                            cx.notify();
+                        }),
+                    ),
+            )
+            .child(
+                tool("gamejolt-zoom-out", "−".into(), zoom > 0.5)
+                    .on_click(act(A::Zoom(zoom - GAMEJOLT_ZOOM_STEP))),
+            )
+            .child(
+                tool(
+                    "gamejolt-zoom-reset",
+                    format!("{}%", (zoom * 100.0).round() as i64),
+                    true,
+                )
+                .on_click(act(A::Zoom(1.0))),
+            )
+            .child(
+                tool("gamejolt-zoom-in", "+".into(), zoom < 2.0)
+                    .on_click(act(A::Zoom(zoom + GAMEJOLT_ZOOM_STEP))),
+            )
+            .child(
+                tool(
+                    "gamejolt-full-height",
+                    if full { "Restore" } else { "Full height" }.into(),
+                    true,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.state.browser_height = if full { 50.0 } else { 100.0 };
+                    cx.notify();
+                })),
+            )
     }
 
     fn small_button(
@@ -1541,7 +1662,7 @@ impl Render for SharpPreview {
                     .child(
                         div()
                             .absolute()
-                            .top(px(18.0))
+                            .top(px(GAMEJOLT_TOOLBAR))
                             .left(px(5.0))
                             .right(px(5.0))
                             .bottom(px(5.0))
@@ -1559,43 +1680,7 @@ impl Render for SharpPreview {
                                 .size_full(),
                             ),
                     )
-                    .child(
-                        div()
-                            .id("gamejolt-browser-handle")
-                            .absolute()
-                            .top(px(-1.0))
-                            .left_0()
-                            .right_0()
-                            .h(px(18.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .cursor_ns_resize()
-                            .child(
-                                div()
-                                    .w(px(54.0))
-                                    .h(px(18.0))
-                                    .rounded_full()
-                                    .bg(rgb(crate::page_palette::tc(0xffffff)))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_size(px(15.0))
-                                    .font_weight(FontWeight::BLACK)
-                                    .text_color(rgb(crate::page_palette::tc(0x222222)))
-                                    .child("↕"),
-                            )
-                            .on_mouse_down(
-                                gpui::MouseButton::Left,
-                                cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
-                                    this.state.browser_drag = Some((
-                                        f32::from(event.position.y),
-                                        this.state.browser_height,
-                                    ));
-                                    cx.notify();
-                                }),
-                            ),
-                    ),
+                    .child(self.gamejolt_toolbar(cx)),
             );
         } else if source == SharpSource::GameJolt && self.live.is_none() {
             let frame_height = ((f32::from(window.viewport_size().height) - 310.0).max(180.0)

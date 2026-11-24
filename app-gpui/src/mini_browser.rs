@@ -374,6 +374,9 @@ pub enum GameJoltDownloadEvent {
         filename: String,
         path: std::path::PathBuf,
         total: Option<u64>,
+        /// The page the download started from (a game's page, `https://gamejolt.com/games/<slug>/<id>`), from which
+        /// the game's art is found (#822).
+        page_url: Option<String>,
     },
     Finished {
         id: u64,
@@ -766,13 +769,18 @@ mod native {
                 let id = NEXT_DOWNLOAD.with(|n| { let id = n.get(); n.set(id + 1); id });
                 let expected = response.expectedContentLength();
                 let total = (expected > 0).then_some(expected as u64);
+                // the browser's page when the download starts: the game's page, whose art the game gets (#822)
+                let page_url = unsafe { download.webView() }
+                    .and_then(|web| unsafe { web.URL() })
+                    .and_then(|url| url.absoluteString())
+                    .map(|url| url.to_string());
                 let retained = unsafe { Retained::retain(download as *const WKDownload as *mut WKDownload) };
                 // WebKit holds download delegates weakly; keep ours alive until the transfer ends.
                 let keep = unsafe { Retained::retain(self as *const Delegate as *mut Delegate) };
                 if let (Some(retained), Some(keep)) = (retained, keep) {
                     DOWNLOADS.with(|d| d.borrow_mut().push((retained, id, filename.clone(), path.clone(), keep)));
                 }
-                push_gamejolt_event(GameJoltDownloadEvent::Started { id, filename, path: path.clone(), total });
+                push_gamejolt_event(GameJoltDownloadEvent::Started { id, filename, path: path.clone(), total, page_url });
                 let url = NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()));
                 completion_handler.call((Retained::as_ptr(&url) as *mut NSURL,));
             }
@@ -1522,6 +1530,56 @@ mod native {
         EMBEDDED_RECT.with(|r| r.get())
     }
 
+    /// The embedded browser's toolbar (#822): back, forward, reload, the Game Jolt home page, and the page's zoom.
+    pub fn embedded_action(action: super::GameJoltBrowserAction) {
+        use super::GameJoltBrowserAction as A;
+        EMBEDDED.with(|slot| {
+            let slot = slot.borrow();
+            let Some(embed) = slot.as_ref() else { return };
+            let web = &embed.web;
+            unsafe {
+                match action {
+                    A::Back => {
+                        if web.canGoBack() {
+                            let _ = web.goBack();
+                        }
+                    }
+                    A::Forward => {
+                        if web.canGoForward() {
+                            let _ = web.goForward();
+                        }
+                    }
+                    A::Reload => {
+                        let _ = web.reload();
+                    }
+                    A::Home => {
+                        if let Some(url) =
+                            NSURL::URLWithString(&NSString::from_str("https://gamejolt.com/games"))
+                        {
+                            let _ = web.loadRequest(&NSURLRequest::requestWithURL(&url));
+                        }
+                    }
+                    A::Zoom(zoom) => web.setPageZoom(super::clamp_gamejolt_zoom(zoom)),
+                }
+            }
+        });
+    }
+
+    /// Whether the embedded browser can go back and forward, and its page zoom.
+    pub fn embedded_state() -> Option<(bool, bool, f64)> {
+        EMBEDDED.with(|slot| {
+            let slot = slot.borrow();
+            let embed = slot.as_ref()?;
+            Some(unsafe {
+                (
+                    embed.web.canGoBack(),
+                    embed.web.canGoForward(),
+                    embed.web.pageZoom(),
+                )
+            })
+        })
+    }
+
     /// Tear the embedded browser down (GameJolt data removal).
     pub fn close_embedded() {
         let embed = EMBEDDED.with(|slot| slot.borrow_mut().take());
@@ -1827,6 +1885,41 @@ pub fn show_embedded_gamejolt(_window: &gpui::Window, _rect: [f64; 4]) {}
 pub fn hide_embedded_gamejolt() {
     #[cfg(target_os = "macos")]
     native::hide_embedded();
+}
+
+/// The embedded GameJolt browser's toolbar actions (#822).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum GameJoltBrowserAction {
+    Back,
+    Forward,
+    Reload,
+    /// Game Jolt's games page, where the browser opens.
+    Home,
+    /// The page's zoom, 1.0 its own size (`clamp_gamejolt_zoom`).
+    Zoom(f64),
+}
+
+/// The zoom steps the toolbar's − and + take, and the range they stay in.
+pub const GAMEJOLT_ZOOM_STEP: f64 = 0.1;
+pub fn clamp_gamejolt_zoom(zoom: f64) -> f64 {
+    // whole tenths, so repeated steps land on 100 % again
+    ((zoom * 10.0).round() / 10.0).clamp(0.5, 2.0)
+}
+
+/// Act on the embedded GameJolt browser; nothing when it isn't there.
+pub fn gamejolt_browser_action(action: GameJoltBrowserAction) {
+    #[cfg(target_os = "macos")]
+    native::embedded_action(action);
+    #[cfg(not(target_os = "macos"))]
+    let _ = action;
+}
+
+/// The embedded GameJolt browser's back and forward availability and page zoom, once it exists.
+pub fn gamejolt_browser_state() -> Option<(bool, bool, f64)> {
+    #[cfg(target_os = "macos")]
+    return native::embedded_state();
+    #[cfg(not(target_os = "macos"))]
+    None
 }
 
 /// Window-space rect of the visible embedded GameJolt browser, if shown. App

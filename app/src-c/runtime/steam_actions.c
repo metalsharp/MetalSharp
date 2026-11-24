@@ -1938,7 +1938,7 @@ static char* spawn_fna_game(const char* home, unsigned id, pid_t* pid) {
             if (ensure_directory(log_dir)) {
                 log_fd = open(log_path, O_WRONLY | O_CREAT | O_APPEND, 0644);
                 if (log_fd >= 0) {
-                    dprintf(log_fd, "\\n--- FNA launch appid=%u executable=%s ---\\n", id, executable);
+                    dprintf(log_fd, "\n--- FNA launch appid=%u executable=%s ---\n", id, executable);
                     dup2(log_fd, STDOUT_FILENO);
                     dup2(log_fd, STDERR_FILENO);
                     close(log_fd);
@@ -7114,6 +7114,71 @@ static void write_fex_launch_args(unsigned id, const char* pipeline, const char*
 }
 
 /* tuning_provider/tuning_id: the game's Game Settings (game_tuning.h), applied in the child; NULL for none. */
+extern char** environ;
+
+/* Whether an environment variable says how the game runs (its route, Wine, Metal, Rosetta or FEX) and is safe to log:
+ * nothing whose name looks like a credential's. */
+static bool launch_summary_variable(const char* entry) {
+    static const char* const prefixes[] = {"WINE",   "MS_",   "METALSHARP_", "DXMT_",       "MULLION_", "DXVK_",
+                                           "VKD3D_", "MTL_",  "MVK_",        "MOLTENVK_",   "D3DM_",    "ROSETTA_",
+                                           "FEX_",   "DYLD_", "SteamAppId=", "SteamGameId="};
+    static const char* const secrets[] = {"TOKEN", "SECRET", "PASSWORD",   "PASSWD",
+                                          "AUTH",  "COOKIE", "CREDENTIAL", "KEY"};
+    const char* equals = strchr(entry, '=');
+    size_t name_length;
+    bool wanted = false;
+    if (!equals)
+        return false;
+    name_length = (size_t)(equals - entry);
+    for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]) && !wanted; i++)
+        wanted = !strncmp(entry, prefixes[i], strlen(prefixes[i]));
+    for (size_t i = 0; wanted && i < sizeof(secrets) / sizeof(secrets[0]); i++) {
+        size_t length = strlen(secrets[i]);
+        for (size_t at = 0; wanted && at + length <= name_length; at++)
+            wanted = strncasecmp(entry + at, secrets[i], length) != 0;
+    }
+    return wanted;
+}
+
+/* A game launch's summary (#834): how it runs (runtime, route, executable, Wine's command line) and the environment
+ * that picks its rendering, so a log says what a game ran with without Settings > Graphics runtime logs. Called in the
+ * forked child just before exec, so it only formats into its stack and write(2)s. */
+static void write_launch_summary(int fd, const char* stamp, const char* runtime, unsigned id, const char* pipeline,
+                                 const char* env_pipeline, const char* executable, const char* cwd,
+                                 char* const argv[]) {
+    char line[1024];
+    int length;
+    if (fd < 0)
+        return;
+    length = snprintf(
+        line, sizeof(line), "[%s] Launch summary: appid=%u route=%s%s%s runtime=%s MetalSharp %s, MetalSharp Wine %s\n",
+        stamp, id, pipeline, strcmp(pipeline, env_pipeline) ? " environment=" : "",
+        strcmp(pipeline, env_pipeline) ? env_pipeline : "", runtime, MS_BACKEND_VERSION, ms_wine_release_version());
+    if (length > 0)
+        (void)!write(fd, line, (size_t)length < sizeof(line) ? (size_t)length : sizeof(line) - 1);
+    length = snprintf(line, sizeof(line), "  executable: %s\n  folder: %s\n  command:", executable, cwd ? cwd : "");
+    if (length > 0)
+        (void)!write(fd, line, (size_t)length < sizeof(line) ? (size_t)length : sizeof(line) - 1);
+    for (size_t i = 0; argv && argv[i]; i++) {
+        length = snprintf(line, sizeof(line), " %s", argv[i]);
+        if (length > 0)
+            (void)!write(fd, line, (size_t)length < sizeof(line) ? (size_t)length : sizeof(line) - 1);
+    }
+    (void)!write(fd, "\n", 1);
+    for (char** entry = environ; entry && *entry; entry++) {
+        if (!launch_summary_variable(*entry))
+            continue;
+        length = snprintf(line, sizeof(line), "  env: %s\n", *entry);
+        if (length > 0 && (size_t)length >= sizeof(line)) {
+            /* a long value is cut, its line kept */
+            line[sizeof(line) - 2] = '\n';
+            length = (int)sizeof(line) - 1;
+        }
+        if (length > 0)
+            (void)!write(fd, line, (size_t)length);
+    }
+}
+
 static char* spawn_direct_game(const char* home, const char* executable, unsigned id, const char* pipeline,
                                const char* tuning_provider, const char* tuning_id, pid_t* pid) {
     char* wine = join(home, "runtime/wine/bin/metalsharp-wine");
@@ -7178,7 +7243,13 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
     /* Settings -> Graphics runtime logs: keep Wine's stderr for every game
      * (errors, DLL loads, exceptions) instead of discarding it. */
     char runtime_log[PATH_MAX] = "";
+    /* The launch's summary goes in today's log (#834), and in the graphics runtime log too when that is on. */
+    char summary_log[PATH_MAX] = "", summary_stamp[64] = "";
+    const char* summary_runtime = ms_wine_is_fex() ? "fex" : "regular";
     char* cpu_shim = wants_performance_cores_only(id) ? performance_core_shim(home) : NULL;
+    if (!ms_log_today_path(home, summary_log, sizeof(summary_log)) ||
+        !ms_log_stamp(summary_stamp, sizeof(summary_stamp)))
+        summary_log[0] = '\0';
     if (ms_config_graphics_runtime_logs_enabled(home)) {
         char runtime_log_dir[PATH_MAX];
         snprintf(runtime_log_dir, sizeof(runtime_log_dir), "%s/logs/%s/%u", home, pipeline, id);
@@ -7234,8 +7305,8 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
                 (void)dup2(diagnostic_fd, STDERR_FILENO);
                 (void)dup2(diagnostic_fd, STDOUT_FILENO);
                 close(diagnostic_fd);
-                dprintf(STDERR_FILENO, "\\n--- MetalSharp Rain World launch ---\\n");
-                dprintf(STDERR_FILENO, "pipeline=%s\\nexecutable=%s\\n", pipeline, executable);
+                dprintf(STDERR_FILENO, "\n--- MetalSharp Rain World launch ---\n");
+                dprintf(STDERR_FILENO, "pipeline=%s\nexecutable=%s\n", pipeline, executable);
             }
         }
         snprintf(library_env, sizeof(library_env), "%s/runtime/wine/lib:%s/runtime/wine/lib/wine/x86_64-unix", home,
@@ -7283,9 +7354,19 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
             dprintf(STDERR_FILENO, "command=");
             for (size_t i = 0; i < argc; i++)
                 dprintf(STDERR_FILENO, "%s%s", i ? " " : "", argv[i]);
-            dprintf(STDERR_FILENO, "\\n");
+            dprintf(STDERR_FILENO, "\n");
         }
         argv[argc] = NULL;
+        if (summary_log[0]) {
+            int summary_fd = open(summary_log, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+            write_launch_summary(summary_fd, summary_stamp, summary_runtime, id, pipeline, env_pipeline, executable,
+                                 cwd, argv);
+            if (summary_fd >= 0)
+                close(summary_fd);
+        }
+        if (runtime_log[0])
+            write_launch_summary(STDERR_FILENO, summary_stamp, summary_runtime, id, pipeline, env_pipeline, executable,
+                                 cwd, argv);
         if (id == 8500) {
             dprintf(STDERR_FILENO, "command=");
             for (size_t i = 0; i < argc; i++)

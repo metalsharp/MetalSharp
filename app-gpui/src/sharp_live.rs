@@ -58,8 +58,8 @@ pub(super) fn app_engine(app: &Value) -> String {
     engine_lane(s(app, "engine"), "wine_bare")
 }
 
-/// A Game Jolt game's engine choices: the pipelines its entry lists, or this build's
-/// Direct3D engines.
+/// A Game Jolt game's engine choices: the pipelines its entry lists, as this runtime's lanes (an older backend
+/// listed DXMT(32), D3D9 and DXVK as lanes of their own), or this runtime's engines and OpenGL (#822).
 pub(super) fn gamejolt_engine_options(game: &Value) -> Vec<(String, String)> {
     game.get("available_pipelines")
         .and_then(Value::as_array)
@@ -74,10 +74,29 @@ pub(super) fn gamejolt_engine_options(game: &Value) -> Vec<(String, String)> {
             if crate::variant::is_fex() {
                 crate::variant::fex_options(list)
             } else {
-                list
+                crate::variant::x86_64_options(list)
             }
         })
-        .unwrap_or_else(engine_options)
+        .unwrap_or_else(app_engine_options)
+}
+
+/// The lane a Game Jolt game saved as "auto" runs on (the backend's `ms_gamejolt_launch_json`).
+fn gamejolt_auto_lane() -> &'static str {
+    if crate::variant::is_fex() {
+        "dxmt"
+    } else {
+        "vkd3d"
+    }
+}
+
+/// A Game Jolt game's engine for the pickers: its saved one as the lane it runs on, so an older choice (DXMT(32),
+/// D3D9, DXVK) shows as its lane's. A native game keeps "native" (it has no picker).
+pub(super) fn gamejolt_engine(game: &Value) -> String {
+    let engine = s(game, "engine");
+    if engine == "native" {
+        return engine.to_owned();
+    }
+    engine_lane(engine, gamejolt_auto_lane())
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -281,6 +300,21 @@ impl SharpPreview {
         );
     }
 
+    /// After the backend changed runtime (FEX | x86_64): every source again from the new backend, whose lanes and
+    /// saved engines are its runtime's (Game Jolt lists its pipelines per game). A view not loaded yet loads when it
+    /// is first shown, from the new backend already (#835).
+    pub fn reload_for_runtime(&mut self, cx: &mut Context<Self>) {
+        let Some(live) = self.live.as_mut() else {
+            return;
+        };
+        // The old backend's in-flight replies are gone with it.
+        live.in_flight.clear();
+        if live.loaded {
+            self.load(cx);
+        }
+        cx.notify();
+    }
+
     /// SharpView `load()`.
     pub(super) fn load(&mut self, cx: &mut Context<Self>) {
         self.load_apps(cx);
@@ -350,6 +384,14 @@ impl SharpPreview {
                 candidates.insert(0, C::LocalFile(cover.to_owned()));
             }
             requests.push((format!("sharp-gamejolt-{id}"), candidates));
+            // the header art from its Game Jolt page, which its hero shows (#822)
+            let hero = s(game, "hero_path");
+            if !hero.is_empty() {
+                requests.push((
+                    format!("sharp-gamejolt-{id}-hero"),
+                    vec![C::LocalFile(hero.to_owned())],
+                ));
+            }
         }
         cache.update(cx, |cache, cx| {
             for (key, candidates) in requests {

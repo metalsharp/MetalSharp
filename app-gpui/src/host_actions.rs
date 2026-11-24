@@ -386,12 +386,12 @@ fn safe_download_stem(filename: &str) -> String {
     }
 }
 
-/// main `organizeGameJoltDownload` (extraction only; caller syncs).
+/// main `organizeGameJoltDownload` (extraction only; caller syncs). Returns the game's folder.
 pub fn organize_gamejolt_download(
     download: &Path,
     filename: &str,
     gamejolt_dir: &Path,
-) -> Result<(), String> {
+) -> Result<PathBuf, String> {
     let game_dir = gamejolt_dir.join(safe_download_stem(filename));
     std::fs::create_dir_all(&game_dir).map_err(|e| e.to_string())?;
     let lower = filename.to_lowercase();
@@ -448,5 +448,201 @@ pub fn organize_gamejolt_download(
     if result.is_ok() {
         let _ = std::fs::remove_file(download);
     }
-    result
+    result.map(|_| game_dir)
+}
+
+// ─────────────────────────────── Game Jolt art ───────────────────────────────
+//
+// A game downloaded from the Game Jolt browser gets its card and hero art from its Game Jolt page (#822): the
+// thumbnail as its card and the header as its hero, saved in its folder as `.metalsharp/gamejolt-card.<ext>` and
+// `.metalsharp/gamejolt-hero.<ext>`, which the backend reports (`cover_path`, `hero_path`) before the executable's
+// icon. `.metalsharp/gamejolt.json` keeps the game's Game Jolt id and page.
+
+/// The folder in a Game Jolt game's folder that keeps what MetalSharp knows of it.
+const GAMEJOLT_META_DIR: &str = ".metalsharp";
+const GAMEJOLT_ART_EXTENSIONS: [&str; 5] = ["jpg", "jpeg", "png", "webp", "gif"];
+
+/// The Game Jolt game id in one of its pages' URLs: `https://gamejolt.com/games/<slug>/<id>`, and the pages under it
+/// (its download page among them).
+pub fn gamejolt_game_id(page_url: &str) -> Option<u64> {
+    let url = url::Url::parse(page_url).ok()?;
+    let host = url.host_str()?;
+    if url.scheme() != "https" || (host != "gamejolt.com" && !host.ends_with(".gamejolt.com")) {
+        return None;
+    }
+    let mut segments = url.path_segments()?;
+    if segments.next()? != "games" {
+        return None;
+    }
+    let _slug = segments.next()?;
+    segments.next()?.parse().ok().filter(|id| *id > 0)
+}
+
+/// The card (thumbnail) and hero (header) image URLs in Game Jolt's reply for a game
+/// (`/site-api/web/discover/games/<id>`); either stands in for the other when the game has only one.
+pub fn gamejolt_art_urls(reply: &Value) -> (Option<String>, Option<String>) {
+    let game = reply.pointer("/payload/game").or_else(|| reply.get("game"));
+    let media = |key: &str| -> Option<String> {
+        let item = game?.get(key)?;
+        ["img_url", "mediaserver_url"]
+            .iter()
+            .filter_map(|field| item.get(*field).and_then(Value::as_str))
+            .find(|url| url.starts_with("https://"))
+            .map(str::to_owned)
+    };
+    let thumbnail = media("thumbnail_media_item");
+    let header = media("header_media_item");
+    (
+        thumbnail.clone().or_else(|| header.clone()),
+        header.or(thumbnail),
+    )
+}
+
+/// The extension of the image `bytes` are, when it is one an art file may have.
+fn image_extension(bytes: &[u8]) -> Option<&'static str> {
+    match image::guess_format(bytes).ok()? {
+        image::ImageFormat::Png => Some("png"),
+        image::ImageFormat::Jpeg => Some("jpg"),
+        image::ImageFormat::WebP => Some("webp"),
+        image::ImageFormat::Gif => Some("gif"),
+        _ => None,
+    }
+}
+
+/// A Game Jolt game's saved card (`kind` "card") or hero ("hero") art in its folder.
+pub fn gamejolt_saved_art(game_dir: &Path, kind: &str) -> Option<PathBuf> {
+    GAMEJOLT_ART_EXTENSIONS
+        .iter()
+        .map(|ext| {
+            game_dir
+                .join(GAMEJOLT_META_DIR)
+                .join(format!("gamejolt-{kind}.{ext}"))
+        })
+        .find(|path| path.is_file())
+}
+
+/// Save `bytes` as the game's `kind` art, in place of what was saved before.
+fn save_gamejolt_art(game_dir: &Path, kind: &str, ext: &str, bytes: &[u8]) -> std::io::Result<()> {
+    let dir = game_dir.join(GAMEJOLT_META_DIR);
+    std::fs::create_dir_all(&dir)?;
+    while let Some(previous) = gamejolt_saved_art(game_dir, kind) {
+        std::fs::remove_file(previous)?;
+    }
+    let path = dir.join(format!("gamejolt-{kind}.{ext}"));
+    let partial = dir.join(format!(".gamejolt-{kind}.{ext}.part"));
+    std::fs::write(&partial, bytes)?;
+    std::fs::rename(partial, path)
+}
+
+/// The art of the Game Jolt game whose page `page_url` is, into its folder. Best effort: a game whose page isn't
+/// known (a download started elsewhere) keeps its executable's icon, and Change Image still picks another.
+pub fn fetch_gamejolt_art(game_dir: &Path, page_url: &str) -> Result<(), String> {
+    let id = gamejolt_game_id(page_url).ok_or("not a Game Jolt game page")?;
+    let dir = game_dir.join(GAMEJOLT_META_DIR);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let meta = json!({ "gameId": id, "pageUrl": page_url });
+    let _ = std::fs::write(
+        dir.join("gamejolt.json"),
+        serde_json::to_vec_pretty(&meta).unwrap_or_default(),
+    );
+    let reply = crate::artwork::download(
+        crate::artwork::http_agent(),
+        &format!("https://gamejolt.com/site-api/web/discover/games/{id}"),
+        None,
+    )
+    .ok_or("Game Jolt did not answer")?;
+    let reply: Value = serde_json::from_slice(&reply).map_err(|e| e.to_string())?;
+    let (card, hero) = gamejolt_art_urls(&reply);
+    for (kind, url) in [("card", card), ("hero", hero)] {
+        let Some(url) = url else { continue };
+        let Some(bytes) = crate::artwork::download(crate::artwork::http_agent(), &url, None) else {
+            continue;
+        };
+        // only an image the app can draw replaces the executable's icon, named for what it is
+        let Some(ext) = image_extension(&bytes) else {
+            continue;
+        };
+        save_gamejolt_art(game_dir, kind, ext, &bytes).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod gamejolt_art_tests {
+    use super::*;
+
+    #[test]
+    fn a_game_page_names_its_game() {
+        assert_eq!(
+            gamejolt_game_id("https://gamejolt.com/games/frickbears3/812345"),
+            Some(812345)
+        );
+        // the download page under it, and a query
+        assert_eq!(
+            gamejolt_game_id(
+                "https://gamejolt.com/games/frickbears3/812345/download/build/1234?x=1"
+            ),
+            Some(812345)
+        );
+        for other in [
+            "https://gamejolt.com/games",
+            "https://gamejolt.com/games/frickbears3",
+            "https://gamejolt.com/@someone",
+            "https://gamejolt.com/games/frickbears3/not-a-number",
+            "http://gamejolt.com/games/frickbears3/812345",
+            "https://notgamejolt.com/games/frickbears3/812345",
+            "not a url",
+        ] {
+            assert_eq!(gamejolt_game_id(other), None, "{other}");
+        }
+    }
+
+    #[test]
+    fn the_thumbnail_is_the_card_and_the_header_the_hero() {
+        let reply = json!({"payload": {"game": {
+            "thumbnail_media_item": {"img_url": "https://m.gjcdn.net/game-thumbnail/500/1-a.jpg"},
+            "header_media_item": {"mediaserver_url": "https://m.gjcdn.net/game-header/2000/1-b.png"}
+        }}});
+        assert_eq!(
+            gamejolt_art_urls(&reply),
+            (
+                Some("https://m.gjcdn.net/game-thumbnail/500/1-a.jpg".into()),
+                Some("https://m.gjcdn.net/game-header/2000/1-b.png".into())
+            )
+        );
+        // a game with only a thumbnail has it as its hero too, and a URL that isn't https is left out
+        let reply = json!({"payload": {"game": {
+            "thumbnail_media_item": {"img_url": "https://m.gjcdn.net/t.webp"},
+            "header_media_item": {"img_url": "http://m.gjcdn.net/h.jpg"}
+        }}});
+        assert_eq!(
+            gamejolt_art_urls(&reply),
+            (
+                Some("https://m.gjcdn.net/t.webp".into()),
+                Some("https://m.gjcdn.net/t.webp".into())
+            )
+        );
+        assert_eq!(gamejolt_art_urls(&json!({"payload": {}})), (None, None));
+        // the art is named for what its bytes are, and only an image the app can draw is kept
+        assert_eq!(image_extension(b"\x89PNG\r\n\x1a\n0000"), Some("png"));
+        assert_eq!(
+            image_extension(b"<svg xmlns='http://www.w3.org/2000/svg'/>"),
+            None
+        );
+    }
+
+    #[test]
+    fn saved_art_replaces_what_was_saved_before() {
+        let dir = std::env::temp_dir().join(format!("ms-gj-art-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(gamejolt_saved_art(&dir, "card"), None);
+        save_gamejolt_art(&dir, "card", "png", b"one").unwrap();
+        save_gamejolt_art(&dir, "card", "jpg", b"two").unwrap();
+        let card = gamejolt_saved_art(&dir, "card").unwrap();
+        assert!(card.ends_with(".metalsharp/gamejolt-card.jpg"));
+        assert_eq!(std::fs::read(&card).unwrap(), b"two");
+        assert!(!dir.join(".metalsharp/gamejolt-card.png").exists());
+        assert_eq!(gamejolt_saved_art(&dir, "hero"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

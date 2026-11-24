@@ -229,14 +229,8 @@ impl LibGame {
             }
             LibraryPage::Gog => ("gog", self.external_id.clone()),
             LibraryPage::Epic => ("epic", self.external_id.clone()),
-            LibraryPage::WindowsPrograms => (
-                if self.source.as_deref() == Some("gamejolt") {
-                    "gamejolt"
-                } else {
-                    "windows"
-                },
-                self.external_id.clone(),
-            ),
+            LibraryPage::WindowsPrograms => ("windows", self.external_id.clone()),
+            LibraryPage::GameJolt => ("gamejolt", self.external_id.clone()),
             LibraryPage::Logs => return None,
         };
         id.filter(|id| !id.is_empty()).map(|id| (provider, id))
@@ -256,7 +250,7 @@ impl LibGame {
             }
             LibraryPage::Gog => Some(("gog", id(&self.external_id)?)),
             LibraryPage::Epic => Some(("epic", id(&self.external_id)?)),
-            LibraryPage::WindowsPrograms | LibraryPage::Logs => None,
+            LibraryPage::WindowsPrograms | LibraryPage::GameJolt | LibraryPage::Logs => None,
         }
     }
     /// A non-Steam game the user added to Wine Steam (shortcuts.vdf).
@@ -304,7 +298,8 @@ impl LibGame {
             Some("rockstar") => LibraryPage::Rockstar,
             Some("gog") => LibraryPage::Gog,
             Some("epic") => LibraryPage::Epic,
-            Some("windows" | "gamejolt") => LibraryPage::WindowsPrograms,
+            Some("windows") => LibraryPage::WindowsPrograms,
+            Some("gamejolt") => LibraryPage::GameJolt,
             _ => LibraryPage::Steam,
         }
     }
@@ -342,11 +337,13 @@ pub enum LibraryPage {
     Gog,
     Epic,
     WindowsPrograms,
+    /// Game Jolt games, which were a source on the Windows Programs page's Collection (#822).
+    GameJolt,
     Logs,
 }
 
 impl LibraryPage {
-    pub const LAUNCHERS: [Self; 7] = [
+    pub const LAUNCHERS: [Self; 8] = [
         Self::Steam,
         Self::Ubisoft,
         Self::BattleNet,
@@ -354,6 +351,7 @@ impl LibraryPage {
         Self::Gog,
         Self::Epic,
         Self::WindowsPrograms,
+        Self::GameJolt,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -364,6 +362,7 @@ impl LibraryPage {
             Self::Gog => "GOG",
             Self::Epic => "Epic",
             Self::WindowsPrograms => "Windows Programs",
+            Self::GameJolt => "Game Jolt",
             Self::Logs => "Logs",
         }
     }
@@ -376,6 +375,7 @@ impl LibraryPage {
             Self::Gog => "source-gog.svg",
             Self::Epic => "source-epic.svg",
             Self::WindowsPrograms => "icon-windows.svg",
+            Self::GameJolt => "source-gamejolt.svg",
             Self::Logs => "icon-logs.svg",
         }
     }
@@ -388,6 +388,7 @@ impl LibraryPage {
             Self::Gog => "gog",
             Self::Epic => "epic",
             Self::WindowsPrograms => "windows",
+            Self::GameJolt => "gamejolt",
             Self::Logs => "logs",
         }
     }
@@ -403,6 +404,7 @@ impl LibraryPage {
             Self::Gog => Some("gog"),
             Self::Epic => Some("epic"),
             Self::WindowsPrograms => Some("installers"),
+            Self::GameJolt => Some("gamejolt"),
             _ => None,
         }
     }
@@ -901,7 +903,7 @@ mod tests {
             ("gog", LibraryPage::Gog),
             ("epic", LibraryPage::Epic),
             ("windows", LibraryPage::WindowsPrograms),
-            ("gamejolt", LibraryPage::WindowsPrograms),
+            ("gamejolt", LibraryPage::GameJolt),
         ] {
             assert_eq!(game(json!({"appid": 1, "source": source})).page(), page);
         }

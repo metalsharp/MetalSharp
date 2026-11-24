@@ -306,6 +306,25 @@ static void log_slug(const char* input, char* output, size_t capacity) {
     output[i] = '\0';
 }
 
+bool ms_log_today_path(const char* metalsharp_home, char* out, size_t out_size) {
+    char* path;
+    int written;
+    if (!metalsharp_home || !out || !out_size)
+        return false;
+    path = today_log_path(metalsharp_home);
+    if (!path)
+        return false;
+    written = snprintf(out, out_size, "%s", path);
+    free(path);
+    return written > 0 && (size_t)written < out_size;
+}
+
+bool ms_log_stamp(char* out, size_t out_size) {
+    time_t now = time(NULL);
+    struct tm local;
+    return out && out_size && localtime_r(&now, &local) && strftime(out, out_size, "%Y-%m-%d %H:%M:%S %Z", &local) > 0;
+}
+
 void ms_log_event(const char* metalsharp_home, const char* message) {
     char* log_dir;
     char* path;

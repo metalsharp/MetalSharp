@@ -628,7 +628,7 @@ fn pool() -> &'static Pool {
     })
 }
 
-fn http_agent() -> &'static ureq::Agent {
+pub(crate) fn http_agent() -> &'static ureq::Agent {
     static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
     AGENT.get_or_init(|| {
         ureq::Agent::config_builder()
@@ -934,7 +934,7 @@ fn store(dir: &Path, key: &str, bytes: &[u8], kind: ArtKind) -> Option<PathBuf> 
     Some(path)
 }
 
-fn download(agent: &ureq::Agent, url: &str, auth: Option<&str>) -> Option<Vec<u8>> {
+pub(crate) fn download(agent: &ureq::Agent, url: &str, auth: Option<&str>) -> Option<Vec<u8>> {
     if !url.starts_with("https://") && !url.starts_with("http://") {
         return None;
     }

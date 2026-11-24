@@ -167,7 +167,7 @@ impl SharpPreview {
                     button(
                         self,
                         "sharp-gj-storage",
-                        "Open GameJolt".into(),
+                        "Game Jolt Folder".into(),
                         false,
                         true,
                     )
@@ -196,7 +196,7 @@ impl SharpPreview {
                 if live.gj_loading {
                     "↻  Sync"
                 } else {
-                    "↻  Sync GameJolt"
+                    "↻  Sync Game Jolt"
                 },
                 false,
             ),
@@ -388,6 +388,53 @@ impl SharpPreview {
             ))
             .child(banner)
             .child(body)
+    }
+
+    /// The game's settings (Graphics, Runtime, Advanced, Presentation) from its Collection card, as the Steam
+    /// Collection grid's gear opens them (#833): a gear in the banner's corner. `source` and `id` are the deck's,
+    /// so only cards the deck lists (`deck_games`) get one. `beside_close` moves it left of a running program's
+    /// close button, which has the corner.
+    fn with_settings_gear(
+        &self,
+        card: gpui::Stateful<gpui::Div>,
+        source: &'static str,
+        id: String,
+        beside_close: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        card.relative().child(
+            div()
+                .id(gpui::SharedString::from(format!(
+                    "sharp-card-settings-{source}-{id}"
+                )))
+                .absolute()
+                .top(px(8.0))
+                .right(px(if beside_close { 40.0 } else { 8.0 }))
+                .size(px(28.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(999.0))
+                .border_1()
+                .border_color(gpui::rgba(self.palette.control_border))
+                .bg(gpui::rgba((self.palette.control_bg << 8) | 0xd8))
+                .cursor_pointer()
+                .hover(|style| style.opacity(0.85))
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    cx.stop_propagation();
+                    cx.emit(SharpPreviewEvent::OpenGameSettings {
+                        source,
+                        id: id.clone(),
+                    });
+                }))
+                .child(
+                    gpui::svg()
+                        .path("launch-settings.svg")
+                        .size(px(15.0))
+                        .flex_none()
+                        .text_color(rgb(self.palette.control_text)),
+                ),
+        )
     }
 
     fn card_body(
@@ -717,8 +764,13 @@ impl SharpPreview {
                     body = body.child(self.app_diagnostics(&app, cx));
                     let banner =
                         self.app_banner(&app, card_width, card_width * 9.0 / 16.0, running, cx);
-                    grid =
-                        grid.child(self.card_frame(&format!("app-{id}"), card_width, banner, body));
+                    let mut card = self.card_frame(&format!("app-{id}"), card_width, banner, body);
+                    // Setup and installer executables aren't on the deck, so they have no game settings.
+                    let adopted = !s(&app, "adopted_from").is_empty();
+                    if adopted || !super::sharp_deck::installer_like(s(&app, "exe_path")) {
+                        card = self.with_settings_gear(card, "windows", id.clone(), running, cx);
+                    }
+                    grid = grid.child(card);
                 }
                 div().w_full().child(grid)
             }
@@ -926,13 +978,14 @@ impl SharpPreview {
                         }
                         body = body.child(self.bottle_panel("GRAPHICS BACKEND", content));
                     }
-                    grid = grid.child(self.card_shell(
+                    let card = self.card_shell(
                         &format!("gog-{id}"),
                         card_width,
                         self.cover_path(&format!("sharp-gog-{id}"), cx),
                         9.0 / 16.0,
                         body,
-                    ));
+                    );
+                    grid = grid.child(self.with_settings_gear(card, "gog", id.clone(), false, cx));
                 }
                 div().w_full().child(grid)
             }
@@ -1164,13 +1217,15 @@ impl SharpPreview {
                             );
                         body = body.child(self.bottle_panel("GRAPHICS BACKEND", content));
                     }
-                    grid = grid.child(self.card_shell(
+                    let card = self.card_shell(
                         &format!("epic-{app}"),
                         card_width,
                         self.cover_path(&format!("sharp-epic-{app}"), cx),
                         9.0 / 16.0,
                         body,
-                    ));
+                    );
+                    grid =
+                        grid.child(self.with_settings_gear(card, "epic", app.clone(), false, cx));
                 }
                 div().w_full().child(grid)
             }
@@ -1189,8 +1244,8 @@ impl SharpPreview {
                 }
                 if live.gj_games.is_empty() {
                     return content.child(self.gate(
-                        "No GameJolt games found",
-                        "Place each game in its own folder inside the GameJolt directory, then sync.",
+                        "No Game Jolt games yet",
+                        "Download a game in the Game Jolt browser below, or put each game in its own folder in the Game Jolt folder and sync.",
                     ));
                 }
                 for game in live.gj_games.clone() {
@@ -1279,7 +1334,7 @@ impl SharpPreview {
                             "GRAPHICS BACKEND",
                             div().child(self.engine_picker(
                                 format!("gj-{id}"),
-                                s(&game, "engine").to_owned(),
+                                super::sharp_live::gamejolt_engine(&game),
                                 options,
                                 move |this, value, cx| {
                                     this.set_gamejolt_engine(engine_id.clone(), value, cx)
@@ -1288,13 +1343,18 @@ impl SharpPreview {
                             )),
                         ));
                     }
-                    grid = grid.child(self.card_shell(
+                    let mut card = self.card_shell(
                         &format!("gj-{id}"),
                         card_width,
                         self.cover_path(&format!("sharp-gamejolt-{id}"), cx),
-                        5.6 / 16.0,
+                        9.0 / 16.0,
                         body,
-                    ));
+                    );
+                    // The deck lists a Game Jolt game once it has an executable.
+                    if !s(&game, "exe_path").is_empty() {
+                        card = self.with_settings_gear(card, "gamejolt", id.clone(), false, cx);
+                    }
+                    grid = grid.child(card);
                 }
                 content.child(grid)
             }

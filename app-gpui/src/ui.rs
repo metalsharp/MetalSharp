@@ -623,6 +623,8 @@ enum LauncherAction {
     BattleNet,
     /// Windows Programs: pick an .exe or .msi to install into the Sharp Library.
     InstallProgram,
+    /// Game Jolt: its Collection, with the Game Jolt browser games are downloaded from (#822).
+    BrowseGameJolt,
     /// GOG or Epic: the next setup step (Create Prefix, Login), then Sync.
     SharpStore(&'static str),
 }
@@ -635,7 +637,7 @@ impl LauncherAction {
             Self::Ubisoft => "ubisoft",
             Self::Rockstar => "rockstar",
             Self::BattleNet => "battlenet",
-            Self::InstallProgram | Self::SharpStore(_) => "sharp-library",
+            Self::InstallProgram | Self::BrowseGameJolt | Self::SharpStore(_) => "sharp-library",
         }
     }
     fn display_name(self) -> &'static str {
@@ -645,6 +647,7 @@ impl LauncherAction {
             Self::Rockstar => "Rockstar Games Launcher",
             Self::BattleNet => "Battle.net",
             Self::InstallProgram => "Windows program",
+            Self::BrowseGameJolt => "Game Jolt",
             Self::SharpStore("gog") => "GOG",
             Self::SharpStore(_) => "Epic Games",
         }
@@ -657,6 +660,14 @@ enum LibraryTab {
     Collection,
     SharpLibrary,
     Logs,
+}
+
+/// Where a Sharp Library entry (`source`, the deck's "gog", "epic", "windows" or "gamejolt", and its id) is in a page's
+/// games.
+fn deck_game_index(games: &[LibGame], source: &str, id: &str) -> Option<usize> {
+    games.iter().position(|game| {
+        game.source.as_deref() == Some(source) && game.external_id.as_deref() == Some(id)
+    })
 }
 
 fn preview_games() -> Vec<LibGame> {
@@ -1785,6 +1796,9 @@ impl MetalSharpApp {
                 crate::sharp_preview::SharpPreviewEvent::BackToPlay => {
                     this.set_page_collection(false, cx)
                 }
+                crate::sharp_preview::SharpPreviewEvent::OpenGameSettings { source, id } => {
+                    this.open_deck_game_settings(source, id, cx)
+                }
             })
             .detach();
             self.sharp_preview = Some(sharp);
@@ -1796,7 +1810,9 @@ impl MetalSharpApp {
             let active =
                 self.active_tab == LibraryTab::SharpLibrary || self.page.sharp_source().is_some();
             // App-level overlays cover the page; the native GameJolt view must hide.
+            // The game settings popup too: it opens over the Collection view from a card's gear (#833).
             let obscured = self.active_tab != LibraryTab::SharpLibrary
+                || self.game_settings_open
                 || self.settings_open
                 || self.streaming_open
                 || self.live.update_dialog.is_some()
@@ -2327,6 +2343,12 @@ impl MetalSharpApp {
                 "icon-download.svg",
                 false,
             )),
+            LibraryPage::GameJolt => Some((
+                LauncherAction::BrowseGameJolt,
+                "Browse Game Jolt",
+                "source-gamejolt.svg",
+                false,
+            )),
             LibraryPage::Gog | LibraryPage::Epic => {
                 let source = self.page.sharp_source()?;
                 let sharp = self.sharp_preview.as_ref()?;
@@ -2392,7 +2414,10 @@ impl MetalSharpApp {
 
     /// Launcher pages with a ⚙ beside their button: Fix Steam, or uninstall.
     fn page_has_options(&self) -> bool {
-        !matches!(self.page, LibraryPage::WindowsPrograms | LibraryPage::Logs)
+        !matches!(
+            self.page,
+            LibraryPage::WindowsPrograms | LibraryPage::GameJolt | LibraryPage::Logs
+        )
     }
 
     fn page_launcher_name(&self) -> &'static str {
@@ -2440,6 +2465,7 @@ impl MetalSharpApp {
                     sharp.update(cx, |sharp, cx| sharp.deck_install_program(cx));
                 }
             }
+            LauncherAction::BrowseGameJolt => self.set_page_collection(true, cx),
             LauncherAction::SharpStore(source) => {
                 let step = self
                     .sharp_preview
@@ -3182,7 +3208,10 @@ impl MetalSharpApp {
             LibraryPage::Gog => "Install games from your GOG library in Collection.",
             LibraryPage::Epic => "Install games from your Epic library in Collection.",
             LibraryPage::WindowsPrograms => {
-                "Programs you install with a Windows installer, and your GameJolt games, show up here."
+                "Programs you install with a Windows installer show up here."
+            }
+            LibraryPage::GameJolt => {
+                "Games you download in the Game Jolt browser show up here, with their art from Game Jolt."
             }
             LibraryPage::Logs => "",
         };
@@ -3411,8 +3440,10 @@ impl MetalSharpApp {
         let pipeline_picker = !game.has_native_build
             && (bottle_settings
                 || store_game
-                || (game.page() == LibraryPage::WindowsPrograms
-                    && game.deck_engine_options.is_some()));
+                || (matches!(
+                    game.page(),
+                    LibraryPage::WindowsPrograms | LibraryPage::GameJolt
+                ) && game.deck_engine_options.is_some()));
         let pipeline_label = library_model::game_pipeline_options(&game)
             .into_iter()
             .find(|(id, _)| *id == self.live.selected_pipeline)
@@ -3433,6 +3464,7 @@ impl MetalSharpApp {
                 LibraryPage::Gog => "GOG",
                 LibraryPage::Epic => "Epic Games",
                 LibraryPage::WindowsPrograms => "Windows program",
+                LibraryPage::GameJolt => "Game Jolt",
                 LibraryPage::Steam | LibraryPage::Logs => "Windows · Steam library",
             })
         };
@@ -4840,10 +4872,16 @@ impl MetalSharpApp {
         let art = game.art_key.is_some();
         // GOG and Epic games uninstall; Windows programs (and Game Jolt games) leave the library, as from the
         // Collection view's settings, once they are not running (#809).
-        let windows_program = game.page() == LibraryPage::WindowsPrograms;
+        let windows_program = matches!(
+            game.page(),
+            LibraryPage::WindowsPrograms | LibraryPage::GameJolt
+        );
         let uninstall_game = (matches!(
             game.page(),
-            LibraryPage::Gog | LibraryPage::Epic | LibraryPage::WindowsPrograms
+            LibraryPage::Gog
+                | LibraryPage::Epic
+                | LibraryPage::WindowsPrograms
+                | LibraryPage::GameJolt
         ) && game.installed
             && !game.needs_install
             && game.external_id.is_some()
@@ -5156,6 +5194,22 @@ impl MetalSharpApp {
     }
 
     // The game settings popup: crate::ui_game_settings.
+
+    /// A GOG, Epic, Windows Programs or Game Jolt Collection card's gear (#833): select the game in the page's
+    /// list, as the Steam Collection grid's gear does, and open its settings over the Collection view.
+    fn open_deck_game_settings(&mut self, source: &str, id: &str, cx: &mut Context<Self>) {
+        // the deck mirrors the Sharp Library when it changes; a card can be newer than this page's list
+        if let Some(sharp) = self.sharp_preview.clone() {
+            self.sync_deck_games(sharp, cx);
+        }
+        let Some(index) = deck_game_index(&self.games, source, id) else {
+            return;
+        };
+        self.select_game(index, cx);
+        self.open_game_settings(cx);
+        self.load_game_tuning(cx);
+        cx.notify();
+    }
 
     /// Open the selected game's settings; a Windows program or Game Jolt game gets its Name (and a
     /// program its Launch arguments) as fields filled with what is saved.
@@ -7142,6 +7196,51 @@ mod tests {
         cx.run_until_parked();
         view.update(cx, |app, _| {
             assert_eq!(app.live.tuning.env, "MULLION_LOSSY_TEXTURES=1")
+        });
+    }
+
+    // #833: a GOG, Epic, Windows Programs or Game Jolt Collection card's gear selects that game and opens its settings,
+    // as the Steam Collection grid's gear does
+    #[gpui::test]
+    fn a_store_collection_card_opens_its_game_settings(cx: &mut gpui::TestAppContext) {
+        let deck = |source: &str, id: &str, appid: u64| super::LibGame {
+            appid,
+            name: format!("{source} {id}"),
+            installed: true,
+            source: Some(source.to_owned()),
+            external_id: Some(id.to_owned()),
+            ..Default::default()
+        };
+        let games = vec![
+            deck("gog", "1207658924", 11),
+            deck("epic", "Fortnite", 12),
+            deck("windows", "app-1", 13),
+            deck("gamejolt", "gamejolt_1a2b", 14),
+        ];
+        assert_eq!(super::deck_game_index(&games, "epic", "Fortnite"), Some(1));
+        assert_eq!(
+            super::deck_game_index(&games, "gamejolt", "gamejolt_1a2b"),
+            Some(3)
+        );
+        // the same id under another source is another game
+        assert_eq!(super::deck_game_index(&games, "gog", "Fortnite"), None);
+        let (view, cx) = cx.add_window_view(move |_, _| {
+            let mut app = MetalSharpApp::new();
+            app.games = games.clone();
+            app.selected_game = 0;
+            app
+        });
+        view.update(cx, |app, cx| {
+            app.open_deck_game_settings("windows", "app-1", cx);
+            assert!(app.game_settings_open);
+            assert_eq!(app.selected_game, 2);
+            // a Windows program's settings have its Name and Launch arguments fields
+            assert!(app.sharp_setting_inputs.is_some());
+            app.game_settings_open = false;
+            // a card the page doesn't list opens nothing
+            app.open_deck_game_settings("gog", "missing", cx);
+            assert!(!app.game_settings_open);
+            assert_eq!(app.selected_game, 2);
         });
     }
 
