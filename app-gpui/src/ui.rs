@@ -7228,6 +7228,9 @@ mod tests {
             let mut app = MetalSharpApp::new();
             app.games = games.clone();
             app.selected_game = 0;
+            // Liquid Glass draws through the native window, which a test window has not: the plain look, a setting
+            app.liquid_glass = false;
+            app.window_glass = Some(false);
             app
         });
         view.update(cx, |app, cx| {
