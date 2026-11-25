@@ -1956,6 +1956,118 @@ done:
     return result;
 }
 
+/* On Windows an Epic game's parent is the Epic Games Launcher, and some launchers check it. GTA V Enhanced's
+ * PlayGTAV.exe starts the Rockstar Games Launcher, which looks for EpicGamesLauncher.exe above it; started straight
+ * from legendary it found no parent ("Could not do OpenProcess on parent process"), tried to relaunch through
+ * com.epicgames.launcher:, and opened without the Epic entitlement (GTA V showed "Buy now"). Epic games start under
+ * Wine's own start.exe, staged in the bottle under the Epic Games Launcher's name and path: start /wait /unix runs
+ * the game from its folder and waits for it, so the launch is otherwise the same. */
+#define EPIC_LAUNCHER_PARENT_DIR "drive_c/Program Files (x86)/Epic Games/Launcher/Portal/Binaries/Win64"
+#define EPIC_LAUNCHER_PARENT_MARKER "EpicGamesLauncher.metalsharp"
+
+static bool epic_copy_file_atomic(const char* source, const char* destination, mode_t mode) {
+    char* temporary = malloc(strlen(destination) + 40);
+    char buffer[64 * 1024];
+    int in = -1, out = -1;
+    bool ok = false;
+    if (!temporary)
+        return false;
+    snprintf(temporary, strlen(destination) + 40, "%s.tmp.%ld", destination, (long)getpid());
+    in = open(source, O_RDONLY);
+    out = in >= 0 ? open(temporary, O_CREAT | O_TRUNC | O_WRONLY, mode) : -1;
+    if (out < 0)
+        goto done;
+    for (;;) {
+        ssize_t count = read(in, buffer, sizeof(buffer));
+        if (count < 0 && errno == EINTR)
+            continue;
+        if (count < 0)
+            goto done;
+        if (count == 0)
+            break;
+        for (ssize_t written = 0; written < count;) {
+            ssize_t step = write(out, buffer + written, (size_t)(count - written));
+            if (step < 0 && errno == EINTR)
+                continue;
+            if (step < 0)
+                goto done;
+            written += step;
+        }
+    }
+    if (close(out) != 0) {
+        out = -1;
+        goto done;
+    }
+    out = -1;
+    ok = rename(temporary, destination) == 0;
+done:
+    if (in >= 0)
+        close(in);
+    if (out >= 0)
+        close(out);
+    if (!ok)
+        unlink(temporary);
+    free(temporary);
+    return ok;
+}
+
+/* Stages the runtime's start.exe as the bottle's EpicGamesLauncher.exe. An Epic Games Launcher that MetalSharp did
+ * not stage (no marker beside it) is left alone, and the game then starts without it, as before. */
+static bool epic_stage_launcher_parent(const char* home, const char* prefix) {
+    static const char* const sources[] = {"runtime/wine/lib/wine/aarch64-windows/start.exe",
+                                          "runtime/wine/lib/wine/x86_64-windows/start.exe"};
+    char* dir = epic_join(prefix, EPIC_LAUNCHER_PARENT_DIR);
+    char* target = dir ? epic_join(dir, "EpicGamesLauncher.exe") : NULL;
+    char* marker = dir ? epic_join(dir, EPIC_LAUNCHER_PARENT_MARKER) : NULL;
+    char* source = NULL;
+    bool ok = false;
+    if (!dir || !target || !marker)
+        goto done;
+    if (access(target, F_OK) == 0 && access(marker, F_OK) != 0)
+        goto done;
+    for (size_t index = 0; index < sizeof(sources) / sizeof(sources[0]) && !source; index++) {
+        source = epic_join(home, sources[index]);
+        if (source && access(source, R_OK) != 0) {
+            free(source);
+            source = NULL;
+        }
+    }
+    ok = source && epic_mkdir_p(dir) &&
+         (access(marker, F_OK) == 0 ||
+          epic_write_text_atomic(marker, "MetalSharp staged EpicGamesLauncher.exe (Wine's start.exe) as the parent "
+                                         "of this bottle's Epic games.\n",
+                                 0644)) &&
+         epic_copy_file_atomic(source, target, 0755);
+done:
+    free(dir);
+    free(target);
+    free(marker);
+    free(source);
+    return ok;
+}
+
+/* legendary's --wine for an Epic game: metalsharp-wine-game-launcher (beside it in the cache), with the game started
+ * under the staged EpicGamesLauncher.exe. legendary passes the game's executable as a host path. */
+static char* epic_launcher_parent_wrapper_path(const char* home) {
+    static const char wrapper[] =
+        "#!/bin/sh\n"
+        "launcher=\"${0%/*}/metalsharp-wine-game-launcher\"\n"
+        "case \"${1-}\" in /*.exe|/*.EXE) ;; *) exec \"$launcher\" \"$@\" ;; esac\n"
+        "exec \"$launcher\" 'C:\\Program Files (x86)\\Epic Games\\Launcher\\Portal\\Binaries\\Win64\\"
+        "EpicGamesLauncher.exe' /wait /b /unix \"$@\"\n";
+    char* path = epic_join(home, "cache/metalsharp-epic-game-launcher");
+    char* existing = path ? epic_read_text(path, sizeof(wrapper) * 2) : NULL;
+    bool ok = path && existing && !strcmp(existing, wrapper) && access(path, X_OK) == 0;
+    free(existing);
+    if (path && !ok)
+        ok = epic_write_text_atomic(path, wrapper, 0755) && chmod(path, 0755) == 0;
+    if (!ok) {
+        free(path);
+        return NULL;
+    }
+    return path;
+}
+
 char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t body_length) {
     char* app_name = request_app_name(body, body_length);
     char *tool = NULL, *wine = NULL, *real_wine = NULL, *wineserver = NULL, *prefix = NULL, *logs = NULL,
@@ -2007,6 +2119,15 @@ char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t bo
     if (configure_epic_mouse(home, prefix, mouse_mode) != 0) {
         result = epic_failure("could not apply Epic game mouse settings");
         goto done;
+    }
+    /* With the parent staged, the game starts under EpicGamesLauncher.exe; otherwise as before. The wrapper runs
+     * metalsharp-wine-game-launcher, so it is used only when that one is in place. */
+    if (strcmp(wine, real_wine) && epic_stage_launcher_parent(home, prefix)) {
+        char* parent_wrapper = epic_launcher_parent_wrapper_path(home);
+        if (parent_wrapper) {
+            free(wine);
+            wine = parent_wrapper;
+        }
     }
     static const char* supervisor_script =
         "pid_marker=$7; supervisor_pid=$$; "
