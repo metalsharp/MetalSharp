@@ -2,7 +2,7 @@
 
 ## v1.6.0 — 2026-11-26
 
-MetalSharp 1.6.0 runs on [MetalSharp Wine 10.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v10.0) on both runtimes: Wine 11.22 on both, a faster Mullion, and the Rockstar Games Launcher on the x86_64 runtime too. MetalSharp itself opens in about a second, Game Jolt has its own page with its games' art and names, and the GOG, Epic and Windows Programs Collection views are cleaner, with each game's Uninstall in its settings.
+MetalSharp 1.6.0 runs on [MetalSharp Wine 10.5](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v10.5) on both runtimes: Wine 11.22 on both, a faster Mullion, the Rockstar Games Launcher on the x86_64 runtime too, and the Metal HUD and DLSS on every x86_64 lane. MetalSharp itself opens in about a second, Game Jolt has its own page with its games' art and names, and the GOG, Epic and Windows Programs Collection views are cleaner, with each game's Uninstall in its settings.
 
 ### Added
 
@@ -13,7 +13,7 @@ MetalSharp 1.6.0 runs on [MetalSharp Wine 10.0](https://github.com/metalsharp/Me
 
 ### Changed
 
-- **MetalSharp Wine 9.0 → 10.0** — both builds carry and download [MetalSharp Wine 10.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v10.0) (`MS_WINE_RELEASE_VERSION`, and Release CI's `METALSHARP_WINE_TAG`). Both runtimes are Wine 11.22, with Mullion's faster textures, render targets and draws, msync as WineForge's USync 6, and USB licence dongles; the x86_64 runtime runs the Rockstar Games Launcher. An update lays out the new runtime from the app it carries, or downloads it.
+- **MetalSharp Wine 9.0 → 10.5** — both builds carry and download [MetalSharp Wine 10.5](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v10.5) (`MS_WINE_RELEASE_VERSION`, and Release CI's `METALSHARP_WINE_TAG`). Both runtimes are Wine 11.22, with Mullion's faster textures, render targets and draws, msync as WineForge's USync 6, and USB licence dongles; the x86_64 runtime runs the Rockstar Games Launcher. On the x86_64 runtime, games Steam starts now get the lane you picked, the Metal HUD, and DLSS on Mullion, D3DMetal and VKD3D / DXVK, which they lost since 9.0; and Game Settings > Advanced applies there. An update lays out the new runtime from the app it carries, or downloads it.
 
 ### Fixed
 
