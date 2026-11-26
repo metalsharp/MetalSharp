@@ -21,6 +21,7 @@
 - **The store button's menu reads under Liquid Glass** — its Uninstall item ("Uninstall GOG…") was washed out over light glass; the menu is now nearly opaque, as the graphics selector's list is.
 - **Glass at the top of every page** — with Liquid Glass, each header control ran up into the page's glass behind it, a band of the theme's color between the control and the window's title bar. Glass blends with glass near it, and the page's glass began at the window's top edge, just above the controls; it now starts above the window.
 - **Diagnostic launch logs printed `\n`** — the FNA and Rain World launch headers wrote a literal backslash-n instead of a line break.
+- **MetalSharp opens in about a second** — the backend's startup refresh held setup's state, and with it the window's first load, until the other runtime's Wine app was refreshed too: a deep signature check of a 4.4 GB app at best. On the FEX build, a damaged x86_64 Wine app was its own source, so every launch copied it onto itself, failed, and held the app for about 20 seconds. Setup's state now waits only for the active runtime, the other app is refreshed after it, and an app is never reinstalled from itself.
 
 ## v1.5.0 — 2026-11-22
 
