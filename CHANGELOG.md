@@ -4,16 +4,17 @@
 
 ### Added
 
-- **Game Jolt has its own page** (#822) — Game Jolt is a sidebar page beside Windows Programs, instead of a source in the Windows Programs Collection's picker. Its **Browse Game Jolt** button opens the Collection with the Game Jolt browser.
+- **Game Jolt has its own page** (#822) — Game Jolt is a sidebar page above Windows Programs, instead of a source in the Windows Programs Collection's picker. Its **Browse Game Jolt** button opens the Game Jolt browser over the whole page, and **Back to Library**, the same button, brings the page's games back. The Game Jolt Library view it replaces (its folder, sync and games list) is gone: the page lists the games.
 - **Game Jolt art** (#822) — a game downloaded in the Game Jolt browser gets its card art (the game's thumbnail) and hero art (its header) from its Game Jolt page, in place of its executable's icon. They're saved in the game's folder (`.metalsharp/gamejolt-card.*`, `.metalsharp/gamejolt-hero.*`), with the game's Game Jolt id and page in `.metalsharp/gamejolt.json`. **Change Image** still picks another.
-- **Game Jolt browser toolbar** (#822) — back, forward, reload and the Game Jolt games page, the page's zoom (50 % to 200 %), and **Full height**. The browser opens at half the panel, up from a quarter.
+- **Game Jolt browser toolbar** (#822) — back, forward, reload and the Game Jolt games page, and the page's zoom (50 % to 200 %).
 - **Launch summary in the day's log** (#834) — each game launch writes how it runs to `logs/<date>.log`, which Report a problem includes: the runtime, the route, MetalSharp and MetalSharp Wine's versions, the executable and its folder, Wine's command line, and the environment that picks the game's rendering (Wine, Mullion, DXVK, VKD3D, Metal, Rosetta, FEX). A variable named like a credential is left out. With Settings > Graphics runtime logs on, the game's runtime log starts with it too.
 
 ### Fixed
 
-- **Game settings from every Collection grid** (#833) — the Collection grid's gear was only on Steam's. The GOG, Epic, Windows Programs and Game Jolt Collection cards now have it too, and it opens the same settings (Graphics, Runtime, Advanced with Report a problem, Presentation). The Game Jolt browser hides while they're open.
+- **Game settings from every Collection grid** (#833) — the Collection grid's gear was only on Steam's. The GOG, Epic and Windows Programs Collection cards now have it too, and it opens the same settings (Graphics, Runtime, Advanced with Report a problem, Presentation).
 - **Lanes left over from the other runtime after a FEX | x86_64 switch** (#835) — the backend host recorded the new backend's runtime as it started, so the app never saw the switch and kept the old runtime's lists: D3DMetal stayed in a GOG, Epic, Windows Programs or Game Jolt game's graphics menu on FEX, and was missing on x86_64, until MetalSharp was reopened. A switch is now judged against the runtime the lists were built for, and the Sharp Library, the Steam library and the selected game's lane are loaded again from the new backend.
 - **Game Jolt's graphics lanes were the old ones** (#822) — a Game Jolt game was offered D3DMetal, VKD3D, DXMT, DXMT(32) and D3D9 on x86_64, and VKD3D-Proton and DXVK as two lanes on FEX. It now gets the runtime's lanes, as Steam games do: D3DMetal, VKD3D / DXVK, Mullion (DXMT) and OpenGL on x86_64, and Mullion (DXMT), VKD3D / DXVK and OpenGL on FEX. A game saved on an older lane keeps running on it and shows as its lane's.
+- **Glass at the top of every page** — with Liquid Glass, each header control ran up into the page's glass behind it, a band of the theme's color between the control and the window's title bar. Glass blends with glass near it, and the page's glass began at the window's top edge, just above the controls; it now starts above the window.
 - **Diagnostic launch logs printed `\n`** — the FNA and Rain World launch headers wrote a literal backslash-n instead of a line break.
 
 ## v1.5.0 — 2026-11-22

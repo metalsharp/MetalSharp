@@ -25,7 +25,7 @@ Click **Play** on the Library page. MetalSharp picks a graphics route automatica
 
 ## Other Stores and Programs
 
-The **Sharp Library** holds Windows apps, launchers, installers, and non-Steam games. GOG, Epic, Windows Programs and Game Jolt each have a page in the sidebar; a game's gear on its Collection card opens its settings. On the **Game Jolt** page, **Browse Game Jolt** opens the Game Jolt browser: a game you download there is added with its art from Game Jolt. For Ubisoft Connect, see the [Ubisoft Connect guide](ubisoft-connect.md). The Rockstar Games Launcher and Battle.net are covered below.
+The **Sharp Library** holds Windows apps, launchers, installers, and non-Steam games. GOG, Epic, Windows Programs and Game Jolt each have a page in the sidebar; a game's gear on its Collection card opens its settings. On the **Game Jolt** page, **Browse Game Jolt** opens the Game Jolt browser over the page, and **Back to Library** closes it: a game you download there is added to the page with its art from Game Jolt. For Ubisoft Connect, see the [Ubisoft Connect guide](ubisoft-connect.md). The Rockstar Games Launcher and Battle.net are covered below.
 
 - **Install Windows Program** takes an `.exe` or `.msi`. MetalSharp imports it directly, or runs the installer in its own bottle and picks up the installed app.
 - Rename an app with the pencil next to its title, and change its cover with **Change Image** (JPEG, PNG, or WebP).

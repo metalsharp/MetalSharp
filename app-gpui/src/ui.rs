@@ -2343,9 +2343,14 @@ impl MetalSharpApp {
                 "icon-download.svg",
                 false,
             )),
+            // Browse Game Jolt opens the browser over the page; the same button brings the library back.
             LibraryPage::GameJolt => Some((
                 LauncherAction::BrowseGameJolt,
-                "Browse Game Jolt",
+                if self.active_tab == LibraryTab::SharpLibrary {
+                    "Back to Library"
+                } else {
+                    "Browse Game Jolt"
+                },
                 "source-gamejolt.svg",
                 false,
             )),
@@ -2465,7 +2470,10 @@ impl MetalSharpApp {
                     sharp.update(cx, |sharp, cx| sharp.deck_install_program(cx));
                 }
             }
-            LauncherAction::BrowseGameJolt => self.set_page_collection(true, cx),
+            LauncherAction::BrowseGameJolt => {
+                let browsing = self.active_tab == LibraryTab::SharpLibrary;
+                self.set_page_collection(!browsing, cx)
+            }
             LauncherAction::SharpStore(source) => {
                 let step = self
                     .sharp_preview

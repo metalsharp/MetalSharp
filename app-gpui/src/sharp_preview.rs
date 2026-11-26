@@ -727,7 +727,6 @@ impl SharpPreview {
                 cx.notify();
             })
         };
-        let full = self.state.browser_height > 90.0;
         div()
             .id("gamejolt-browser-toolbar")
             .absolute()
@@ -743,40 +742,7 @@ impl SharpPreview {
             .child(tool("gamejolt-forward", "→".into(), can_forward).on_click(act(A::Forward)))
             .child(tool("gamejolt-reload", "↻".into(), true).on_click(act(A::Reload)))
             .child(tool("gamejolt-home", "Games".into(), true).on_click(act(A::Home)))
-            .child(
-                div()
-                    .id("gamejolt-browser-handle")
-                    .flex_1()
-                    .h_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .cursor_ns_resize()
-                    .child(
-                        div()
-                            .w(px(54.0))
-                            .h(px(18.0))
-                            .rounded_full()
-                            .border_1()
-                            .border_color(gpui::rgba(crate::page_palette::tca(0x00000026)))
-                            .bg(rgb(crate::page_palette::tc(0xffffff)))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_size(px(15.0))
-                            .font_weight(FontWeight::BLACK)
-                            .text_color(rgb(ink))
-                            .child("↕"),
-                    )
-                    .on_mouse_down(
-                        gpui::MouseButton::Left,
-                        cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
-                            this.state.browser_drag =
-                                Some((f32::from(event.position.y), this.state.browser_height));
-                            cx.notify();
-                        }),
-                    ),
-            )
+            .child(div().flex_1())
             .child(
                 tool("gamejolt-zoom-out", "−".into(), zoom > 0.5)
                     .on_click(act(A::Zoom(zoom - GAMEJOLT_ZOOM_STEP))),
@@ -792,17 +758,6 @@ impl SharpPreview {
             .child(
                 tool("gamejolt-zoom-in", "+".into(), zoom < 2.0)
                     .on_click(act(A::Zoom(zoom + GAMEJOLT_ZOOM_STEP))),
-            )
-            .child(
-                tool(
-                    "gamejolt-full-height",
-                    if full { "Restore" } else { "Full height" }.into(),
-                    true,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.state.browser_height = if full { 50.0 } else { 100.0 };
-                    cx.notify();
-                })),
             )
     }
 
@@ -1589,25 +1544,8 @@ impl Render for SharpPreview {
             .text_color(rgb(MUTED))
             .child(self.state.notice.clone());
         content = content.child(notice);
-        // Electron's `.gamejolt-panel`: fixed-height panel whose games pane
-        // scrolls above the resizable in-page browser.
         let live_gamejolt = source == SharpSource::GameJolt && self.live.is_some();
         let panel_height = (f32::from(window.viewport_size().height) - 310.0).max(180.0);
-        let gamejolt_frame = (panel_height * self.state.browser_height / 100.0).max(32.0);
-        let content: gpui::AnyElement = if live_gamejolt {
-            div()
-                .id("gamejolt-games-pane")
-                .flex_1()
-                .min_w_0()
-                .h_full()
-                .overflow_y_scroll()
-                .pr(px(4.0))
-                .pb(px(gamejolt_frame + 24.0))
-                .child(content)
-                .into_any_element()
-        } else {
-            content.into_any_element()
-        };
         let workspace = div()
             .relative()
             .w_full()
@@ -1628,9 +1566,13 @@ impl Render for SharpPreview {
                 gpui::linear_color_stop(gpui::rgba(crate::page_palette::tca(0xffffff02)), 1.0),
             ))
             .flex()
-            .gap(px(gap))
-            .child(content);
-        let mut workspace = workspace;
+            .gap(px(gap));
+        // Game Jolt's page is the browser alone: its games are on the Game Jolt page's deck (#822).
+        let mut workspace = if live_gamejolt {
+            workspace.flex_1().min_h_0()
+        } else {
+            workspace.child(content)
+        };
         if live_gamejolt {
             let embed_visible = self.gamejolt_embed_visible();
             if !embed_visible {
@@ -1641,14 +1583,14 @@ impl Render for SharpPreview {
                     crate::host_actions::gamejolt_download_dir(&live.home()),
                 );
             }
-            workspace = workspace.h(px(panel_height)).overflow_hidden().child(
+            workspace = workspace.overflow_hidden().child(
                 div()
                     .id("gamejolt-browser-frame")
                     .absolute()
+                    .top_0()
                     .bottom_0()
                     .left_0()
                     .right_0()
-                    .h(px(gamejolt_frame))
                     .rounded_t(px(8.0))
                     .border_1()
                     .border_color(rgb(crate::page_palette::tc(0xffffff)))
@@ -1733,7 +1675,14 @@ impl Render for SharpPreview {
                     ),
             );
         }
-        let main = main.child(workspace);
+        let main = if live_gamejolt {
+            main.overflow_hidden()
+                .pt(px(16.0))
+                .pb(px(16.0))
+                .child(workspace)
+        } else {
+            main.child(workspace)
+        };
         if self.focus.is_none() {
             self.focus = Some(cx.focus_handle());
         }
@@ -1764,7 +1713,7 @@ impl Render for SharpPreview {
                         spread_radius: px(20.0),
                     }]),
             )
-            .child(header)
+            .when(!live_gamejolt, |root| root.child(header))
             .child(main)
             .track_focus(&focus)
             .on_mouse_down(

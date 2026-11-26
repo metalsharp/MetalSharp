@@ -350,8 +350,8 @@ impl LibraryPage {
         Self::Rockstar,
         Self::Gog,
         Self::Epic,
-        Self::WindowsPrograms,
         Self::GameJolt,
+        Self::WindowsPrograms,
     ];
     pub fn label(self) -> &'static str {
         match self {
