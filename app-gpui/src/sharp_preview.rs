@@ -99,7 +99,6 @@ struct PreviewState {
     card_picker: Option<&'static str>,
     selected_card: Option<&'static str>,
     launch_settings_open: bool,
-    launch_preferences: [usize; 5],
     resolution_open: bool,
     browser_height: f32,
     browser_drag: Option<(f32, f32)>,
@@ -124,7 +123,6 @@ impl Default for PreviewState {
             card_picker: None,
             selected_card: None,
             launch_settings_open: false,
-            launch_preferences: [2, 0, 1, 0, 0],
             resolution_open: false,
             // half the panel, so Game Jolt's pages are usable without dragging it up first (#822)
             browser_height: 50.0,
@@ -432,218 +430,6 @@ impl SharpPreview {
             .child(options)
             .children(self.live.is_none().then_some(fixture));
         overlay
-    }
-    fn launch_settings_control(
-        &self,
-        viewport: gpui::Size<gpui::Pixels>,
-        cx: &mut Context<Self>,
-    ) -> gpui::Div {
-        let mut control = div().relative().flex_none().child(
-            div()
-                .id("sharp-launch-settings-trigger")
-                .size(px(42.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(10.0))
-                .border_1()
-                .border_color(gpui::rgba(self.palette.control_border))
-                .bg(rgb(self.palette.control_bg))
-                .cursor_pointer()
-                .child(
-                    gpui::svg()
-                        .path("launch-settings.svg")
-                        .size(px(18.0))
-                        .text_color(rgb(self.palette.control_text)),
-                )
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.state.launch_settings_open = !this.state.launch_settings_open;
-                    this.state.picker = false;
-                    this.state.resolution_open = false;
-                    if this.state.launch_settings_open && this.live.is_some() {
-                        this.load_launch_preferences(cx);
-                    }
-                    cx.notify();
-                })),
-        );
-        if !self.state.launch_settings_open {
-            return control;
-        }
-        let muted = if self.palette.light {
-            0x68727b
-        } else {
-            0xaab3bc
-        };
-        let mut panel = div()
-            .id("sharp-launch-settings-popover")
-            .max_h(px((f32::from(viewport.height) - 350.0).max(180.0)))
-            .overflow_y_scroll()
-            .occlude()
-            .absolute()
-            .top(px(52.0))
-            .right_0()
-            .w(px(390.0))
-            .rounded(px(14.0))
-            .border_1()
-            .border_color(gpui::rgba(self.palette.control_border))
-            .bg(rgb(self.palette.menu_bg))
-            .p(px(16.0))
-            .shadow_lg()
-            .flex()
-            .flex_col()
-            .gap(px(12.0))
-            .text_color(rgb(self.palette.control_text))
-            .child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .items_center()
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(4.0))
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_color(rgb(muted))
-                                    .child("GAME SETTINGS"),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(14.0))
-                                    .font_weight(FontWeight::BOLD)
-                                    .child("Shared launch preferences"),
-                            ),
-                    )
-                    .child(
-                        self.palette
-                            .button("sharp-launch-settings-close", "×", false)
-                            .w(px(30.0))
-                            .h(px(30.0))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.state.launch_settings_open = false;
-                                this.state.resolution_open = false;
-                                cx.notify();
-                            })),
-                    ),
-            );
-        for (index, label, choices) in [
-            (0, "METALFX", vec!["1.5×", "1.75×", "2×", "Off"]),
-            (1, "CONTROLLER INPUT", vec!["Off", "XInput", "DInput"]),
-            (2, "MSYNC", vec!["Off", "On"]),
-            (
-                3,
-                "DISPLAY MODE",
-                vec!["Game default", "Windowed", "Fullscreen"],
-            ),
-        ] {
-            let mut options = div().flex().gap(px(4.0)).flex_wrap().justify_end();
-            for (choice, text) in choices.into_iter().enumerate() {
-                // msync uses the single toggle in the reference, unlike the other segmented rows.
-                if index == 2 && choice != self.state.launch_preferences[2] {
-                    continue;
-                }
-                options = options.child(
-                    self.palette
-                        .button(
-                            ("launch-preference", index * 10 + choice),
-                            text,
-                            self.state.launch_preferences[index] == choice,
-                        )
-                        .h(px(30.0))
-                        .px(px(8.0))
-                        .text_size(px(11.0))
-                        .rounded(px(7.0))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            let value = if index == 2 {
-                                1 - this.state.launch_preferences[index]
-                            } else {
-                                choice
-                            };
-                            if this.live.is_none() {
-                                this.state.notice =
-                                    "Shared preview launch preference changed · not saved".into();
-                            }
-                            this.save_launch_preference(index, value, cx);
-                        })),
-                );
-            }
-            panel = panel.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap(px(10.0))
-                    .child(
-                        div()
-                            .text_size(px(11.0))
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(rgb(muted))
-                            .child(label),
-                    )
-                    .child(options),
-            );
-        }
-        let resolutions = [
-            "Game default",
-            "720p — 1280 × 720",
-            "1080p — 1920 × 1080",
-            "1440p — 2560 × 1440",
-            "2160p / 4K — 3840 × 2160",
-        ];
-        let resolution = div().relative().flex_none().child(
-            self.palette
-                .button(
-                    "launch-resolution-trigger",
-                    format!("{}  ⌄", resolutions[self.state.launch_preferences[4]]),
-                    false,
-                )
-                .h(px(32.0))
-                .text_size(px(11.0))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.state.resolution_open = !this.state.resolution_open;
-                    cx.notify();
-                })),
-        );
-        // The panel is already deferred; GPUI aborts on a nested defer, so the
-        // choices render inline under the resolution row.
-        let mut resolution_choices = None;
-        if self.state.resolution_open {
-            let mut choices = div()
-                .id("launch-resolution-menu")
-                .occlude()
-                .mt(px(4.0))
-                .w(px(226.0))
-                .rounded(px(8.0))
-                .border_1()
-                .border_color(gpui::rgba(self.palette.control_border))
-                .bg(rgb(self.palette.menu_bg))
-                .p(px(5.0))
-                .shadow_lg()
-                .flex()
-                .flex_col();
-            for (index, label) in resolutions.into_iter().enumerate() {
-                choices = choices.child(
-                    self.palette
-                        .button(("launch-resolution-choice", index), label, false)
-                        .justify_start()
-                        .border_0()
-                        .text_size(px(11.0))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.state.resolution_open = false;
-                            this.save_launch_preference(4, index, cx);
-                        })),
-                );
-            }
-            resolution_choices = Some(div().flex().justify_end().child(choices));
-        }
-        panel = panel.child(div().flex().items_center().justify_between().gap(px(10.0)).child(div().text_size(px(11.0)).font_weight(FontWeight::BOLD).text_color(rgb(muted)).child("RESOLUTION")).child(resolution))
-            .children(resolution_choices)
-            .child(div().text_size(px(11.0)).line_height(px(16.5)).text_color(rgb(muted)).child(if self.live.is_some() {"Windowed mode uses a Wine virtual desktop. Resolution uses it unless Fullscreen is selected; fullscreen behavior remains game-controlled. Applies on next launch."} else {"Windowed mode uses a Wine virtual desktop. Resolution uses it unless Fullscreen is selected; fullscreen behavior remains game-controlled. Applies on next launch. Preview changes are never persisted."}));
-        control = control.child(gpui::deferred(panel).with_priority(50));
-        control
     }
 
     fn preview_dialog(
@@ -1358,8 +1144,6 @@ impl Render for SharpPreview {
                     })),
             );
         }
-        source_controls =
-            source_controls.child(self.launch_settings_control(window.viewport_size(), cx));
         controls = controls
             .child(source_controls.children((self.sources.len() > 1).then_some(source_picker)));
         controls = if stacked {
@@ -1693,8 +1477,8 @@ impl Render for SharpPreview {
             .min_h_0()
             .flex()
             .flex_col()
-            // Under Liquid Glass the Game Jolt browser sits on the window's glass, as the other pages do.
-            .when(!(live_gamejolt && self.palette.glass), |root| {
+            // Under Liquid Glass the view sits on the window's glass, as the other pages do.
+            .when(!self.palette.glass, |root| {
                 root.bg(gpui::linear_gradient(
                     180.0,
                     gpui::linear_color_stop(rgb(crate::page_palette::tc(0x171a1d)), 0.0),
