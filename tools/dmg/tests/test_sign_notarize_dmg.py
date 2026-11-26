@@ -109,6 +109,22 @@ if sys.argv[1:3] == ['notarytool', 'log']:
             ],
         )
 
+    def test_signs_from_the_prepared_keychain_only(self) -> None:
+        # A release runner Mac can hold the same Developer ID in another keychain too; a name lookup is then ambiguous.
+        keychain = str(self.root / "metalsharp-signing.keychain-db")
+        result = self._run(
+            APPLE_ID="developer@example.test",
+            APPLE_APP_SPECIFIC_PASSWORD="fixture-password",
+            APPLE_TEAM_ID="ABCDE12345",
+            CSC_KEYCHAIN=keychain,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self._calls()[0],
+            ["codesign", "--force", "--sign", IDENTITY, "--keychain", keychain, "--timestamp", "-i",
+             "com.metalsharp.app.dmg", str(self.dmg)],
+        )
+
     def test_supports_app_store_connect_api_key_credentials(self) -> None:
         api_key = self.root / "AuthKey_KEY123.p8"
         api_key.write_text("fixture API private key")

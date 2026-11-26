@@ -351,6 +351,10 @@ PLIST
 # MetalSharp-Wine.app and drop its entitlement; it is signed inside-out with
 # MetalSharp-Wine.app skipped (ad-hoc or Developer ID).
 SIGN_IDENTITY="${METALSHARP_GPUI_SIGN_IDENTITY:--}"
+# CSC_KEYCHAIN (prepare-apple-signing.sh's keychain) is the only place the identity is looked up: a Mac with the same
+# Developer ID in another keychain (System, or a second release runner's) makes a name lookup "ambiguous".
+KEYCHAIN_ARGS=()
+[ -z "${CSC_KEYCHAIN:-}" ] || KEYCHAIN_ARGS=(--keychain "$CSC_KEYCHAIN")
 WINE_APP_DEST="$CONTENTS/Resources/$WINE_APP_NAME"
 OTHER_WINE_APP_DEST="$CONTENTS/Resources/${OTHER_WINE_APP_NAME:-$WINE_APP_NAME}"
 if [ "$SIGN_IDENTITY" = "-" ] && [ "$CARRIES_WINE_APP" = 0 ] && [ -z "$OTHER_WINE_APP_NAME" ]; then
@@ -365,7 +369,7 @@ else
   [ -s "$ENTITLEMENTS" ] || { echo "Missing signing entitlements: $ENTITLEMENTS" >&2; exit 1; }
   sign_code() {
     codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS" \
-      --sign "$SIGN_IDENTITY" "$1"
+      --sign "$SIGN_IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$1"
   }
   fi
   # Loose Mach-O code in Resources (backend, host runtime, native helpers,
@@ -388,7 +392,7 @@ else
       if [ "$SIGN_IDENTITY" = "-" ]; then
         codesign --force --sign - "$@"
       else
-        codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" "$@"
+        codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$@"
       fi
     }
     sign_sparkle "$SPARKLE_B/XPCServices/Installer.xpc"
