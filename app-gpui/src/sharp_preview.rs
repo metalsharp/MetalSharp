@@ -1693,11 +1693,14 @@ impl Render for SharpPreview {
             .min_h_0()
             .flex()
             .flex_col()
-            .bg(gpui::linear_gradient(
-                180.0,
-                gpui::linear_color_stop(rgb(crate::page_palette::tc(0x171a1d)), 0.0),
-                gpui::linear_color_stop(rgb(BG), 1.0),
-            ))
+            // Under Liquid Glass the Game Jolt browser sits on the window's glass, as the other pages do.
+            .when(!(live_gamejolt && self.palette.glass), |root| {
+                root.bg(gpui::linear_gradient(
+                    180.0,
+                    gpui::linear_color_stop(rgb(crate::page_palette::tc(0x171a1d)), 0.0),
+                    gpui::linear_color_stop(rgb(BG), 1.0),
+                ))
+            })
             .font_family("Rethink Sans")
             .child(
                 div()
