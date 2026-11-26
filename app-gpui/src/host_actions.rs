@@ -668,9 +668,56 @@ fn fetch_gamejolt_game(game_dir: &Path, id: u64, page_url: Option<&str>) -> Resu
         let Some(ext) = image_extension(&bytes) else {
             continue;
         };
+        // a card is portrait: a landscape thumbnail is laid on a card of its own (a crop would cut its title off)
+        if kind == "card"
+            && let Some(card) = portrait_card(&bytes)
+        {
+            save_gamejolt_art(game_dir, kind, "png", &card).map_err(|e| e.to_string())?;
+            continue;
+        }
         save_gamejolt_art(game_dir, kind, ext, &bytes).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// The size of a library card's art, 2:3 as Steam's.
+const CARD_SIZE: (u32, u32) = (600, 900);
+
+/// A landscape thumbnail as a portrait card, PNG: the whole thumbnail across the card's middle, over a blurred and
+/// darkened copy of it filling the card. None for art that is already portrait, or that doesn't decode.
+fn portrait_card(bytes: &[u8]) -> Option<Vec<u8>> {
+    let art = image::load_from_memory(bytes).ok()?.to_rgba8();
+    let (width, height) = art.dimensions();
+    let (card_width, card_height) = CARD_SIZE;
+    if width == 0 || height == 0 || width * card_height <= height * card_width {
+        return None;
+    }
+    let filter = image::imageops::FilterType::Triangle;
+    let mut card = image::imageops::blur(
+        &image::DynamicImage::ImageRgba8(art.clone())
+            .resize_to_fill(card_width, card_height, filter)
+            .to_rgba8(),
+        24.0,
+    );
+    for pixel in card.pixels_mut() {
+        for channel in &mut pixel.0[..3] {
+            *channel = (*channel as f32 * 0.45) as u8;
+        }
+        pixel.0[3] = 255;
+    }
+    let shown_height = ((height as u64 * card_width as u64) / width as u64).max(1) as u32;
+    let shown = image::imageops::resize(&art, card_width, shown_height, filter);
+    image::imageops::overlay(
+        &mut card,
+        &shown,
+        0,
+        ((card_height - shown_height.min(card_height)) / 2) as i64,
+    );
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(card)
+        .write_to(&mut out, image::ImageFormat::Png)
+        .ok()?;
+    Some(out.into_inner())
 }
 
 /// The game's title in Game Jolt's reply, trimmed; none when it is empty or too long to be a name.
@@ -776,6 +823,30 @@ mod gamejolt_art_tests {
             gamejolt_title(&json!({"payload": {"game": {"title": ""}}})),
             None
         );
+    }
+
+    #[test]
+    fn a_landscape_thumbnail_becomes_a_portrait_card() {
+        let encode = |width, height| {
+            let mut out = std::io::Cursor::new(Vec::new());
+            image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+                width,
+                height,
+                image::Rgba([200, 40, 40, 255]),
+            ))
+            .write_to(&mut out, image::ImageFormat::Png)
+            .unwrap();
+            out.into_inner()
+        };
+        let card = image::load_from_memory(&portrait_card(&encode(610, 333)).unwrap()).unwrap();
+        assert_eq!((card.width(), card.height()), CARD_SIZE);
+        let card = card.to_rgba8();
+        // the thumbnail across the middle, the darkened blur above it
+        assert_eq!(card.get_pixel(300, 450).0, [200, 40, 40, 255]);
+        assert!(card.get_pixel(300, 20).0[0] < 120);
+        // portrait art is left as it is
+        assert!(portrait_card(&encode(600, 900)).is_none());
+        assert!(portrait_card(b"not an image").is_none());
     }
 
     #[test]
