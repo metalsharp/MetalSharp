@@ -206,6 +206,9 @@ private final class Host {
         }
     }
 
+    /// How far a surface from the window's top edge reaches above it.
+    static let overTop: CGFloat = 120
+
     /// Deep glass (panels over the page) stays over every other surface, whichever was made first.
     var sheets = Set<ObjectIdentifier>()
     func addBelowSheets(_ view: NSView) {
@@ -237,9 +240,16 @@ private final class Host {
         CATransaction.commit()
     }
 
-    func region(id: UInt64, rect: NSRect, radius requested: CGFloat, kind: Kind, rotation: CGFloat) {
+    func region(id: UInt64, rect requestedRect: NSRect, radius requested: CGFloat, kind: Kind, rotation: CGFloat) {
         // a radius past half the shorter side is a capsule, as GPUI draws it
-        let radius = min(requested, min(rect.width, rect.height) / 2)
+        let radius = min(requested, min(requestedRect.width, requestedRect.height) / 2)
+        // A surface from the window's top edge (the page's panel) starts above it: glass blends with glass near it,
+        // and its top edge, just above the header's controls, ran into each of them.
+        var rect = requestedRect
+        if rotation == 0, rect.minY <= 0 {
+            rect.origin.y -= Host.overTop
+            rect.size.height += Host.overTop
+        }
         painted.insert(id)
         let view: NSView
         if let existing = regions[id] {

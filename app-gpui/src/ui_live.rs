@@ -124,6 +124,9 @@ pub(super) struct LiveState {
     /// Installed GOG, Epic, Windows program and GameJolt entries from the
     /// Sharp Library, with their running and launching state.
     pub deck_games: Vec<LibGame>,
+    /// The runtime (FEX or not) the lists were built for: the Steam library's and launchers' lanes, the deck pages'
+    /// engine lists and the Sharp Library's entries. None until the first `/status`.
+    pub lists_fex: Option<bool>,
     pub deck_running: HashSet<u64>,
     pub deck_busy: HashSet<u64>,
     pub deck_progress: HashMap<u64, f64>,
@@ -186,6 +189,8 @@ pub(super) struct LiveState {
     steamapps_reload_at: Option<Instant>,
     grid_art_signature: Option<Vec<(std::path::PathBuf, u128)>>,
     gj_downloads: HashMap<u64, (Option<u64>, String, std::path::PathBuf, Option<u64>)>,
+    /// The Game Jolt page each download started from, for the game's art (#822).
+    gj_download_pages: HashMap<u64, String>,
     pub steam_fix_busy: bool,
     icon_refresh_attempts: u32,
     icon_refresh_scheduled: bool,
@@ -383,6 +388,7 @@ impl Default for LiveState {
             running: HashMap::new(),
             launching: None,
             deck_games: Vec::new(),
+            lists_fex: None,
             deck_running: HashSet::new(),
             deck_busy: HashSet::new(),
             deck_progress: HashMap::new(),
@@ -428,6 +434,7 @@ impl Default for LiveState {
             steamapps_reload_at: None,
             grid_art_signature: None,
             gj_downloads: HashMap::new(),
+            gj_download_pages: HashMap::new(),
             steam_fix_busy: false,
             icon_refresh_attempts: 0,
             icon_refresh_scheduled: false,
@@ -740,14 +747,32 @@ impl MetalSharpApp {
     }
 
     /// Records the backend's runtime from a `/status` reply. The deck pages (Windows programs, GOG,
-    /// Epic, Game Jolt) copy their engine lists and saved lanes when the Sharp Library syncs, so a
-    /// runtime switch (the FEX | x86_64 toggle, or an update to the other build) rebuilds them.
+    /// Epic, Game Jolt) copy their engine lists and saved lanes when the Sharp Library syncs, and the
+    /// backend's lists (the Steam library's, the launchers', Game Jolt's lanes) are the runtime's it
+    /// ran on, so a runtime switch (the FEX | x86_64 toggle, or an update to the other build) rebuilds them.
+    ///
+    /// The switch is judged against the runtime the lists were built for, not against the last reply:
+    /// the backend host records the new backend's runtime as it starts (`backend_host`), before this
+    /// reply, so `set_from_reply` alone saw no change and the lists stayed the old runtime's (#835).
     fn apply_backend_variant(&mut self, status: &Value, cx: &mut Context<Self>) {
-        if crate::variant::set_from_reply(status)
-            && let Some(sharp) = self.sharp_preview.clone()
-        {
+        crate::variant::set_from_reply(status);
+        if !runtime_lists_stale(&mut self.live.lists_fex, crate::variant::is_fex()) {
+            return;
+        }
+        if let Some(sharp) = self.sharp_preview.clone() {
+            sharp.update(cx, |sharp, cx| sharp.reload_for_runtime(cx));
             self.sync_deck_games(sharp, cx);
         }
+        if self.live.enabled {
+            self.load_library(false, cx);
+        }
+        // The hero's graphics picker shows the new runtime's lane for the selected game.
+        if !self.live.pipeline_saving {
+            if let Some(game) = self.games.get(self.selected_game) {
+                self.live.selected_pipeline = library_model::effective_pipeline(game);
+            }
+        }
+        cx.notify();
     }
 
     pub(super) fn check_backend(&mut self, cx: &mut Context<Self>) {
@@ -978,7 +1003,11 @@ impl MetalSharpApp {
                     filename,
                     path,
                     total,
+                    page_url,
                 } => {
+                    if let Some(page_url) = page_url {
+                        self.live.gj_download_pages.insert(id, page_url);
+                    }
                     let toast = toast::show_download(cx, format!("Downloading {filename}..."), 0.0);
                     self.live
                         .gj_downloads
@@ -986,6 +1015,7 @@ impl MetalSharpApp {
                 }
                 E::Finished { id, filename, path } => {
                     let toast = self.live.gj_downloads.remove(&id).and_then(|entry| entry.0);
+                    let page_url = self.live.gj_download_pages.remove(&id);
                     if let Some(toast) = toast {
                         toast::update_download(cx, toast, format!("Finishing {filename}..."), 0.99);
                     }
@@ -998,6 +1028,24 @@ impl MetalSharpApp {
                                 let organized = crate::host_actions::organize_gamejolt_download(
                                     &path, &filename, &dir,
                                 );
+                                // its art and title from its Game Jolt page, before the sync that lists it
+                                // (#822); a download whose page isn't known finds its game by its name
+                                if let Ok(game_dir) = &organized {
+                                    let fetched = match &page_url {
+                                        Some(page_url) => crate::host_actions::fetch_gamejolt_art(
+                                            game_dir, page_url,
+                                        ),
+                                        None => Err("no Game Jolt page".into()),
+                                    }
+                                    .or_else(|_| {
+                                        crate::host_actions::fetch_gamejolt_art_by_name(game_dir)
+                                    });
+                                    if let Err(error) = fetched {
+                                        eprintln!(
+                                            "MetalSharp: no Game Jolt art for {filename}: {error}"
+                                        );
+                                    }
+                                }
                                 let synced = live
                                     .request("POST", "/gamejolt/sync", None, live::DEFAULT_TIMEOUT)
                                     .map(live::unwrap_data)
@@ -1042,6 +1090,7 @@ impl MetalSharpApp {
                     filename,
                     error,
                 } => {
+                    self.live.gj_download_pages.remove(&id);
                     if let Some((Some(toast), ..)) = self.live.gj_downloads.remove(&id) {
                         let message = if error.is_empty() {
                             format!("Could not download {filename}")
@@ -3012,7 +3061,8 @@ impl MetalSharpApp {
         if let Some(source) = match game.page() {
             LibraryPage::Gog => Some("gog"),
             LibraryPage::Epic => Some("epic"),
-            LibraryPage::WindowsPrograms => game.source.as_deref(),
+            LibraryPage::WindowsPrograms => Some("windows"),
+            LibraryPage::GameJolt => Some("gamejolt"),
             _ => None,
         } {
             let (Some(id), Some(sharp)) = (game.external_id.clone(), self.sharp_preview.clone())
@@ -4915,6 +4965,12 @@ fn ensure_metalsharp_dirs(home: &std::path::Path) {
 /// The build that set this home up (setup.json `runtime_variant`; without one, the FEX build when
 /// the Steam prefix is MetalSharp Wine's, else the regular build, 0.80.x and earlier) is not the build
 /// running: its prefixes must move to this build's Wine.
+/// Whether lists built for the runtime in `built_for` (None: none built yet) are stale now the backend runs `fex`; it
+/// then records `fex`. The first reply only records it: the lists load after it.
+fn runtime_lists_stale(built_for: &mut Option<bool>, fex: bool) -> bool {
+    built_for.replace(fex).is_some_and(|was| was != fex)
+}
+
 fn variant_switch_pending(setup: &Value, steam_prefix_arm64: bool, running_variant: &str) -> bool {
     let recorded = setup
         .get("runtime_variant")
@@ -5171,8 +5227,25 @@ mod script_path_tests {
 
 #[cfg(test)]
 mod variant_switch_tests {
-    use super::variant_switch_pending;
+    use super::{runtime_lists_stale, variant_switch_pending};
     use serde_json::json;
+
+    // #835: the backend host records a new backend's runtime before the app's first /status reply, so the lists are
+    // judged against the runtime they were built for, whichever way the switch went
+    #[test]
+    fn lists_built_for_the_other_runtime_are_stale() {
+        let mut built_for = None;
+        // the first reply only records the runtime: the lists load after it
+        assert!(!runtime_lists_stale(&mut built_for, false));
+        assert!(!runtime_lists_stale(&mut built_for, false));
+        // x86_64 to FEX
+        assert!(runtime_lists_stale(&mut built_for, true));
+        assert_eq!(built_for, Some(true));
+        assert!(!runtime_lists_stale(&mut built_for, true));
+        // and back
+        assert!(runtime_lists_stale(&mut built_for, false));
+        assert!(!runtime_lists_stale(&mut built_for, false));
+    }
 
     #[test]
     fn a_build_installed_by_hand_over_the_other_migrates() {

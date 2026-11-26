@@ -58,8 +58,8 @@ pub(super) fn app_engine(app: &Value) -> String {
     engine_lane(s(app, "engine"), "wine_bare")
 }
 
-/// A Game Jolt game's engine choices: the pipelines its entry lists, or this build's
-/// Direct3D engines.
+/// A Game Jolt game's engine choices: the pipelines its entry lists, as this runtime's lanes (an older backend
+/// listed DXMT(32), D3D9 and DXVK as lanes of their own), or this runtime's engines and OpenGL (#822).
 pub(super) fn gamejolt_engine_options(game: &Value) -> Vec<(String, String)> {
     game.get("available_pipelines")
         .and_then(Value::as_array)
@@ -74,20 +74,36 @@ pub(super) fn gamejolt_engine_options(game: &Value) -> Vec<(String, String)> {
             if crate::variant::is_fex() {
                 crate::variant::fex_options(list)
             } else {
-                list
+                crate::variant::x86_64_options(list)
             }
         })
-        .unwrap_or_else(engine_options)
+        .unwrap_or_else(app_engine_options)
+}
+
+/// The lane a Game Jolt game saved as "auto" runs on (the backend's `ms_gamejolt_launch_json`).
+fn gamejolt_auto_lane() -> &'static str {
+    if crate::variant::is_fex() {
+        "dxmt"
+    } else {
+        "vkd3d"
+    }
+}
+
+/// A Game Jolt game's engine for the pickers: its saved one as the lane it runs on, so an older choice (DXMT(32),
+/// D3D9, DXVK) shows as its lane's. A native game keeps "native" (it has no picker).
+pub(super) fn gamejolt_engine(game: &Value) -> String {
+    let engine = s(game, "engine");
+    if engine == "native" {
+        return engine.to_owned();
+    }
+    engine_lane(engine, gamejolt_auto_lane())
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum SharpConfirm {
     UninstallApp(String, String),
-    RemoveGogPrefix,
     DisconnectGog,
-    UninstallGog(String, String),
     DisconnectEpic,
-    UninstallEpic(String, String),
     UninstallGameJolt(String, String, String),
 }
 
@@ -281,6 +297,21 @@ impl SharpPreview {
         );
     }
 
+    /// After the backend changed runtime (FEX | x86_64): every source again from the new backend, whose lanes and
+    /// saved engines are its runtime's (Game Jolt lists its pipelines per game). A view not loaded yet loads when it
+    /// is first shown, from the new backend already (#835).
+    pub fn reload_for_runtime(&mut self, cx: &mut Context<Self>) {
+        let Some(live) = self.live.as_mut() else {
+            return;
+        };
+        // The old backend's in-flight replies are gone with it.
+        live.in_flight.clear();
+        if live.loaded {
+            self.load(cx);
+        }
+        cx.notify();
+    }
+
     /// SharpView `load()`.
     pub(super) fn load(&mut self, cx: &mut Context<Self>) {
         self.load_apps(cx);
@@ -350,6 +381,14 @@ impl SharpPreview {
                 candidates.insert(0, C::LocalFile(cover.to_owned()));
             }
             requests.push((format!("sharp-gamejolt-{id}"), candidates));
+            // the header art from its Game Jolt page, which its hero shows (#822)
+            let hero = s(game, "hero_path");
+            if !hero.is_empty() {
+                requests.push((
+                    format!("sharp-gamejolt-{id}-hero"),
+                    vec![C::LocalFile(hero.to_owned())],
+                ));
+            }
         }
         cache.update(cx, |cache, cx| {
             for (key, candidates) in requests {
@@ -777,35 +816,6 @@ impl SharpPreview {
                             }
                             this.refresh_gog(cx);
                         },
-                    );
-                }
-                cx.notify();
-            },
-        );
-    }
-
-    fn remove_gog_prefix(&mut self, cx: &mut Context<Self>) {
-        self.live_mut().gog_loading.insert("removing".into());
-        cx.notify();
-        live::call(
-            cx,
-            "POST",
-            "/sharp-library/gog/remove-prefix",
-            Some(json!({})),
-            MS(30_000),
-            |this, r, cx| {
-                this.live_mut().gog_loading.remove("removing");
-                if r.as_ref().is_some_and(is_ok) {
-                    if let Some(status) = r.as_ref().and_then(|r| r.get("status")).cloned() {
-                        this.live_mut().gog_status = Some(status);
-                    }
-                    this.refresh_gog(cx);
-                    toast::success(cx, "GOG prefix removed");
-                } else {
-                    toast::error(
-                        cx,
-                        error_text(r.as_ref())
-                            .unwrap_or_else(|| "Failed to remove GOG prefix".into()),
                     );
                 }
                 cx.notify();
@@ -1869,97 +1879,6 @@ impl SharpPreview {
         );
     }
 
-    /// Shared "Choose EXE" for GOG / Epic cards.
-    pub(super) fn choose_provider_executable(
-        &mut self,
-        epic: bool,
-        game: Value,
-        cx: &mut Context<Self>,
-    ) {
-        let (key_field, key, route, default_dir, title) = if epic {
-            (
-                "appName",
-                s(&game, "appName").to_owned(),
-                "/sharp-library/epic/save-executable",
-                [s(&game, "executable"), s(&game, "installPath")]
-                    .into_iter()
-                    .find(|p| !p.is_empty())
-                    .map(str::to_owned),
-                s(&game, "title").to_owned(),
-            )
-        } else {
-            (
-                "productId",
-                s(&game, "productId").to_owned(),
-                "/sharp-library/gog/save-executable",
-                [
-                    s(&game, "executablePath"),
-                    s(&game, "gameFolder"),
-                    s(&game, "installRoot"),
-                ]
-                .into_iter()
-                .find(|p| !p.is_empty())
-                .map(str::to_owned),
-                s(&game, "title").to_owned(),
-            )
-        };
-        cx.spawn(async move |this, cx| {
-            let mut dialog = rfd::AsyncFileDialog::new().add_filter("Windows executable", &["exe"]);
-            if let Some(dir) = default_dir.map(std::path::PathBuf::from) {
-                let dir = if dir.is_file() {
-                    dir.parent().map(|p| p.to_path_buf()).unwrap_or(dir)
-                } else {
-                    dir
-                };
-                if dir.is_dir() {
-                    dialog = dialog.set_directory(dir);
-                }
-            }
-            let Some(file) = dialog.pick_file().await else {
-                return;
-            };
-            let selected = file.path().to_string_lossy().into_owned();
-            let _ = this.update(cx, move |_, cx| {
-                live::call(
-                    cx,
-                    "POST",
-                    route,
-                    Some(json!({key_field: key, "executablePath": selected})),
-                    live::DEFAULT_TIMEOUT,
-                    move |this, r, cx| {
-                        if !r.as_ref().is_some_and(is_ok) {
-                            toast::error(
-                                cx,
-                                error_text(r.as_ref()).unwrap_or_else(|| {
-                                    format!("Could not save {title}'s executable")
-                                }),
-                            );
-                            return;
-                        }
-                        let saved = r
-                            .as_ref()
-                            .and_then(|r| r.get("executablePath"))
-                            .and_then(Value::as_str)
-                            .unwrap_or(&selected)
-                            .to_owned();
-                        let live = this.live_mut();
-                        let list = if epic {
-                            &mut live.epic_games
-                        } else {
-                            &mut live.gog_games
-                        };
-                        if let Some(game) = list.iter_mut().find(|g| s(g, key_field) == key) {
-                            game[if epic { "executable" } else { "executablePath" }] = json!(saved);
-                        }
-                        toast::success(cx, format!("{title}: launch executable saved"));
-                        cx.notify();
-                    },
-                );
-            });
-        })
-        .detach();
-    }
-
     // ─────────────────────────────── GameJolt ───────────────────────────────
 
     pub(super) fn load_gamejolt(&mut self, cx: &mut Context<Self>, then_sync: bool) {
@@ -1982,6 +1901,7 @@ impl SharpPreview {
                         this.live_mut().gj_storage = Some(storage.clone());
                     }
                     this.request_covers(cx);
+                    this.backfill_gamejolt(cx);
                     cx.notify();
                 }
                 if then_sync {
@@ -2002,6 +1922,44 @@ impl SharpPreview {
                 }
             },
         );
+    }
+
+    /// Games listed before their Game Jolt art and title were known (downloaded before, or from a page the app didn't
+    /// see) look themselves up on Game Jolt, each once a launch; the list is read again when one finds its game.
+    fn backfill_gamejolt(&mut self, cx: &mut Context<Self>) {
+        static TRIED: std::sync::Mutex<Option<HashSet<std::path::PathBuf>>> =
+            std::sync::Mutex::new(None);
+        let dirs: Vec<std::path::PathBuf> = {
+            let mut tried = TRIED.lock().unwrap_or_else(|e| e.into_inner());
+            let tried = tried.get_or_insert_with(HashSet::new);
+            let Some(live) = self.live.as_ref() else {
+                return;
+            };
+            live.gj_games
+                .iter()
+                .filter_map(|game| game.get("install_dir").and_then(Value::as_str))
+                .map(std::path::PathBuf::from)
+                .filter(|dir| !crate::host_actions::gamejolt_has_title(dir))
+                .filter(|dir| tried.insert(dir.clone()))
+                .collect()
+        };
+        if dirs.is_empty() {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            let found = cx
+                .background_executor()
+                .spawn(async move {
+                    dirs.iter()
+                        .filter(|dir| crate::host_actions::fetch_gamejolt_art_by_name(dir).is_ok())
+                        .count()
+                })
+                .await;
+            if found > 0 {
+                let _ = this.update(cx, |this, cx| this.load_gamejolt(cx, false));
+            }
+        })
+        .detach();
     }
 
     pub(super) fn sync_gamejolt(&mut self, show: bool, cx: &mut Context<Self>) {
@@ -2034,6 +1992,7 @@ impl SharpPreview {
                     this.live_mut().gj_storage = Some(storage.clone());
                 }
                 this.request_covers(cx);
+                this.backfill_gamejolt(cx);
                 if show {
                     toast::success(
                         cx,
@@ -2259,11 +2218,8 @@ impl SharpPreview {
         self.live_mut().confirm = None;
         match action {
             SharpConfirm::UninstallApp(id, name) => self.uninstall_app(id, name, cx),
-            SharpConfirm::RemoveGogPrefix => self.remove_gog_prefix(cx),
             SharpConfirm::DisconnectGog => self.disconnect_gog(cx),
-            SharpConfirm::UninstallGog(id, title) => self.uninstall_gog_game(id, title, cx),
             SharpConfirm::DisconnectEpic => self.logout_epic(cx),
-            SharpConfirm::UninstallEpic(app, title) => self.uninstall_epic_game(app, title, cx),
             SharpConfirm::UninstallGameJolt(id, name, dir) => {
                 self.uninstall_gamejolt(id, name, dir, cx)
             }
@@ -2273,27 +2229,18 @@ impl SharpPreview {
 
     pub(super) fn confirm_copy(action: &SharpConfirm) -> (String, String, &'static str) {
         match action {
-            SharpConfirm::UninstallApp(_, name) => (format!("Uninstall {name}?"), String::new(), "Uninstall"),
-            SharpConfirm::RemoveGogPrefix => (
-                "Remove the GOG Wine prefix?".into(),
-                "This will permanently delete the isolated Wine prefix and all Wine Mono components. Downloaded GOG games will stay on disk but cannot launch until the prefix is re-created.".into(),
-                "Remove",
-            ),
+            SharpConfirm::UninstallApp(_, name) => {
+                (format!("Uninstall {name}?"), String::new(), "Uninstall")
+            }
             SharpConfirm::DisconnectGog => (
                 "Disconnect GOG?".into(),
                 "Disconnect GOG and show Login again? Installed games will stay on disk.".into(),
                 "Disconnect",
             ),
-            SharpConfirm::UninstallGog(_, title) => (format!("Delete {title} from disk?"), String::new(), "Delete"),
             SharpConfirm::DisconnectEpic => (
                 "Disconnect Epic Games?".into(),
                 "Installed games and isolated game bottles will stay on disk.".into(),
                 "Disconnect",
-            ),
-            SharpConfirm::UninstallEpic(_, title) => (
-                format!("Uninstall {title}?"),
-                "This deletes its downloaded Epic game files and isolated Wine bottle.".into(),
-                "Uninstall",
             ),
             SharpConfirm::UninstallGameJolt(_, name, _) => (
                 format!("Uninstall {name}?"),
@@ -2338,142 +2285,6 @@ impl SharpPreview {
                 toast::success(cx, "Sharp Library refreshed");
             }
         }
-    }
-
-    // ─────────────────────── shared launch preferences ───────────────────────
-
-    /// GameLaunchSettingsPopover `refreshSettings`.
-    pub(super) fn load_launch_preferences(&mut self, cx: &mut Context<Self>) {
-        live::call(
-            cx,
-            "GET",
-            "/config",
-            None,
-            live::DEFAULT_TIMEOUT,
-            |this, r, cx| {
-                if let Some(r) = r.filter(is_ok) {
-                    let p = &mut this.state.launch_preferences;
-                    p[1] = match s(&r, "controllerInput") {
-                        "x" => 1,
-                        "d" => 2,
-                        _ => 0,
-                    };
-                    p[2] = usize::from(r.get("msync").and_then(Value::as_bool) != Some(false));
-                    p[3] = match s(&r, "windowMode") {
-                        "windowed" => 1,
-                        "fullscreen" => 2,
-                        _ => 0,
-                    };
-                    p[4] = match s(&r, "gameResolution") {
-                        "1280x720" => 1,
-                        "1920x1080" => 2,
-                        "2560x1440" => 3,
-                        "3840x2160" => 4,
-                        _ => 0,
-                    };
-                    cx.notify();
-                }
-            },
-        );
-        live::call(
-            cx,
-            "GET",
-            "/metalfx/state",
-            None,
-            live::DEFAULT_TIMEOUT,
-            |this, r, cx| {
-                if let Some(r) = r.filter(is_ok) {
-                    let factor = r.get("factor").and_then(Value::as_f64).unwrap_or(2.0);
-                    this.state.launch_preferences[0] =
-                        if r.get("enabled").and_then(Value::as_bool) == Some(false) {
-                            3
-                        } else if (factor - 1.5).abs() < 0.01 {
-                            0
-                        } else if (factor - 1.75).abs() < 0.01 {
-                            1
-                        } else {
-                            2
-                        };
-                    cx.notify();
-                }
-            },
-        );
-    }
-
-    pub(super) fn save_launch_preference(
-        &mut self,
-        index: usize,
-        choice: usize,
-        cx: &mut Context<Self>,
-    ) {
-        if self.live.is_none() {
-            self.state.launch_preferences[index] = choice;
-            cx.notify();
-            return;
-        }
-        if index == 0 {
-            let body = match choice {
-                0 => json!({"enabled": true, "factor": 1.5}),
-                1 => json!({"enabled": true, "factor": 1.75}),
-                2 => json!({"enabled": true, "factor": 2.0}),
-                _ => json!({"enabled": false}),
-            };
-            live::call(
-                cx,
-                "POST",
-                "/metalfx/toggle",
-                Some(body),
-                live::DEFAULT_TIMEOUT,
-                move |this, r, cx| {
-                    if r.as_ref().is_some_and(is_ok) {
-                        this.state.launch_preferences[0] = choice;
-                    } else {
-                        toast::error(
-                            cx,
-                            error_text(r.as_ref())
-                                .unwrap_or_else(|| "Could not save MetalFX setting".into()),
-                        );
-                    }
-                    cx.notify();
-                },
-            );
-            return;
-        }
-        let patch = match index {
-            1 => {
-                let value = ["off", "x", "d"][choice.min(2)];
-                json!({"controllerInput": value})
-            }
-            2 => json!({"msync": choice == 1}),
-            3 => {
-                let value = ["default", "windowed", "fullscreen"][choice.min(2)];
-                json!({"windowMode": value})
-            }
-            _ => {
-                let value =
-                    ["default", "1280x720", "1920x1080", "2560x1440", "3840x2160"][choice.min(4)];
-                json!({"gameResolution": value})
-            }
-        };
-        live::call(
-            cx,
-            "POST",
-            "/config",
-            Some(patch),
-            live::DEFAULT_TIMEOUT,
-            move |this, r, cx| {
-                if r.as_ref().is_some_and(is_ok) {
-                    this.state.launch_preferences[index] = choice;
-                } else {
-                    toast::error(
-                        cx,
-                        error_text(r.as_ref())
-                            .unwrap_or_else(|| "Could not save game launch settings".into()),
-                    );
-                }
-                cx.notify();
-            },
-        );
     }
 }
 

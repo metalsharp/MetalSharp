@@ -126,6 +126,26 @@ pub fn fex_options(options: impl IntoIterator<Item = (String, String)>) -> Vec<(
         .collect()
 }
 
+/// A backend-provided pipeline list as the x86_64 runtime shows it: DXVK and D3D9 fold into VKD3D / DXVK and 32-bit
+/// DXMT into Mullion (each shown once, `x86_64_pipeline`), and every lane gets its label. An older backend's Game Jolt
+/// list (VKD3D, DXMT, DXMT(32), D3D9) reads as today's lanes.
+pub fn x86_64_options(
+    options: impl IntoIterator<Item = (String, String)>,
+) -> Vec<(String, String)> {
+    let mut seen = std::collections::HashSet::new();
+    options
+        .into_iter()
+        .map(|(id, label)| {
+            let lane = x86_64_pipeline(&id);
+            match X86_64_PIPELINE_OPTIONS.iter().find(|(pid, _)| *pid == lane) {
+                Some((pid, lane_label)) => ((*pid).to_owned(), (*lane_label).to_owned()),
+                None => (id, label),
+            }
+        })
+        .filter(|(id, _)| seen.insert(id.clone()))
+        .collect()
+}
+
 /// FEX keeps the Sharp tools' D3DMetal flow: Apple's Game Porting Toolkit in its own prefix,
 /// through Rosetta. These name it so.
 pub const FEX_GPTK_LABEL: &str = "GPTK (Rosetta)";
@@ -179,6 +199,45 @@ mod tests {
         assert!(FEX_PIPELINE_OPTIONS.iter().all(|(id, _)| *id != "dxvk"));
         assert_eq!(fex_pipeline_label("wine_bare"), Some("OpenGL"));
         assert_eq!(fex_pipeline_label("auto"), None);
+    }
+
+    // #822: Game Jolt's lists from a backend before 1.6 (or one that kept them) show as the runtime's lanes
+    #[test]
+    fn older_lane_lists_read_as_todays_lanes() {
+        let old = |ids: &[(&str, &str)]| -> Vec<(String, String)> {
+            ids.iter()
+                .map(|(id, label)| ((*id).to_owned(), (*label).to_owned()))
+                .collect()
+        };
+        let x86 = x86_64_options(old(&[
+            ("d3dmetal", "D3DMetal"),
+            ("vkd3d", "VKD3D"),
+            ("dxmt", "DXMT"),
+            ("dxmt_32", "DXMT(32)"),
+            ("d3d9", "D3D9"),
+        ]));
+        assert_eq!(
+            x86,
+            old(&[
+                ("d3dmetal", "D3DMetal"),
+                ("vkd3d", "VKD3D / DXVK"),
+                ("dxmt", "Mullion (DXMT)"),
+            ])
+        );
+        let fex = fex_options(old(&[
+            ("dxmt", "Mullion (DXMT)"),
+            ("vkd3d", "VKD3D-Proton"),
+            ("dxvk", "DXVK"),
+            ("wine_bare", "OpenGL"),
+        ]));
+        assert_eq!(
+            fex,
+            old(&[
+                ("dxmt", "Mullion (DXMT)"),
+                ("vkd3d", "VKD3D / DXVK"),
+                ("wine_bare", "OpenGL"),
+            ])
+        );
     }
 
     #[test]

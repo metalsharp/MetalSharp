@@ -20,6 +20,8 @@ const BG: u32 = 0x111416;
 const TEXT: u32 = 0xf1eee6;
 const MUTED: u32 = 0x9ba19f;
 const GOLD: u32 = 0xe8d6b7;
+/// The embedded Game Jolt browser's toolbar height, above the page (#822).
+const GAMEJOLT_TOOLBAR: f32 = 32.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SharpSource {
@@ -52,7 +54,7 @@ impl SharpSource {
             Self::Installers => "Installers",
             Self::Gog => "GOG",
             Self::Epic => "Epic",
-            Self::GameJolt => "GameJolt",
+            Self::GameJolt => "Game Jolt",
         }
     }
     fn menu_detail(self) -> &'static str {
@@ -63,17 +65,15 @@ impl SharpSource {
             Self::GameJolt => "Indie games library",
         }
     }
-    fn header(self) -> (&'static str, &'static str, &'static str) {
-        let e = "METALSHARP · INSTALLERS & LAUNCHERS";
+    fn header(self) -> (&'static str, &'static str) {
         match self {
             Self::Installers => (
-                e,
                 "Sharp Library",
                 "Install and manage Windows applications outside Steam.",
             ),
-            Self::Gog => (e, "GOG Library", "GOG games library"),
-            Self::Epic => (e, "Epic Library", "Epic games library"),
-            Self::GameJolt => (e, "GameJolt Library", "Indie games library"),
+            Self::Gog => ("GOG Library", "GOG games library"),
+            Self::Epic => ("Epic Library", "Epic games library"),
+            Self::GameJolt => ("Game Jolt Library", "Indie games library"),
         }
     }
 }
@@ -97,7 +97,6 @@ struct PreviewState {
     card_picker: Option<&'static str>,
     selected_card: Option<&'static str>,
     launch_settings_open: bool,
-    launch_preferences: [usize; 5],
     resolution_open: bool,
     browser_height: f32,
     browser_drag: Option<(f32, f32)>,
@@ -122,9 +121,9 @@ impl Default for PreviewState {
             card_picker: None,
             selected_card: None,
             launch_settings_open: false,
-            launch_preferences: [2, 0, 1, 0, 0],
             resolution_open: false,
-            browser_height: 24.0,
+            // half the panel, so Game Jolt's pages are usable without dragging it up first (#822)
+            browser_height: 50.0,
             browser_drag: None,
         }
     }
@@ -220,10 +219,13 @@ impl PreviewState {
 }
 
 /// What the Sharp Library view asks of the app around it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SharpPreviewEvent {
     /// The header's Back to Play: the page's Steam Deck layout.
     BackToPlay,
+    /// A Collection card's gear: the game's settings (Graphics, Runtime, Advanced, Presentation), as the Steam
+    /// Collection grid's gear opens them (#833). `source` is the deck's ("gog", "epic", "windows", "gamejolt").
+    OpenGameSettings { source: &'static str, id: String },
 }
 
 impl gpui::EventEmitter<SharpPreviewEvent> for SharpPreview {}
@@ -251,13 +253,14 @@ impl SharpPreview {
             sources: &SharpSource::ALL,
         }
     }
-    /// Show one sidebar page's source: "gog", "epic", or "installers"
-    /// (Windows Programs, which also offers GameJolt).
+    /// Show one sidebar page's source: "gog", "epic", "gamejolt" (its own page since #822), or "installers"
+    /// (Windows Programs).
     pub fn show_source(&mut self, id: &str, cx: &mut Context<Self>) {
         self.sources = match id {
             "gog" => &[SharpSource::Gog],
             "epic" => &[SharpSource::Epic],
-            _ => &[SharpSource::Installers, SharpSource::GameJolt],
+            "gamejolt" => &[SharpSource::GameJolt],
+            _ => &[SharpSource::Installers],
         };
         if self.sources.contains(&self.state.source) {
             return;
@@ -426,218 +429,6 @@ impl SharpPreview {
             .children(self.live.is_none().then_some(fixture));
         overlay
     }
-    fn launch_settings_control(
-        &self,
-        viewport: gpui::Size<gpui::Pixels>,
-        cx: &mut Context<Self>,
-    ) -> gpui::Div {
-        let mut control = div().relative().flex_none().child(
-            div()
-                .id("sharp-launch-settings-trigger")
-                .size(px(42.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(10.0))
-                .border_1()
-                .border_color(gpui::rgba(self.palette.control_border))
-                .bg(rgb(self.palette.control_bg))
-                .cursor_pointer()
-                .child(
-                    gpui::svg()
-                        .path("launch-settings.svg")
-                        .size(px(18.0))
-                        .text_color(rgb(self.palette.control_text)),
-                )
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.state.launch_settings_open = !this.state.launch_settings_open;
-                    this.state.picker = false;
-                    this.state.resolution_open = false;
-                    if this.state.launch_settings_open && this.live.is_some() {
-                        this.load_launch_preferences(cx);
-                    }
-                    cx.notify();
-                })),
-        );
-        if !self.state.launch_settings_open {
-            return control;
-        }
-        let muted = if self.palette.light {
-            0x68727b
-        } else {
-            0xaab3bc
-        };
-        let mut panel = div()
-            .id("sharp-launch-settings-popover")
-            .max_h(px((f32::from(viewport.height) - 350.0).max(180.0)))
-            .overflow_y_scroll()
-            .occlude()
-            .absolute()
-            .top(px(52.0))
-            .right_0()
-            .w(px(390.0))
-            .rounded(px(14.0))
-            .border_1()
-            .border_color(gpui::rgba(self.palette.control_border))
-            .bg(rgb(self.palette.menu_bg))
-            .p(px(16.0))
-            .shadow_lg()
-            .flex()
-            .flex_col()
-            .gap(px(12.0))
-            .text_color(rgb(self.palette.control_text))
-            .child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .items_center()
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(4.0))
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_color(rgb(muted))
-                                    .child("GAME SETTINGS"),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(14.0))
-                                    .font_weight(FontWeight::BOLD)
-                                    .child("Shared launch preferences"),
-                            ),
-                    )
-                    .child(
-                        self.palette
-                            .button("sharp-launch-settings-close", "×", false)
-                            .w(px(30.0))
-                            .h(px(30.0))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.state.launch_settings_open = false;
-                                this.state.resolution_open = false;
-                                cx.notify();
-                            })),
-                    ),
-            );
-        for (index, label, choices) in [
-            (0, "METALFX", vec!["1.5×", "1.75×", "2×", "Off"]),
-            (1, "CONTROLLER INPUT", vec!["Off", "XInput", "DInput"]),
-            (2, "MSYNC", vec!["Off", "On"]),
-            (
-                3,
-                "DISPLAY MODE",
-                vec!["Game default", "Windowed", "Fullscreen"],
-            ),
-        ] {
-            let mut options = div().flex().gap(px(4.0)).flex_wrap().justify_end();
-            for (choice, text) in choices.into_iter().enumerate() {
-                // msync uses the single toggle in the reference, unlike the other segmented rows.
-                if index == 2 && choice != self.state.launch_preferences[2] {
-                    continue;
-                }
-                options = options.child(
-                    self.palette
-                        .button(
-                            ("launch-preference", index * 10 + choice),
-                            text,
-                            self.state.launch_preferences[index] == choice,
-                        )
-                        .h(px(30.0))
-                        .px(px(8.0))
-                        .text_size(px(11.0))
-                        .rounded(px(7.0))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            let value = if index == 2 {
-                                1 - this.state.launch_preferences[index]
-                            } else {
-                                choice
-                            };
-                            if this.live.is_none() {
-                                this.state.notice =
-                                    "Shared preview launch preference changed · not saved".into();
-                            }
-                            this.save_launch_preference(index, value, cx);
-                        })),
-                );
-            }
-            panel = panel.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap(px(10.0))
-                    .child(
-                        div()
-                            .text_size(px(11.0))
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(rgb(muted))
-                            .child(label),
-                    )
-                    .child(options),
-            );
-        }
-        let resolutions = [
-            "Game default",
-            "720p — 1280 × 720",
-            "1080p — 1920 × 1080",
-            "1440p — 2560 × 1440",
-            "2160p / 4K — 3840 × 2160",
-        ];
-        let resolution = div().relative().flex_none().child(
-            self.palette
-                .button(
-                    "launch-resolution-trigger",
-                    format!("{}  ⌄", resolutions[self.state.launch_preferences[4]]),
-                    false,
-                )
-                .h(px(32.0))
-                .text_size(px(11.0))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.state.resolution_open = !this.state.resolution_open;
-                    cx.notify();
-                })),
-        );
-        // The panel is already deferred; GPUI aborts on a nested defer, so the
-        // choices render inline under the resolution row.
-        let mut resolution_choices = None;
-        if self.state.resolution_open {
-            let mut choices = div()
-                .id("launch-resolution-menu")
-                .occlude()
-                .mt(px(4.0))
-                .w(px(226.0))
-                .rounded(px(8.0))
-                .border_1()
-                .border_color(gpui::rgba(self.palette.control_border))
-                .bg(rgb(self.palette.menu_bg))
-                .p(px(5.0))
-                .shadow_lg()
-                .flex()
-                .flex_col();
-            for (index, label) in resolutions.into_iter().enumerate() {
-                choices = choices.child(
-                    self.palette
-                        .button(("launch-resolution-choice", index), label, false)
-                        .justify_start()
-                        .border_0()
-                        .text_size(px(11.0))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.state.resolution_open = false;
-                            this.save_launch_preference(4, index, cx);
-                        })),
-                );
-            }
-            resolution_choices = Some(div().flex().justify_end().child(choices));
-        }
-        panel = panel.child(div().flex().items_center().justify_between().gap(px(10.0)).child(div().text_size(px(11.0)).font_weight(FontWeight::BOLD).text_color(rgb(muted)).child("RESOLUTION")).child(resolution))
-            .children(resolution_choices)
-            .child(div().text_size(px(11.0)).line_height(px(16.5)).text_color(rgb(muted)).child(if self.live.is_some() {"Windowed mode uses a Wine virtual desktop. Resolution uses it unless Fullscreen is selected; fullscreen behavior remains game-controlled. Applies on next launch."} else {"Windowed mode uses a Wine virtual desktop. Resolution uses it unless Fullscreen is selected; fullscreen behavior remains game-controlled. Applies on next launch. Preview changes are never persisted."}));
-        control = control.child(gpui::deferred(panel).with_priority(50));
-        control
-    }
 
     fn preview_dialog(
         &self,
@@ -683,6 +474,75 @@ impl SharpPreview {
                 cx.notify();
             }))
             .child(dialog)
+    }
+
+    /// The embedded Game Jolt browser's toolbar (#822): back, forward, reload and the Game Jolt games page on the left,
+    /// the drag handle that sizes the browser in the middle, and the page's zoom and full height on the right. Game
+    /// Jolt's pages are made for a browser window, so they need the room and the zoom, and a game's page needs a way
+    /// back after a download.
+    fn gamejolt_toolbar(&self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
+        use crate::mini_browser::{
+            GAMEJOLT_ZOOM_STEP, GameJoltBrowserAction as A, gamejolt_browser_action,
+            gamejolt_browser_state,
+        };
+        let (can_back, can_forward, zoom) = gamejolt_browser_state().unwrap_or((false, false, 1.0));
+        let ink = crate::page_palette::tc(0x222222);
+        let tool = |id: &'static str, label: String, enabled: bool| {
+            div()
+                .id(id)
+                .h(px(24.0))
+                .min_w(px(26.0))
+                .px(px(6.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(6.0))
+                .text_size(px(13.0))
+                .font_weight(FontWeight::BOLD)
+                .text_color(rgb(ink))
+                .opacity(if enabled { 1.0 } else { 0.35 })
+                .cursor_pointer()
+                .hover(|style| style.bg(gpui::rgba(crate::page_palette::tca(0x0000000f))))
+                .child(label)
+        };
+        let act = |action: A| {
+            cx.listener(move |_, _, _, cx| {
+                gamejolt_browser_action(action);
+                cx.notify();
+            })
+        };
+        div()
+            .id("gamejolt-browser-toolbar")
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .h(px(GAMEJOLT_TOOLBAR))
+            .px(px(6.0))
+            .flex()
+            .items_center()
+            .gap(px(2.0))
+            .child(tool("gamejolt-back", "←".into(), can_back).on_click(act(A::Back)))
+            .child(tool("gamejolt-forward", "→".into(), can_forward).on_click(act(A::Forward)))
+            .child(tool("gamejolt-reload", "↻".into(), true).on_click(act(A::Reload)))
+            .child(tool("gamejolt-home", "Games".into(), true).on_click(act(A::Home)))
+            .child(div().flex_1())
+            .child(
+                tool("gamejolt-zoom-out", "−".into(), zoom > 0.5)
+                    .on_click(act(A::Zoom(zoom - GAMEJOLT_ZOOM_STEP))),
+            )
+            .child(
+                tool(
+                    "gamejolt-zoom-reset",
+                    format!("{}%", (zoom * 100.0).round() as i64),
+                    true,
+                )
+                .on_click(act(A::Zoom(1.0))),
+            )
+            .child(
+                tool("gamejolt-zoom-in", "+".into(), zoom < 2.0)
+                    .on_click(act(A::Zoom(zoom + GAMEJOLT_ZOOM_STEP))),
+            )
     }
 
     fn small_button(
@@ -1016,25 +876,12 @@ impl Render for SharpPreview {
             (width * 0.03).clamp(30.0, 42.0)
         };
         let source = self.state.source;
-        let (eyebrow, title, subtitle) = source.header();
+        let (title, subtitle) = source.header();
         let header_copy = div()
             .min_w_0()
             .flex()
             .flex_col()
             .gap(px(5.0))
-            .child(
-                div()
-                    .mb(px(10.0))
-                    .text_size(px(10.0))
-                    .text_color(gpui::rgba(crate::page_palette::tca(0xf0efe799)))
-                    .font_family("Georgia")
-                    .child(
-                        eyebrow
-                            .chars()
-                            .map(|ch| format!("{ch} "))
-                            .collect::<String>(),
-                    ),
-            )
             .child(
                 div()
                     .font_family("Georgia")
@@ -1049,7 +896,12 @@ impl Render for SharpPreview {
                     .mt(px(8.0))
                     .text_size(px(13.0))
                     .line_height(px(17.55))
-                    .text_color(rgb(crate::page_palette::tc(0xaeb3b2)))
+                    // over glass, which may be light, the subtitle stays as bright as the title
+                    .text_color(rgb(crate::page_palette::tc(if self.palette.glass {
+                        0xeee9dd
+                    } else {
+                        0xaeb3b2
+                    })))
                     .child(subtitle),
             );
         let header_copy = if stacked {
@@ -1282,8 +1134,6 @@ impl Render for SharpPreview {
                     })),
             );
         }
-        source_controls =
-            source_controls.child(self.launch_settings_control(window.viewport_size(), cx));
         controls = controls
             .child(source_controls.children((self.sources.len() > 1).then_some(source_picker)));
         controls = if stacked {
@@ -1468,25 +1318,8 @@ impl Render for SharpPreview {
             .text_color(rgb(MUTED))
             .child(self.state.notice.clone());
         content = content.child(notice);
-        // Electron's `.gamejolt-panel`: fixed-height panel whose games pane
-        // scrolls above the resizable in-page browser.
         let live_gamejolt = source == SharpSource::GameJolt && self.live.is_some();
         let panel_height = (f32::from(window.viewport_size().height) - 310.0).max(180.0);
-        let gamejolt_frame = (panel_height * self.state.browser_height / 100.0).max(32.0);
-        let content: gpui::AnyElement = if live_gamejolt {
-            div()
-                .id("gamejolt-games-pane")
-                .flex_1()
-                .min_w_0()
-                .h_full()
-                .overflow_y_scroll()
-                .pr(px(4.0))
-                .pb(px(gamejolt_frame + 24.0))
-                .child(content)
-                .into_any_element()
-        } else {
-            content.into_any_element()
-        };
         let workspace = div()
             .relative()
             .w_full()
@@ -1507,9 +1340,13 @@ impl Render for SharpPreview {
                 gpui::linear_color_stop(gpui::rgba(crate::page_palette::tca(0xffffff02)), 1.0),
             ))
             .flex()
-            .gap(px(gap))
-            .child(content);
-        let mut workspace = workspace;
+            .gap(px(gap));
+        // Game Jolt's page is the browser alone: its games are on the Game Jolt page's deck (#822).
+        let mut workspace = if live_gamejolt {
+            workspace.flex_1().min_h_0()
+        } else {
+            workspace.child(content)
+        };
         if live_gamejolt {
             let embed_visible = self.gamejolt_embed_visible();
             if !embed_visible {
@@ -1520,14 +1357,14 @@ impl Render for SharpPreview {
                     crate::host_actions::gamejolt_download_dir(&live.home()),
                 );
             }
-            workspace = workspace.h(px(panel_height)).overflow_hidden().child(
+            workspace = workspace.overflow_hidden().child(
                 div()
                     .id("gamejolt-browser-frame")
                     .absolute()
+                    .top_0()
                     .bottom_0()
                     .left_0()
                     .right_0()
-                    .h(px(gamejolt_frame))
                     .rounded_t(px(8.0))
                     .border_1()
                     .border_color(rgb(crate::page_palette::tc(0xffffff)))
@@ -1541,7 +1378,7 @@ impl Render for SharpPreview {
                     .child(
                         div()
                             .absolute()
-                            .top(px(18.0))
+                            .top(px(GAMEJOLT_TOOLBAR))
                             .left(px(5.0))
                             .right(px(5.0))
                             .bottom(px(5.0))
@@ -1559,43 +1396,7 @@ impl Render for SharpPreview {
                                 .size_full(),
                             ),
                     )
-                    .child(
-                        div()
-                            .id("gamejolt-browser-handle")
-                            .absolute()
-                            .top(px(-1.0))
-                            .left_0()
-                            .right_0()
-                            .h(px(18.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .cursor_ns_resize()
-                            .child(
-                                div()
-                                    .w(px(54.0))
-                                    .h(px(18.0))
-                                    .rounded_full()
-                                    .bg(rgb(crate::page_palette::tc(0xffffff)))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_size(px(15.0))
-                                    .font_weight(FontWeight::BLACK)
-                                    .text_color(rgb(crate::page_palette::tc(0x222222)))
-                                    .child("↕"),
-                            )
-                            .on_mouse_down(
-                                gpui::MouseButton::Left,
-                                cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
-                                    this.state.browser_drag = Some((
-                                        f32::from(event.position.y),
-                                        this.state.browser_height,
-                                    ));
-                                    cx.notify();
-                                }),
-                            ),
-                    ),
+                    .child(self.gamejolt_toolbar(cx)),
             );
         } else if source == SharpSource::GameJolt && self.live.is_none() {
             let frame_height = ((f32::from(window.viewport_size().height) - 310.0).max(180.0)
@@ -1648,7 +1449,14 @@ impl Render for SharpPreview {
                     ),
             );
         }
-        let main = main.child(workspace);
+        let main = if live_gamejolt {
+            main.overflow_hidden()
+                .pt(px(16.0))
+                .pb(px(16.0))
+                .child(workspace)
+        } else {
+            main.child(workspace)
+        };
         if self.focus.is_none() {
             self.focus = Some(cx.focus_handle());
         }
@@ -1659,11 +1467,14 @@ impl Render for SharpPreview {
             .min_h_0()
             .flex()
             .flex_col()
-            .bg(gpui::linear_gradient(
-                180.0,
-                gpui::linear_color_stop(rgb(crate::page_palette::tc(0x171a1d)), 0.0),
-                gpui::linear_color_stop(rgb(BG), 1.0),
-            ))
+            // Under Liquid Glass the view sits on the window's glass, as the other pages do.
+            .when(!self.palette.glass, |root| {
+                root.bg(gpui::linear_gradient(
+                    180.0,
+                    gpui::linear_color_stop(rgb(crate::page_palette::tc(0x171a1d)), 0.0),
+                    gpui::linear_color_stop(rgb(BG), 1.0),
+                ))
+            })
             .font_family("Rethink Sans")
             .child(
                 div()
@@ -1679,7 +1490,7 @@ impl Render for SharpPreview {
                         spread_radius: px(20.0),
                     }]),
             )
-            .child(header)
+            .when(!live_gamejolt, |root| root.child(header))
             .child(main)
             .track_focus(&focus)
             .on_mouse_down(

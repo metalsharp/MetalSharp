@@ -65,6 +65,7 @@ impl gpui::AssetSource for PreviewIcons {
                 Some(Cow::Borrowed(include_bytes!("../assets/icon-download.svg")))
             }
             "icon-play.svg" => Some(Cow::Borrowed(include_bytes!("../assets/icon-play.svg"))),
+            "icon-bolt.svg" => Some(Cow::Borrowed(include_bytes!("../assets/icon-bolt.svg"))),
             "stream-tv.svg" => Some(Cow::Borrowed(include_bytes!("../assets/stream-tv.svg"))),
             "stream-wifi.svg" => Some(Cow::Borrowed(include_bytes!("../assets/stream-wifi.svg"))),
             "theme-forest.svg" => Some(Cow::Borrowed(include_bytes!("../assets/theme-forest.svg"))),

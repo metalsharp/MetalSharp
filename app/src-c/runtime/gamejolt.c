@@ -131,14 +131,18 @@ static char* custom_game_name(const char* home, const char* id, const char* fall
 }
 
 static const char* canonical_gamejolt_engine(const char* engine) {
-    /* The fex build: Mullion by default, and its DXVK and OpenGL lanes. */
+    /* The fex build: Mullion by default, and its DXVK lane (which runs on VKD3D / DXVK). */
     if (ms_wine_is_fex()) {
         if (!engine || !engine[0] || !strcasecmp(engine, "auto"))
             return "dxmt";
-        if (!strcasecmp(engine, "dxvk") || !strcasecmp(engine, "wine_bare"))
-            return !strcasecmp(engine, "dxvk") ? "dxvk" : "wine_bare";
+        if (!strcasecmp(engine, "dxvk"))
+            return "dxvk";
     }
-    if (!engine || !engine[0] || !strcasecmp(engine, "auto") || !strcasecmp(engine, "vkd3d"))
+    /* OpenGL (Wine's own Direct3D, on WineMetalGL) on either runtime, as Windows programs have it. */
+    if (engine && (!strcasecmp(engine, "wine_bare") || !strcasecmp(engine, "m32") || !strcasecmp(engine, "wine")))
+        return "wine_bare";
+    if (!engine || !engine[0] || !strcasecmp(engine, "auto") || !strcasecmp(engine, "vkd3d") ||
+        !strcasecmp(engine, "dxvk") || !strcasecmp(engine, "dxvk_32"))
         return "vkd3d";
     if (!strcasecmp(engine, "d3dmetal") || !strcasecmp(engine, "d3dmetal_native"))
         return "d3dmetal";
@@ -795,7 +799,8 @@ static void find_game_assets(const char* directory, unsigned depth, char** execu
         return;
     while ((entry = readdir(dir)) != NULL) {
         char* path;
-        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+        /* .metalsharp holds MetalSharp's files (the game's Game Jolt art, its route's launch.env), not the game's */
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..") || !strcmp(entry->d_name, ".metalsharp"))
             continue;
         path = join_path(directory, entry->d_name);
         if (!path)
@@ -842,12 +847,56 @@ static void find_game_assets(const char* directory, unsigned depth, char** execu
     closedir(dir);
 }
 
+/* The runtime's lanes, as Steam games and Windows programs are offered them (the app's variant.rs): VKD3D / DXVK is one
+ * lane, D3D12 down to D3D3, and Mullion runs 32-bit games too, so DXMT(32) and D3D9 are no longer lanes of their own
+ * (an engine saved as one still runs). The x86_64 runtime recommends VKD3D / DXVK, the fex build Mullion. */
+/* The art the app saved from the game's Game Jolt page (host_actions.rs, fetch_gamejolt_art): <game>/.metalsharp/
+ * gamejolt-<kind>.<ext>, kind "card" or "hero". It comes before the executable's icon (#822). */
+static char* saved_gamejolt_art(const char* game_directory, const char* kind) {
+    static const char* const extensions[] = {"jpg", "jpeg", "png", "webp", "gif"};
+    char path[PATH_MAX];
+    for (size_t i = 0; game_directory && kind && i < sizeof(extensions) / sizeof(extensions[0]); ++i) {
+        int written =
+            snprintf(path, sizeof(path), "%s/.metalsharp/gamejolt-%s.%s", game_directory, kind, extensions[i]);
+        if (written > 0 && (size_t)written < sizeof(path) && is_regular_file(path))
+            return strdup(path);
+    }
+    return NULL;
+}
+
+/* A game's name before the user renames it: Game Jolt's own title (saved with its art in .metalsharp/gamejolt.json),
+ * else its folder's name, with spaces for the dashes and underscores of a download's slug and its words capitalized
+ * when it has no capitals of its own ("the-joy-of-creation" reads "The Joy Of Creation"). */
+static char* gamejolt_default_name(const char* directory, const char* folder) {
+    char* meta = join_path(directory, ".metalsharp/gamejolt.json");
+    char* raw = meta ? read_text(meta) : NULL;
+    char error[96];
+    ms_json* json = raw ? ms_json_parse(raw, strlen(raw), error, sizeof(error)) : NULL;
+    char* title = json ? field(json, "title", "") : NULL;
+    free(meta);
+    free(raw);
+    ms_json_free(json);
+    if (title && title[0] && strlen(title) <= 160)
+        return title;
+    free(title);
+    char* name = strdup(folder ? folder : "");
+    bool capitals = false;
+    for (char* c = name; c && *c; ++c) {
+        if (*c == '-' || *c == '_')
+            *c = ' ';
+        capitals = capitals || (*c >= 'A' && *c <= 'Z');
+    }
+    for (char* c = name; name && !capitals && *c; ++c)
+        if (*c >= 'a' && *c <= 'z' && (c == name || c[-1] == ' '))
+            *c = (char)(*c - 'a' + 'A');
+    return name;
+}
+
 static void write_pipeline_options(ms_json_writer* writer) {
     static const char* const options[][2] = {
-        {"d3dmetal", "D3DMetal"}, {"vkd3d", "VKD3D"}, {"dxmt", "DXMT"}, {"dxmt_32", "DXMT(32)"}, {"d3d9", "D3D9"}};
-    /* The fex build's lanes, Mullion recommended. */
+        {"d3dmetal", "D3DMetal"}, {"vkd3d", "VKD3D / DXVK"}, {"dxmt", "Mullion (DXMT)"}, {"wine_bare", "OpenGL"}};
     static const char* const fex_options[][2] = {
-        {"dxmt", "Mullion (DXMT)"}, {"vkd3d", "VKD3D-Proton"}, {"dxvk", "DXVK"}, {"wine_bare", "OpenGL"}};
+        {"dxmt", "Mullion (DXMT)"}, {"vkd3d", "VKD3D / DXVK"}, {"wine_bare", "OpenGL"}};
     const char* const(*list)[2] = ms_wine_is_fex() ? fex_options : options;
     size_t count = ms_wine_is_fex() ? sizeof(fex_options) / sizeof(fex_options[0]) : sizeof(options) / sizeof(options[0]);
     ms_json_writer_array_begin(writer);
@@ -870,7 +919,9 @@ static void write_game(ms_json_writer* writer, const char* home, const char* dir
     const char* slash = strrchr(directory, '/');
     const char* name = slash ? slash + 1 : directory;
     snprintf(id, sizeof(id), "gamejolt_%llx", path_hash(directory));
-    char* display_name = custom_game_name(home, id, name);
+    char* default_name = gamejolt_default_name(directory, name);
+    char* display_name = custom_game_name(home, id, default_name ? default_name : name);
+    free(default_name);
     ms_json_writer_object_begin(writer);
     ms_json_writer_key(writer, "id");
     ms_json_writer_string(writer, id);
@@ -895,6 +946,15 @@ static void write_game(ms_json_writer* writer, const char* home, const char* dir
         ms_json_writer_string(writer, cover);
     else
         ms_json_writer_null(writer);
+    ms_json_writer_key(writer, "hero_path");
+    {
+        char* hero = saved_gamejolt_art(directory, "hero");
+        if (hero)
+            ms_json_writer_string(writer, hero);
+        else
+            ms_json_writer_null(writer);
+        free(hero);
+    }
     ms_json_writer_key(writer, "bottle_id");
     ms_json_writer_string(writer, native ? "" : id);
     ms_json_writer_key(writer, "available_pipelines");
@@ -1104,9 +1164,10 @@ char* ms_gamejolt_set_engine_json(const char* home, const unsigned char* body, s
     ms_json_writer writer;
     char* serialized;
     FILE* file;
+    /* The lanes write_pipeline_options offers, and the older ones an earlier app may still send. */
     bool valid = !strcmp(engine, "d3dmetal") || !strcmp(engine, "vkd3d") || !strcmp(engine, "dxmt") ||
-                 !strcmp(engine, "dxmt_32") || !strcmp(engine, "d3d9") ||
-                 (ms_wine_is_fex() && (!strcmp(engine, "dxvk") || !strcmp(engine, "wine_bare")));
+                 !strcmp(engine, "wine_bare") || !strcmp(engine, "dxmt_32") || !strcmp(engine, "d3d9") ||
+                 (ms_wine_is_fex() && !strcmp(engine, "dxvk"));
     bool found = false;
     if (!request || !id[0] || !engine[0] || !valid || !path || !dir || !mkdir_p(dir)) {
         ms_json_free(request);
@@ -1274,11 +1335,13 @@ static void write_games_from_directory(ms_json_writer* writer, const char* home,
             find_game_assets(game_dir, 0, &executable, &native, &cover);
         if (native && executable && !cover)
             cover = native_app_cover(game_dir, executable);
-        if (!native && executable) {
-            char* embedded_cover = windows_exe_cover(game_dir, executable);
-            if (embedded_cover) {
+        if (executable) {
+            /* The game's Game Jolt art, else (a Windows game) its executable's icon */
+            char* saved_cover = saved_gamejolt_art(game_dir, "card");
+            char* embedded_cover = saved_cover ? NULL : native ? NULL : windows_exe_cover(game_dir, executable);
+            if (saved_cover || embedded_cover) {
                 free(cover);
-                cover = embedded_cover;
+                cover = saved_cover ? saved_cover : embedded_cover;
             }
         }
         if (executable)

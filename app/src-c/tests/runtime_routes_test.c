@@ -427,6 +427,49 @@ static char* read_hook_fixture(const char* home, const char* relative) {
     return text;
 }
 
+/* #834: a game's launch leaves a summary of how it runs in the day's log: route, runtime, command line and the
+ * environment that picks its rendering, and no variable named like a credential. */
+static void launch_summary_test(const char* root) {
+    char* const argv[] = {"metalsharp-wine", "Game.exe", "-dx11", NULL};
+    char* path = join(root, "launch-summary.log");
+    char* text;
+    int fd;
+    assert(launch_summary_variable("WINEDLLOVERRIDES=d3d11,dxgi=n,b"));
+    assert(launch_summary_variable("MULLION_LOSSY_TEXTURES=1"));
+    assert(launch_summary_variable("SteamAppId=730"));
+    assert(launch_summary_variable("DXVK_HUD=fps"));
+    assert(!launch_summary_variable("MS_STEAM_API_KEY=abc"));
+    assert(!launch_summary_variable("METALSHARP_BACKEND_TOKEN=abc"));
+    assert(!launch_summary_variable("MS_UPLAY_Password=abc"));
+    assert(!launch_summary_variable("HOME=/Users/someone"));
+    assert(!launch_summary_variable("WINEPREFIX"));
+    /* a value may say TOKEN: only the name is judged */
+    assert(launch_summary_variable("WINEDEBUG=+token"));
+    assert(path);
+    assert(setenv("MULLION_SUMMARY_TEST", "1", 1) == 0);
+    assert(setenv("MS_SUMMARY_TEST_SECRET", "hidden-value", 1) == 0);
+    fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    assert(fd >= 0);
+    write_launch_summary(fd, "2026-11-24 06:35:00 MST", "regular", 730, "dxmt", "dxmt", "/games/cs2/Game.exe",
+                         "/games/cs2", argv);
+    write_launch_summary(fd, "2026-11-24 06:36:00 MST", "fex", 271590, "vkd3d", "d3dmetal", "/games/gta/Launcher.exe",
+                         NULL, argv);
+    close(fd);
+    text = read_text(path, 1 << 20);
+    assert(text);
+    assert(strstr(text, "[2026-11-24 06:35:00 MST] Launch summary: appid=730 route=dxmt runtime=regular MetalSharp "));
+    assert(strstr(text, "  executable: /games/cs2/Game.exe\n  folder: /games/cs2\n"));
+    assert(strstr(text, "  command: metalsharp-wine Game.exe -dx11\n"));
+    assert(strstr(text, "  env: MULLION_SUMMARY_TEST=1\n"));
+    assert(strstr(text, "appid=271590 route=vkd3d environment=d3dmetal runtime=fex"));
+    assert(!strstr(text, "hidden-value"));
+    unsetenv("MULLION_SUMMARY_TEST");
+    unsetenv("MS_SUMMARY_TEST_SECRET");
+    unlink(path);
+    free(text);
+    free(path);
+}
+
 /* Legacy prefixes keep a system32 hook copy that still connects to the retired
  * NT IPC port; startup swaps it for the bundled IPC-free hook, or deletes it
  * when only a legacy build is bundled. Clean copies are left alone. */
@@ -1149,7 +1192,25 @@ int main(int argc, char** argv) {
     assert(!strcmp(getenv("MS_GRAPHICS_BACKEND"), "fna_arm64"));
     assert(!getenv("DXMT_CONFIG_FILE"));
     {
-        const char* expected[] = {"d3dmetal", "vkd3d", "dxmt", "dxmt_32", "d3d9"};
+        /* A Game Jolt game is named by Game Jolt's own title, saved with its art; without it, by its folder, with
+         * no dashes or underscores (a download's slug) */
+        char* gj_home = join(home, "gamejolt-names");
+        char* response;
+        fixture(home, "gamejolt-names/GameJolt/the-joy_of-creation/Game.exe", "game");
+        response = ms_gamejolt_json(gj_home);
+        assert(response && strstr(response, "\"name\":\"The Joy Of Creation\""));
+        free(response);
+        fixture(home, "gamejolt-names/GameJolt/the-joy_of-creation/.metalsharp/gamejolt.json",
+                "{\"gameId\":139218,\"title\":\"The Joy of Creation: Story Mode\"}");
+        response = ms_gamejolt_json(gj_home);
+        assert(response && strstr(response, "\"name\":\"The Joy of Creation: Story Mode\""));
+        free(response);
+        free(gj_home);
+    }
+    {
+        /* The x86_64 runtime's lanes, as Steam games have them (#822): no DXMT(32) or D3D9 of their own any more */
+        const char* expected[] = {"d3dmetal", "vkd3d", "dxmt", "wine_bare"};
+        const char* expected_names[] = {"D3DMetal", "VKD3D / DXVK", "Mullion (DXMT)", "OpenGL"};
         char* gj_home = join(home, "gamejolt-options");
         char* response;
         char parse_error[96];
@@ -1166,9 +1227,13 @@ int main(int argc, char** argv) {
         assert(ms_json_array_length(pipelines) == sizeof(expected) / sizeof(expected[0]));
         for (size_t i = 0; i < sizeof(expected) / sizeof(expected[0]); i++) {
             char* id = NULL;
+            char* name = NULL;
             assert(ms_json_as_string(ms_json_object_get(ms_json_array_get(pipelines, i), "id"), &id));
             assert(!strcmp(id, expected[i]));
+            assert(ms_json_as_string(ms_json_object_get(ms_json_array_get(pipelines, i), "name"), &name));
+            assert(!strcmp(name, expected_names[i]));
             free(id);
+            free(name);
         }
         assert(ms_json_as_string(ms_json_object_get(game, "id"), &game_id));
         ms_json_free(parsed);
@@ -1189,6 +1254,24 @@ int main(int argc, char** argv) {
         snprintf(set_engine_body, sizeof(set_engine_body), "{\"id\":\"%s\",\"engine\":\"m11\"}", game_id);
         response = ms_gamejolt_set_engine_json(gj_home, (const unsigned char*)set_engine_body, strlen(set_engine_body));
         assert(response && strstr(response, "invalid GameJolt engine"));
+        free(response);
+        /* OpenGL is a lane on the x86_64 runtime too, and an older OpenGL or DXVK choice reads as its lane */
+        snprintf(set_engine_body, sizeof(set_engine_body), "{\"id\":\"%s\",\"engine\":\"wine_bare\"}", game_id);
+        response = ms_gamejolt_set_engine_json(gj_home, (const unsigned char*)set_engine_body, strlen(set_engine_body));
+        assert(response && strstr(response, "\"ok\":true"));
+        free(response);
+        response = ms_gamejolt_json(gj_home);
+        assert(response && strstr(response, "\"engine\":\"wine_bare\""));
+        free(response);
+        snprintf(legacy_config, sizeof(legacy_config), "{\"%s\":\"m32\"}", game_id);
+        fixture(home, engines_path, legacy_config);
+        response = ms_gamejolt_json(gj_home);
+        assert(response && strstr(response, "\"engine\":\"wine_bare\""));
+        free(response);
+        snprintf(legacy_config, sizeof(legacy_config), "{\"%s\":\"dxvk\"}", game_id);
+        fixture(home, engines_path, legacy_config);
+        response = ms_gamejolt_json(gj_home);
+        assert(response && strstr(response, "\"engine\":\"vkd3d\""));
         free(response);
         {
             pid_t child = fork();
@@ -3016,6 +3099,7 @@ int main(int argc, char** argv) {
     free(drive_c_link);
     free(dosdevices);
     legacy_ntdll_hook_refresh_test(home);
+    launch_summary_test(home);
     test_bottle_action_keeps_child_waits(home);
     test_uninstall_downloaded_runtime(home);
     puts("runtime routing regressions passed");

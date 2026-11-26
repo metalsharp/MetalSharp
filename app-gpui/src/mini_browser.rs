@@ -108,8 +108,12 @@ impl BrowserPurpose {
                         "lego.com",
                     ])
             }
-            // Store pages plus the GameJolt download/CDN hosts that serve builds.
-            Self::GameJolt => suffix(&["gamejolt.com", "gamejolt.net", "gjcdn.net"]),
+            // Store pages plus the GameJolt download/CDN hosts that serve builds, and "Sign in with Google",
+            // which leaves Game Jolt for Google's sign-in and comes back on gamejolt.com/x/social/callback.
+            Self::GameJolt => {
+                suffix(&["gamejolt.com", "gamejolt.net", "gjcdn.net"])
+                    || gamejolt_sign_in_host(host)
+            }
             Self::SteamApiKeyHelp => exact(&["steamcommunity.com", "www.steamcommunity.com"]),
             Self::SteamStore => exact(&[
                 "steampowered.com",
@@ -121,6 +125,32 @@ impl BrowserPurpose {
             }
         }
     }
+}
+/// Google's sign-in, which Game Jolt's "Sign in with Google" redirects through (accounts.google.com, and
+/// accounts.youtube.com, where Google sets its session).
+fn gamejolt_sign_in_host(host: &str) -> bool {
+    ["google.com", "youtube.com"]
+        .iter()
+        .any(|d| host == *d || host.strip_suffix(d).is_some_and(|p| p.ends_with('.')))
+}
+thread_local! {
+    /// The last Game Jolt game page the browser was on.
+    static LAST_GAMEJOLT_PAGE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+/// Remember the Game Jolt browser's page when it is a game's page (or a page under it, such as its download page).
+fn remember_gamejolt_page(url: &str) {
+    if crate::host_actions::gamejolt_game_id(url).is_some() {
+        LAST_GAMEJOLT_PAGE.with(|page| *page.borrow_mut() = Some(url.to_string()));
+    }
+}
+/// Whether the Game Jolt browser's page is Google's sign-in, whose own frames (session checks, challenges) load.
+pub fn gamejolt_signing_in(raw: &str) -> bool {
+    Url::parse(raw).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url
+                .host_str()
+                .is_some_and(|host| gamejolt_sign_in_host(&host.to_ascii_lowercase()))
+    })
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum UrlPolicyError {
@@ -374,6 +404,9 @@ pub enum GameJoltDownloadEvent {
         filename: String,
         path: std::path::PathBuf,
         total: Option<u64>,
+        /// The page the download started from (a game's page, `https://gamejolt.com/games/<slug>/<id>`), from which
+        /// the game's art is found (#822).
+        page_url: Option<String>,
     },
     Finished {
         id: u64,
@@ -561,6 +594,12 @@ mod native {
                     return;
                 }
                 let mut allow = false;
+                if is_main_frame && *self.ivars().purpose.get().unwrap() == BrowserPurpose::GameJolt {
+                    // the page the browser leaves: a game's page, before Game Jolt hands a download to its CDN
+                    if let Some(url) = unsafe { _web_view.URL() }.and_then(|url| url.absoluteString()) {
+                        remember_gamejolt_page(&url.to_string());
+                    }
+                }
                 if is_main_frame {
                     if let Some(raw) = raw {
                         if *self.ivars().purpose.get().unwrap() == BrowserPurpose::GogAuth {
@@ -590,7 +629,7 @@ mod native {
                                 .is_ok();
                         }
                     }
-                } else if self.auth_window() {
+                } else if self.auth_window() || self.gamejolt_signing_in(_web_view) {
                     // Captcha/consent frames (reCAPTCHA, hCaptcha, Arkose) come
                     // from their own hosts; the main frame stays on the allowlist.
                     allow = raw.as_deref().is_some_and(subframe_allowed);
@@ -637,7 +676,7 @@ mod native {
                 let allow = !is_attachment && unsafe { response.canShowMIMEType() }
                     && response_url.as_deref().is_some_and(|url| match self.ivars().fixture_initial_url.as_deref() {
                         Some(initial)=>url==initial || url=="about:blank",
-                        None if !unsafe { response.isForMainFrame() } && self.auth_window() => subframe_allowed(url),
+                        None if !unsafe { response.isForMainFrame() } && (self.auth_window() || self.gamejolt_signing_in(_web_view)) => subframe_allowed(url),
                         None=>validate_navigation(*self.ivars().purpose.get().unwrap(), url).is_ok(),
                     });
                 handler.call((if allow {
@@ -766,13 +805,21 @@ mod native {
                 let id = NEXT_DOWNLOAD.with(|n| { let id = n.get(); n.set(id + 1); id });
                 let expected = response.expectedContentLength();
                 let total = (expected > 0).then_some(expected as u64);
+                // the browser's page when the download starts: the game's page, whose art the game gets (#822). A
+                // download Game Jolt hands to its CDN starts on the CDN's address, so the game page it left stands in.
+                let page_url = unsafe { download.webView() }
+                    .and_then(|web| unsafe { web.URL() })
+                    .and_then(|url| url.absoluteString())
+                    .map(|url| url.to_string())
+                    .filter(|url| crate::host_actions::gamejolt_game_id(url).is_some())
+                    .or_else(|| LAST_GAMEJOLT_PAGE.with(|page| page.borrow().clone()));
                 let retained = unsafe { Retained::retain(download as *const WKDownload as *mut WKDownload) };
                 // WebKit holds download delegates weakly; keep ours alive until the transfer ends.
                 let keep = unsafe { Retained::retain(self as *const Delegate as *mut Delegate) };
                 if let (Some(retained), Some(keep)) = (retained, keep) {
                     DOWNLOADS.with(|d| d.borrow_mut().push((retained, id, filename.clone(), path.clone(), keep)));
                 }
-                push_gamejolt_event(GameJoltDownloadEvent::Started { id, filename, path: path.clone(), total });
+                push_gamejolt_event(GameJoltDownloadEvent::Started { id, filename, path: path.clone(), total, page_url });
                 let url = NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()));
                 completion_handler.call((Retained::as_ptr(&url) as *mut NSURL,));
             }
@@ -926,6 +973,14 @@ mod native {
                 popup: Cell::new(false),
             });
             unsafe { objc2::msg_send![super(this), init] }
+        }
+        /// The Game Jolt browser on Google's sign-in page.
+        fn gamejolt_signing_in(&self, web_view: &WKWebView) -> bool {
+            self.ivars().fixture_initial_url.is_none()
+                && self.ivars().purpose.get() == Some(&BrowserPurpose::GameJolt)
+                && unsafe { web_view.URL() }
+                    .and_then(|url| url.absoluteString())
+                    .is_some_and(|url| gamejolt_signing_in(&url.to_string()))
         }
         fn auth_window(&self) -> bool {
             self.ivars().fixture_initial_url.is_none()
@@ -1522,6 +1577,56 @@ mod native {
         EMBEDDED_RECT.with(|r| r.get())
     }
 
+    /// The embedded browser's toolbar (#822): back, forward, reload, the Game Jolt home page, and the page's zoom.
+    pub fn embedded_action(action: super::GameJoltBrowserAction) {
+        use super::GameJoltBrowserAction as A;
+        EMBEDDED.with(|slot| {
+            let slot = slot.borrow();
+            let Some(embed) = slot.as_ref() else { return };
+            let web = &embed.web;
+            unsafe {
+                match action {
+                    A::Back => {
+                        if web.canGoBack() {
+                            let _ = web.goBack();
+                        }
+                    }
+                    A::Forward => {
+                        if web.canGoForward() {
+                            let _ = web.goForward();
+                        }
+                    }
+                    A::Reload => {
+                        let _ = web.reload();
+                    }
+                    A::Home => {
+                        if let Some(url) =
+                            NSURL::URLWithString(&NSString::from_str("https://gamejolt.com/games"))
+                        {
+                            let _ = web.loadRequest(&NSURLRequest::requestWithURL(&url));
+                        }
+                    }
+                    A::Zoom(zoom) => web.setPageZoom(super::clamp_gamejolt_zoom(zoom)),
+                }
+            }
+        });
+    }
+
+    /// Whether the embedded browser can go back and forward, and its page zoom.
+    pub fn embedded_state() -> Option<(bool, bool, f64)> {
+        EMBEDDED.with(|slot| {
+            let slot = slot.borrow();
+            let embed = slot.as_ref()?;
+            Some(unsafe {
+                (
+                    embed.web.canGoBack(),
+                    embed.web.canGoForward(),
+                    embed.web.pageZoom(),
+                )
+            })
+        })
+    }
+
     /// Tear the embedded browser down (GameJolt data removal).
     pub fn close_embedded() {
         let embed = EMBEDDED.with(|slot| slot.borrow_mut().take());
@@ -1827,6 +1932,41 @@ pub fn show_embedded_gamejolt(_window: &gpui::Window, _rect: [f64; 4]) {}
 pub fn hide_embedded_gamejolt() {
     #[cfg(target_os = "macos")]
     native::hide_embedded();
+}
+
+/// The embedded GameJolt browser's toolbar actions (#822).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum GameJoltBrowserAction {
+    Back,
+    Forward,
+    Reload,
+    /// Game Jolt's games page, where the browser opens.
+    Home,
+    /// The page's zoom, 1.0 its own size (`clamp_gamejolt_zoom`).
+    Zoom(f64),
+}
+
+/// The zoom steps the toolbar's − and + take, and the range they stay in.
+pub const GAMEJOLT_ZOOM_STEP: f64 = 0.1;
+pub fn clamp_gamejolt_zoom(zoom: f64) -> f64 {
+    // whole tenths, so repeated steps land on 100 % again
+    ((zoom * 10.0).round() / 10.0).clamp(0.5, 2.0)
+}
+
+/// Act on the embedded GameJolt browser; nothing when it isn't there.
+pub fn gamejolt_browser_action(action: GameJoltBrowserAction) {
+    #[cfg(target_os = "macos")]
+    native::embedded_action(action);
+    #[cfg(not(target_os = "macos"))]
+    let _ = action;
+}
+
+/// The embedded GameJolt browser's back and forward availability and page zoom, once it exists.
+pub fn gamejolt_browser_state() -> Option<(bool, bool, f64)> {
+    #[cfg(target_os = "macos")]
+    return native::embedded_state();
+    #[cfg(not(target_os = "macos"))]
+    None
 }
 
 /// Window-space rect of the visible embedded GameJolt browser, if shown. App
@@ -2163,6 +2303,36 @@ mod tests {
         assert!(
             validate_navigation(BrowserPurpose::GameJolt, "https://steamcommunity.com/").is_err()
         );
+    }
+    #[test]
+    fn gamejolt_signs_in_with_google() {
+        // "Sign in with Google" leaves Game Jolt for Google's sign-in and comes back on Game Jolt's callback.
+        for raw in [
+            "https://accounts.google.com/v3/signin/identifier?redirect_uri=https%3A%2F%2Fgamejolt.com%2Fx%2Fsocial%2Fcallback",
+            "https://accounts.youtube.com/accounts/SetSID",
+            "https://gamejolt.com/x/social/callback?code=1",
+        ] {
+            assert!(
+                validate_navigation(BrowserPurpose::GameJolt, raw).is_ok(),
+                "{raw}"
+            );
+        }
+        for raw in [
+            "https://google.com.evil.test/",
+            "https://evilgoogle.com/",
+            "http://accounts.google.com/",
+            "https://user@accounts.google.com/",
+        ] {
+            assert!(
+                validate_navigation(BrowserPurpose::GameJolt, raw).is_err(),
+                "{raw}"
+            );
+        }
+        assert!(gamejolt_signing_in(
+            "https://accounts.google.com/v3/signin/identifier"
+        ));
+        assert!(!gamejolt_signing_in("https://gamejolt.com/login"));
+        assert!(!gamejolt_signing_in("http://accounts.google.com/"));
     }
     #[test]
     fn gog_callback_is_exact_and_one_shot() {

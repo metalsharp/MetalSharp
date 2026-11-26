@@ -148,9 +148,8 @@ impl SharpPreview {
                 installed: true,
                 progress: None,
                 art_key: format!("sharp-gamejolt-{id}"),
-                engine: Some(text(game, "engine"))
-                    .filter(|engine| !engine.is_empty() && !flag(game, "native"))
-                    .map(str::to_owned),
+                engine: Some(super::sharp_live::gamejolt_engine(game))
+                    .filter(|_| !flag(game, "native")),
                 executable: None,
                 engine_options: (!flag(game, "native"))
                     .then(|| super::sharp_live::gamejolt_engine_options(game)),
