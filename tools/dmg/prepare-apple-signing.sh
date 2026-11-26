@@ -74,8 +74,12 @@ security list-keychains -d user -s "$KEYCHAIN_PATH" "${existing_keychains[@]}"
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 identity_listing="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH")"
 printf '%s\n' "$identity_listing"
-APPLE_SIGNING_IDENTITY="$(printf '%s\n' "$identity_listing" | awk -F '"' '/Developer ID Application:/ {print $2; exit}')"
-if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+# Sign by the certificate's SHA-1, not its name. The release runners share one
+# user keychain search list, so a job also sees the other runner's signing
+# keychain, and the System keychain may hold the same certificate: by name,
+# codesign then calls the identity ambiguous and fails.
+APPLE_SIGNING_IDENTITY="$(printf '%s\n' "$identity_listing" | awk '/"Developer ID Application:/ {print $2; exit}')"
+if ! printf '%s' "$APPLE_SIGNING_IDENTITY" | grep -Eq '^[0-9A-F]{40}$'; then
   echo "Imported keychain has no Developer ID Application identity." >&2
   exit 1
 fi
