@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/hdiutil-retry.sh"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -19,7 +20,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-hdiutil attach "$DMG" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
+retry_hdiutil attach "$DMG" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
 
 APP_DIR="$(find "$MOUNT_DIR" -maxdepth 1 -name '*.app' -type d | head -n 1)"
 if [ -z "$APP_DIR" ]; then

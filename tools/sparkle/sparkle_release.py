@@ -10,7 +10,8 @@ Run by .github/workflows/release.yml after the app is packaged and signed, befor
   sparkle_release.py publish --app MetalSharp.app --variant regular|fex --version X.Y.Z --out dist/gpui
       MetalSharp-X.Y.Z-arm64[-FEX].zip: the app, as Sparkle's full update;
       MetalSharp-X.Y.Z-arm64[-FEX]-from<old>.delta: a patch from each of the last --previous releases that published
-        this build's Sparkle archive. Each is applied to a copy of that release's app, which must come out identical
+        this build's Sparkle archive, made while the archive is zipped, and side by side when the disk holds them all
+        (parallel_deltas). Each is applied to a copy of that release's app, which must come out identical
         to this one and pass codesign --verify --deep --strict, or the release stops. A release whose app keeps a
         code signature in extended attributes (xattr_signed_file) gets no delta, from it or to it: BinaryDelta
         cannot diff those. The log says which file, and Sparkle installs the full archive;
@@ -32,6 +33,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
@@ -219,6 +221,20 @@ def xattr_signed_file(app: Path) -> str:
     return found and str(Path(found).relative_to(app))
 
 
+def tree_size(path: Path) -> int:
+    total = 0
+    for directory, _, files in os.walk(path):
+        for name in files:
+            total += os.lstat(os.path.join(directory, name)).st_size
+    return total
+
+
+def parallel_deltas(app: Path, scratch: Path, count: int) -> bool:
+    """Whether count deltas fit on scratch's disk at once. Each holds an old archive, the old app unpacked and the
+    applied copy (about 2.5 apps), beside this build's archive. Without the room they are made one after another."""
+    return count > 1 and shutil.disk_usage(scratch).free > (count * 2.5 + 1) * tree_size(app)
+
+
 def make_delta(old_app: Path, new_app: Path, delta: Path, tools: Path, scratch: Path) -> None:
     """BinaryDelta's patch from old_app to new_app, applied to a copy of old_app, which must then be new_app: the same
     files and a valid code signature, or the delta would leave users with a broken MetalSharp."""
@@ -278,15 +294,33 @@ def publish(args: argparse.Namespace) -> None:
             key_file.chmod(0o600)
 
         archive = out / archive_name(args.version, args.variant)
-        zip_app(app, archive)
-        signature, length = sign(archive, key_file, tools)
-        item = Item(
-            version=args.version,
-            variant=args.variant,
-            archive=Signed(archive.name, download_url(args.version, archive.name, args.repo, args.base_url), length,
-                           signature),
-            notes_url=f"https://github.com/{args.repo}/releases/tag/v{args.version}",
-        )
+
+        def make_archive() -> tuple[str, int]:
+            zip_app(app, archive)
+            return sign(archive, key_file, tools)
+
+        def make_delta_from(old: str) -> Delta | None:
+            old_dir = scratch / f"old-{old}"
+            old_dir.mkdir()
+            try:
+                old_archive = Path(args.old_archive_dir) / archive_name(old, args.variant) if args.old_archive_dir \
+                    else old_dir / archive_name(old, args.variant)
+                if not old_archive.is_file():
+                    download(download_url(old, archive_name(old, args.variant), args.repo), old_archive)
+                old_app = unzip_app(old_archive, old_dir)
+                blocker = xattr_signed_file(old_app)
+                if blocker:
+                    print(f"no delta from {old}: its app keeps a code signature in extended attributes ({blocker}), "
+                          "which BinaryDelta cannot diff; updates from it install the full archive", flush=True)
+                    return None
+                delta = out / delta_name(args.version, args.variant, old)
+                make_delta(old_app, app, delta, tools, old_dir)
+                signature, length = sign(delta, key_file, tools)
+                print(f"{delta.name}: {length} bytes, from {old}", flush=True)
+                return Delta(delta.name, download_url(args.version, delta.name, args.repo, args.base_url), length,
+                             signature, from_version=old)
+            finally:
+                shutil.rmtree(old_dir, ignore_errors=True)
 
         blocker = xattr_signed_file(app)
         if blocker:
@@ -296,27 +330,25 @@ def publish(args: argparse.Namespace) -> None:
         else:
             olds = args.from_version or previous_versions(github_releases(args.repo), args.version, args.variant,
                                                            args.previous)
-        for old in olds:
-            old_dir = scratch / f"old-{old}"
-            old_dir.mkdir()
-            old_archive = Path(args.old_archive_dir) / archive_name(old, args.variant) if args.old_archive_dir \
-                else old_dir / archive_name(old, args.variant)
-            if not old_archive.is_file():
-                download(download_url(old, archive_name(old, args.variant), args.repo), old_archive)
-            old_app = unzip_app(old_archive, old_dir)
-            blocker = xattr_signed_file(old_app)
-            if blocker:
-                print(f"no delta from {old}: its app keeps a code signature in extended attributes ({blocker}), "
-                      "which BinaryDelta cannot diff; updates from it install the full archive", flush=True)
-                shutil.rmtree(old_dir, ignore_errors=True)
-                continue
-            delta = out / delta_name(args.version, args.variant, old)
-            make_delta(old_app, app, delta, tools, scratch)
-            signature, length = sign(delta, key_file, tools)
-            item.deltas.append(Delta(delta.name, download_url(args.version, delta.name, args.repo, args.base_url), length,
-                                     signature, from_version=old))
-            print(f"{delta.name}: {length} bytes, from {old}")
-            shutil.rmtree(old_dir, ignore_errors=True)
+        # The archive is zipped while the deltas are made: each is a few minutes of one core and the disk.
+        side_by_side = parallel_deltas(app, scratch, len(olds))
+        print(f"{len(olds)} delta(s), " + ("side by side" if side_by_side else "one after another"), flush=True)
+        with ThreadPoolExecutor(max_workers=1 + (len(olds) if side_by_side else 1)) as pool:
+            archive_job = pool.submit(make_archive)
+            if side_by_side:
+                delta_jobs = [pool.submit(make_delta_from, old) for old in olds]
+                deltas = [job.result() for job in delta_jobs]
+            else:
+                deltas = pool.submit(lambda: [make_delta_from(old) for old in olds]).result()
+            signature, length = archive_job.result()
+        item = Item(
+            version=args.version,
+            variant=args.variant,
+            archive=Signed(archive.name, download_url(args.version, archive.name, args.repo, args.base_url), length,
+                           signature),
+            notes_url=f"https://github.com/{args.repo}/releases/tag/v{args.version}",
+            deltas=[delta for delta in deltas if delta],
+        )
 
     appcast = out / appcast_name(args.variant)
     appcast.write_text(appcast_xml(item))
