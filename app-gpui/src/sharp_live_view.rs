@@ -67,12 +67,13 @@ impl SharpPreview {
                 let initialized = b(&status, "prefixInitialized");
                 let busy =
                     live.gog_loading.contains("setup") || live.gog_loading.contains("removing");
+                // games uninstall from their own cards; this removes GOG's Wine prefix
                 let label = if live.gog_loading.contains("removing") {
-                    "Uninstall".to_owned()
+                    "Removing…".to_owned()
                 } else if live.gog_loading.contains("setup") {
                     "Installing…".to_owned()
                 } else if initialized {
-                    "Uninstall".to_owned()
+                    "Remove Prefix".to_owned()
                 } else {
                     "Install GOG".to_owned()
                 };
@@ -251,16 +252,45 @@ impl SharpPreview {
                 }
             });
         let toggle_key = key.clone();
+        // The deck's graphics dropdown (library-pipeline-select): the lane's name and a chevron, on the hero's
+        // control glass under Liquid Glass.
+        let glass = self.palette.glass;
         let mut field = div().relative().w_full().child(
-            self.palette
-                .button(
-                    gpui::SharedString::from(format!("engine-{key}")),
-                    format!("{label}  ⌄"),
-                    false,
-                )
+            div()
+                .id(gpui::SharedString::from(format!("engine-{key}")))
+                .relative()
                 .w_full()
-                .justify_start()
-                .h(px(32.0))
+                .h(px(34.0))
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .px(px(12.0))
+                .rounded(px(if glass { 999.0 } else { 8.0 }))
+                .border_1()
+                .border_color(gpui::rgba(crate::page_palette::tca(0xffffff4d)))
+                .bg(gpui::rgba(if glass {
+                    (self.palette.accent << 8) | 0x30
+                } else {
+                    crate::page_palette::tca(0x0c0f10b8)
+                }))
+                .when(glass, |control| {
+                    control.child(crate::liquid_glass::mark(
+                        format!("engine-{key}"),
+                        crate::liquid_glass::Glass::Control,
+                        999.0,
+                    ))
+                })
+                .text_size(px(12.0))
+                .text_color(rgb(crate::page_palette::tc(0xf0f0ee)))
+                .cursor_pointer()
+                .child(div().flex_1().min_w_0().truncate().child(label))
+                .child(
+                    gpui::svg()
+                        .path("icon-chevron-down.svg")
+                        .size(px(16.0))
+                        .flex_none()
+                        .text_color(rgb(crate::page_palette::tc(0xf0f0ee))),
+                )
                 .on_click(cx.listener(move |this, _, _, cx| {
                     let live = this.live.as_mut().unwrap();
                     live.engine_menu = if live.engine_menu.as_deref() == Some(toggle_key.as_str()) {
@@ -337,31 +367,60 @@ impl SharpPreview {
         key: &str,
         width: f32,
         art: Option<std::path::PathBuf>,
-        ratio: f32,
+        _ratio: f32,
         body: gpui::Div,
     ) -> gpui::Stateful<gpui::Div> {
-        let banner_height = width * ratio;
         let banner = match art {
             Some(art) => crate::artwork::art_img(art)
-                .w_full()
-                .h(px(banner_height))
+                .size_full()
                 .object_fit(ObjectFit::Cover)
                 .into_any_element(),
             None => div()
-                .w_full()
-                .h(px(banner_height))
+                .size_full()
                 .flex()
                 .items_center()
                 .justify_center()
                 .bg(rgb(crate::page_palette::tc(0x15181a)))
                 .child(
                     img(self.asset_root.join("metalsharp-logo.png"))
-                        .size(px(banner_height * 0.55))
+                        .size(px(width * 0.4))
                         .object_fit(ObjectFit::Contain),
                 )
                 .into_any_element(),
         };
-        self.card_frame(key, width, banner, body)
+        self.art_card_frame(key, width, banner, body)
+    }
+
+    /// A store's Collection card (GOG, Epic, Game Jolt): its art fills the whole card, and its title and actions sit over the art's foot on a dark
+    /// fade. The card is at least 5:4 portrait, and taller when its actions need it.
+    fn art_card_frame(
+        &self,
+        key: &str,
+        width: f32,
+        banner: gpui::AnyElement,
+        body: gpui::Div,
+    ) -> gpui::Stateful<gpui::Div> {
+        div()
+            .id(gpui::SharedString::from(format!("sharp-live-card-{key}")))
+            .relative()
+            .w(px(width))
+            .min_w_0()
+            .min_h(px(width * 1.25))
+            .flex()
+            .flex_col()
+            .justify_end()
+            .overflow_hidden()
+            .rounded(px(12.0))
+            .border_1()
+            .border_color(gpui::rgba(self.palette.control_border))
+            .bg(rgb(crate::page_palette::tc(0x15181a)))
+            .child(div().absolute().inset_0().child(banner))
+            .child(div().absolute().inset_0().bg(gpui::linear_gradient(
+                180.0,
+                gpui::linear_color_stop(gpui::rgba(0x00000000), 0.35),
+                gpui::linear_color_stop(gpui::rgba(0x000000e0), 1.0),
+            )))
+            .child(div().relative().child(body))
     }
 
     fn card_frame(
@@ -520,6 +579,33 @@ impl SharpPreview {
         } else {
             button
         }
+    }
+
+    /// A store card's actions: its main action (Play, Stop, Install) across the card, and under it the game's
+    /// graphics lane beside Uninstall, as the deck's hero has them.
+    fn card_actions(
+        &self,
+        primary: gpui::Stateful<gpui::Div>,
+        lane: Option<gpui::Div>,
+        uninstall: Option<gpui::Stateful<gpui::Div>>,
+    ) -> gpui::Div {
+        let primary = primary
+            .w_full()
+            .h(px(40.0))
+            .rounded(px(8.0))
+            .text_size(px(14.0));
+        let mut actions = div().flex().flex_col().gap(px(8.0)).child(primary);
+        if lane.is_some() || uninstall.is_some() {
+            actions = actions.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .children(lane.map(|lane| div().flex_1().min_w_0().child(lane)))
+                    .children(uninstall.map(|button| button.flex_none().h(px(34.0)))),
+            );
+        }
+        actions
     }
 
     fn gate(&self, heading: &str, desc: &str) -> gpui::Div {
@@ -824,118 +910,56 @@ impl SharpPreview {
                         downloading.then(|| live.gog_progress.get(&id).copied().unwrap_or(0.0));
                     let mut body =
                         self.card_body(s(&game, "title").to_owned(), pill.into(), meta, progress);
-                    let mut actions = div().flex().items_center().gap(px(8.0));
-                    if installed {
-                        let toggle = id.clone();
-                        actions = actions.child(
-                            div()
-                                .id(gpui::SharedString::from(format!("gog-bottle-{id}")))
-                                .size(px(32.0))
-                                .rounded(px(8.0))
-                                .border_1()
-                                .border_color(gpui::rgba(self.palette.control_border))
-                                .bg(gpui::rgba(crate::page_palette::tca(0xffffff08)))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .cursor_pointer()
-                                .text_size(px(18.0))
-                                .text_color(rgb(self.palette.accent))
-                                .child("⚗")
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    let live = this.live.as_mut().unwrap();
-                                    if !live.open_bottle.remove(&toggle) {
-                                        live.open_bottle.insert(toggle.clone());
-                                    }
-                                    cx.notify();
-                                })),
-                        );
-                    }
                     let g = game.clone();
-                    if running {
+                    let primary = if running {
                         let busy = live.gog_loading.contains(&format!("{id}:stop"));
-                        actions = actions.child(
-                            self.action(format!("gog-stop-{id}"), "Stop", true, false, !busy)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    if !this
-                                        .live
-                                        .as_ref()
-                                        .unwrap()
-                                        .gog_loading
-                                        .contains(&format!("{}:stop", s(&g, "productId")))
-                                    {
-                                        this.stop_gog_game(g.clone(), cx)
-                                    }
-                                })),
-                        );
+                        self.action(format!("gog-stop-{id}"), "Stop", true, false, !busy)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if !this
+                                    .live
+                                    .as_ref()
+                                    .unwrap()
+                                    .gog_loading
+                                    .contains(&format!("{}:stop", s(&g, "productId")))
+                                {
+                                    this.stop_gog_game(g.clone(), cx)
+                                }
+                            }))
                     } else if installed {
                         let busy = live.gog_loading.contains(&format!("{id}:play"));
-                        actions = actions.child(
-                            self.action(format!("gog-play-{id}"), "Play", true, false, !busy)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    if !this
-                                        .live
-                                        .as_ref()
-                                        .unwrap()
-                                        .gog_loading
-                                        .contains(&format!("{}:play", s(&g, "productId")))
-                                    {
-                                        this.play_gog_game(g.clone(), cx);
-                                    }
-                                })),
-                        );
+                        self.action(format!("gog-play-{id}"), "Play", true, false, !busy)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if !this
+                                    .live
+                                    .as_ref()
+                                    .unwrap()
+                                    .gog_loading
+                                    .contains(&format!("{}:play", s(&g, "productId")))
+                                {
+                                    this.play_gog_game(g.clone(), cx);
+                                }
+                            }))
                     } else {
                         let busy =
                             downloading || live.gog_loading.contains(&format!("{id}:install"));
-                        actions = actions.child(
-                            self.action(
-                                format!("gog-install-{id}"),
-                                if downloading {
-                                    "Downloading…"
-                                } else {
-                                    "Install"
-                                },
-                                true,
-                                false,
-                                !busy,
-                            )
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    if !busy {
-                                        this.install_gog_game(g.clone(), cx);
-                                    }
-                                },
-                            )),
-                        );
-                    }
-                    if installed {
-                        let busy = live.gog_loading.contains(&format!("{id}:uninstall"));
-                        let confirm = (id.clone(), s(&game, "title").to_owned());
-                        actions = actions.child(
-                            self.action(
-                                format!("gog-uninstall-{id}"),
-                                "Uninstall",
-                                false,
-                                true,
-                                !busy,
-                            )
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    if !busy {
-                                        this.live.as_mut().unwrap().confirm =
-                                            Some(SharpConfirm::UninstallGog(
-                                                confirm.0.clone(),
-                                                confirm.1.clone(),
-                                            ));
-                                        cx.notify();
-                                    }
-                                },
-                            )),
-                        );
-                    }
-                    body = body.child(actions);
-                    if installed && live.open_bottle.contains(&id) {
-                        let options = engine_options();
+                        self.action(
+                            format!("gog-install-{id}"),
+                            if downloading {
+                                "Downloading…"
+                            } else {
+                                "Install"
+                            },
+                            true,
+                            false,
+                            !busy,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if !busy {
+                                this.install_gog_game(g.clone(), cx);
+                            }
+                        }))
+                    };
+                    let lane = installed.then(|| {
                         let engine = super::sharp_live::engine_lane(
                             live.gog_engines
                                 .get(&id)
@@ -944,40 +968,38 @@ impl SharpPreview {
                             super::sharp_live::STORE_AUTO_LANE,
                         );
                         let engine_id = id.clone();
-                        let exe_game = game.clone();
-                        let mut content =
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap(px(8.0))
-                                .child(self.engine_picker(
-                                    format!("gog-{id}"),
-                                    engine,
-                                    options,
-                                    move |this, value, cx| {
-                                        this.set_gog_engine(engine_id.clone(), value, cx)
-                                    },
-                                    cx,
-                                ));
-                        if s(&game, "platform") == "windows" || s(&game, "platform").is_empty() {
-                            content = content.child(
-                                self.action(
-                                    format!("gog-exe-{id}"),
-                                    "Choose EXE",
-                                    false,
-                                    false,
-                                    true,
-                                )
-                                .w_full()
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        this.choose_provider_executable(false, exe_game.clone(), cx)
-                                    },
-                                )),
-                            );
-                        }
-                        body = body.child(self.bottle_panel("GRAPHICS BACKEND", content));
-                    }
+                        self.engine_picker(
+                            format!("gog-{id}"),
+                            engine,
+                            engine_options(),
+                            move |this, value, cx| {
+                                this.set_gog_engine(engine_id.clone(), value, cx)
+                            },
+                            cx,
+                        )
+                    });
+                    let uninstall = installed.then(|| {
+                        let busy = live.gog_loading.contains(&format!("{id}:uninstall"));
+                        let confirm = (id.clone(), s(&game, "title").to_owned());
+                        self.action(
+                            format!("gog-uninstall-{id}"),
+                            "Uninstall",
+                            false,
+                            true,
+                            !busy,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if !busy {
+                                this.live.as_mut().unwrap().confirm =
+                                    Some(SharpConfirm::UninstallGog(
+                                        confirm.0.clone(),
+                                        confirm.1.clone(),
+                                    ));
+                                cx.notify();
+                            }
+                        }))
+                    });
+                    body = body.child(self.card_actions(primary, lane, uninstall));
                     let card = self.card_shell(
                         &format!("gog-{id}"),
                         card_width,
@@ -1032,190 +1054,112 @@ impl SharpPreview {
                         .unwrap_or_default();
                     let mut body =
                         self.card_body(s(&game, "title").to_owned(), pill.into(), meta, tracked);
-                    let mut actions = div().flex().items_center().gap(px(8.0));
-                    if installed {
-                        let toggle = app.clone();
-                        actions = actions.child(
-                            div()
-                                .id(gpui::SharedString::from(format!("epic-bottle-{app}")))
-                                .size(px(32.0))
-                                .rounded(px(8.0))
-                                .border_1()
-                                .border_color(gpui::rgba(self.palette.control_border))
-                                .bg(gpui::rgba(crate::page_palette::tca(0xffffff08)))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .cursor_pointer()
-                                .text_size(px(18.0))
-                                .text_color(rgb(self.palette.accent))
-                                .child("⚗")
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    let live = this.live.as_mut().unwrap();
-                                    if !live.open_bottle.remove(&toggle) {
-                                        live.open_bottle.insert(toggle.clone());
-                                    }
-                                    cx.notify();
-                                })),
-                        );
-                    }
                     let g = game.clone();
-                    if running {
-                        actions = actions.child(
-                            self.action(format!("epic-stop-{app}"), "Stop", true, false, true)
-                                .on_click(cx.listener(move |this, _, _, cx| {
+                    let primary = if running {
+                        self.action(format!("epic-stop-{app}"), "Stop", true, false, true)
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| {
                                     this.stop_epic_game(g.clone(), cx)
-                                })),
-                        );
+                                }),
+                            )
                     } else if installed && initialized {
                         let busy = live.epic_loading.contains(&format!("{app}:play"));
-                        actions = actions.child(
-                            self.action(format!("epic-play-{app}"), "Play", true, false, !busy)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    if !busy {
-                                        this.play_epic_game(g.clone(), cx);
-                                    }
-                                })),
-                        );
+                        self.action(format!("epic-play-{app}"), "Play", true, false, !busy)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if !busy {
+                                    this.play_epic_game(g.clone(), cx);
+                                }
+                            }))
                     } else if installed {
                         let busy = live.epic_loading.contains(&format!("{app}:initialize"));
-                        actions = actions.child(
-                            self.action(
-                                format!("epic-init-{app}"),
-                                "Initialize Bottle",
-                                true,
-                                false,
-                                !busy,
-                            )
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    if !busy {
-                                        this.initialize_epic_bottle(g.clone(), cx);
-                                    }
-                                },
-                            )),
-                        );
+                        self.action(
+                            format!("epic-init-{app}"),
+                            "Initialize Bottle",
+                            true,
+                            false,
+                            !busy,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if !busy {
+                                this.initialize_epic_bottle(g.clone(), cx);
+                            }
+                        }))
                     } else if tracked.is_some() {
-                        actions = actions.child(
-                            self.action(
-                                format!("epic-cancel-{app}"),
-                                "Stop Download",
-                                false,
-                                false,
-                                true,
-                            )
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| this.cancel_epic_install(g.clone(), cx),
-                            )),
-                        );
+                        self.action(
+                            format!("epic-cancel-{app}"),
+                            "Stop Download",
+                            false,
+                            false,
+                            true,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.cancel_epic_install(g.clone(), cx)
+                        }))
                     } else {
                         let busy = live.epic_loading.contains(&format!("{app}:install"));
-                        actions = actions.child(
-                            self.action(
-                                format!("epic-install-{app}"),
-                                "Install",
-                                true,
-                                false,
-                                !busy,
-                            )
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    if !busy {
-                                        this.install_epic_game(g.clone(), cx);
-                                    }
-                                },
-                            )),
-                        );
-                    }
-                    if installed {
+                        self.action(format!("epic-install-{app}"), "Install", true, false, !busy)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if !busy {
+                                    this.install_epic_game(g.clone(), cx);
+                                }
+                            }))
+                    };
+                    let lane = installed.then(|| {
+                        let pipeline_app = app.clone();
+                        self.engine_picker(
+                            format!("epic-{app}"),
+                            super::sharp_live::engine_lane(
+                                s(&game, "pipeline"),
+                                super::sharp_live::STORE_AUTO_LANE,
+                            ),
+                            engine_options(),
+                            move |this, value, cx| {
+                                this.update_epic_bottle(pipeline_app.clone(), "pipeline", value, cx)
+                            },
+                            cx,
+                        )
+                    });
+                    let uninstall = installed.then(|| {
                         let busy =
                             running || live.epic_loading.contains(&format!("{app}:uninstall"));
                         let confirm = (app.clone(), s(&game, "title").to_owned());
-                        actions = actions.child(
-                            self.action(
-                                format!("epic-uninstall-{app}"),
-                                "Uninstall",
-                                false,
-                                true,
-                                !busy,
-                            )
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    if !busy {
-                                        this.live.as_mut().unwrap().confirm =
-                                            Some(SharpConfirm::UninstallEpic(
-                                                confirm.0.clone(),
-                                                confirm.1.clone(),
-                                            ));
-                                        cx.notify();
-                                    }
-                                },
-                            )),
-                        );
-                    }
-                    body = body.child(actions);
-                    if installed && live.open_bottle.contains(&app) {
-                        let options = engine_options();
-                        let pipeline_app = app.clone();
+                        self.action(
+                            format!("epic-uninstall-{app}"),
+                            "Uninstall",
+                            false,
+                            true,
+                            !busy,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if !busy {
+                                this.live.as_mut().unwrap().confirm =
+                                    Some(SharpConfirm::UninstallEpic(
+                                        confirm.0.clone(),
+                                        confirm.1.clone(),
+                                    ));
+                                cx.notify();
+                            }
+                        }))
+                    });
+                    body = body.child(self.card_actions(primary, lane, uninstall));
+                    // Epic games' mouse mode, which only this card sets
+                    if installed {
                         let mouse_app = app.clone();
-                        let exe_game = game.clone();
-                        let content = div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(8.0))
-                            .child(self.engine_picker(
-                                format!("epic-{app}"),
-                                super::sharp_live::engine_lane(
-                                    s(&game, "pipeline"),
-                                    super::sharp_live::STORE_AUTO_LANE,
-                                ),
-                                options,
-                                move |this, value, cx| {
-                                    this.update_epic_bottle(
-                                        pipeline_app.clone(),
-                                        "pipeline",
-                                        value,
-                                        cx,
-                                    )
-                                },
-                                cx,
-                            ))
-                            .child(self.engine_picker(
-                                format!("epic-mouse-{app}"),
-                                match s(&game, "mouseMode") {
-                                    "" => "no-recenter".into(),
-                                    other => other.into(),
-                                },
-                                vec![
-                                    ("no-recenter".into(), "Mouse: No recenter".into()),
-                                    ("auto".into(), "Mouse: Auto".into()),
-                                ],
-                                move |this, value, cx| {
-                                    this.update_epic_bottle(
-                                        mouse_app.clone(),
-                                        "mouseMode",
-                                        value,
-                                        cx,
-                                    )
-                                },
-                                cx,
-                            ))
-                            .child(
-                                self.action(
-                                    format!("epic-exe-{app}"),
-                                    "Choose EXE",
-                                    false,
-                                    false,
-                                    true,
-                                )
-                                .w_full()
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        this.choose_provider_executable(true, exe_game.clone(), cx)
-                                    },
-                                )),
-                            );
-                        body = body.child(self.bottle_panel("GRAPHICS BACKEND", content));
+                        body = body.child(self.engine_picker(
+                            format!("epic-mouse-{app}"),
+                            match s(&game, "mouseMode") {
+                                "" => "no-recenter".into(),
+                                other => other.into(),
+                            },
+                            vec![
+                                ("no-recenter".into(), "Mouse: No recenter".into()),
+                                ("auto".into(), "Mouse: Auto".into()),
+                            ],
+                            move |this, value, cx| {
+                                this.update_epic_bottle(mouse_app.clone(), "mouseMode", value, cx)
+                            },
+                            cx,
+                        ));
                     }
                     let card = self.card_shell(
                         &format!("epic-{app}"),
