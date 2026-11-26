@@ -2357,14 +2357,16 @@ static void* x86_64_refresh_thread(void* arg) {
     char error[512] = "";
     /* A pending or running migration swaps the app itself (ms_setup_x86_64_refresh), so the two never lay the
      * runtime out at the same time. */
-    if (!ms_wine_fex_refresh_blocked(home)) {
+    bool blocked = ms_wine_fex_refresh_blocked(home);
+    if (!blocked)
         (void)ms_setup_x86_64_refresh(home, error, sizeof(error));
-        /* and MetalSharp Wine (FEX), when it is installed too */
-        if (!ms_wine_refresh_inactive_app(home, error, sizeof(error)))
-            fprintf(stderr, "warning: could not refresh the other Wine runtime: %s\n", error);
-    }
-    free(home);
+    /* The active runtime is laid out: setup's state need not wait for the other app, which only replaces the app
+     * kept aside (its deep signature check alone takes seconds). */
     ms_wine_refresh_end();
+    /* and MetalSharp Wine (FEX), when it is installed too */
+    if (!blocked && !ms_wine_refresh_inactive_app(home, error, sizeof(error)))
+        fprintf(stderr, "warning: could not refresh the other Wine runtime: %s\n", error);
+    free(home);
     return NULL;
 }
 

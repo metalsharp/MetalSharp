@@ -807,6 +807,15 @@ static bool install_app_locked(const char* home, char* source, const char* name,
     (void)ensure_dir(home);
     (void)ensure_dir(runtime);
     (void)ensure_dir(logs);
+    /* With nothing of this release to install from, app_source names the installed app itself: there is nothing
+     * newer, and copying it onto itself (gigabytes) cannot mend it. */
+    {
+        char source_real[PATH_MAX], app_real[PATH_MAX];
+        if (realpath(source, source_real) && realpath(app, app_real) && !strcmp(source_real, app_real)) {
+            ok = true;
+            goto done;
+        }
+    }
     if (!app_identity(source, source_identity, sizeof(source_identity))) {
         snprintf(message, sizeof(message), "%s is not signed", name);
         set_error(error, error_size, message, source);
@@ -1256,11 +1265,13 @@ static void* refresh_thread(void* argument) {
         fprintf(stderr, "warning: could not download MetalSharp Wine: %s\n", error);
     if (!ms_wine_fex_refresh_blocked(home) && !refresh_app(home, false, error, sizeof(error)))
         fprintf(stderr, "warning: could not refresh MetalSharp Wine: %s\n", error);
+    /* The active runtime is laid out: setup's state need not wait for the other app, which only replaces the app
+     * kept aside (its deep signature check alone takes seconds). */
+    ms_wine_refresh_end();
     /* and the x86_64 runtime's app, when it is installed too */
     if (!ms_wine_fex_refresh_blocked(home) && !ms_wine_refresh_inactive_app(home, error, sizeof(error)))
         fprintf(stderr, "warning: could not refresh the other Wine runtime: %s\n", error);
     free(home);
-    ms_wine_refresh_end();
     return NULL;
 }
 
