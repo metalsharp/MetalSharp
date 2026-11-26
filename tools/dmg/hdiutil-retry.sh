@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Sourced by the DMG scripts. retry_hdiutil runs hdiutil with its arguments and, when it fails, tries again after a
 # pause, five tries in all. Right after hdiutil writes or detaches a multi-GB image the system can still hold the file
 # (the 1.6.0 FEX release run's `hdiutil verify` failed with "Resource temporarily unavailable" the moment its
