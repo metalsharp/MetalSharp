@@ -1982,7 +1982,9 @@ impl MetalSharpApp {
                 .rounded(px(layout.scaled(8.0)))
                 .border_1()
                 .border_color(control_border)
-                .bg(self.menu_fill())
+                // nearly opaque, as the graphics selector's list: over light glass a veil of the menu color washed
+                // its one item out
+                .bg(self.overlay_menu_fill())
                 .children(self.menu_glass("steam-menu"))
                 .shadow_lg()
                 .p(px(5.0))
@@ -1996,7 +1998,11 @@ impl MetalSharpApp {
                         .px(px(layout.scaled(10.0)))
                         .rounded(px(5.0))
                         .text_size(px(layout.scaled(12.5)))
-                        .text_color(rgb(control_text))
+                        .text_color(rgb(if self.glass() {
+                            crate::page_palette::tc(0xf0f0ee)
+                        } else {
+                            control_text
+                        }))
                         .opacity(if disabled { 0.5 } else { 1.0 })
                         .cursor_pointer()
                         .hover({
@@ -4878,23 +4884,7 @@ impl MetalSharpApp {
         };
         let (card_game, hero_game, reset_game) = (game.clone(), game.clone(), game.clone());
         let art = game.art_key.is_some();
-        // GOG and Epic games uninstall; Windows programs (and Game Jolt games) leave the library, as from the
-        // Collection view's settings, once they are not running (#809).
-        let windows_program = matches!(
-            game.page(),
-            LibraryPage::WindowsPrograms | LibraryPage::GameJolt
-        );
-        let uninstall_game = (matches!(
-            game.page(),
-            LibraryPage::Gog
-                | LibraryPage::Epic
-                | LibraryPage::WindowsPrograms
-                | LibraryPage::GameJolt
-        ) && game.installed
-            && !game.needs_install
-            && game.external_id.is_some()
-            && !(windows_program && self.is_running(game.appid)))
-        .then(|| game.clone());
+        let uninstall_game = self.can_uninstall(&game).then(|| game.clone());
         let uninstall_label = if game.source.as_deref() == Some("windows") {
             "Remove from Library…"
         } else {
@@ -4988,6 +4978,26 @@ impl MetalSharpApp {
                     },
                 ))
             }))
+    }
+
+    /// Whether `game` can leave MetalSharp from its art menu or its settings' Uninstall tab: an installed GOG, Epic
+    /// or Game Jolt game, or a Windows program, which (with Game Jolt games) leaves only once it is not running
+    /// (#809).
+    pub(super) fn can_uninstall(&self, game: &LibGame) -> bool {
+        let windows_program = matches!(
+            game.page(),
+            LibraryPage::WindowsPrograms | LibraryPage::GameJolt
+        );
+        matches!(
+            game.page(),
+            LibraryPage::Gog
+                | LibraryPage::Epic
+                | LibraryPage::WindowsPrograms
+                | LibraryPage::GameJolt
+        ) && game.installed
+            && !game.needs_install
+            && game.external_id.is_some()
+            && !(windows_program && self.is_running(game.appid))
     }
 
     /// "Uninstall <game>?" for a GOG, Epic or Game Jolt game, or "Remove <program> from the library?" for a Windows

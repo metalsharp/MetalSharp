@@ -11,6 +11,7 @@ pub(super) enum GameSettingsTab {
     Advanced,
     Presentation,
     Headset,
+    Uninstall,
 }
 
 impl GameSettingsTab {
@@ -21,6 +22,7 @@ impl GameSettingsTab {
             Self::Advanced => "Advanced",
             Self::Presentation => "Presentation",
             Self::Headset => "Headset",
+            Self::Uninstall => "Uninstall",
         }
     }
 
@@ -42,6 +44,9 @@ impl GameSettingsTab {
                 "How the game is shown: its name, window, resolution, frame rate and Retina."
             }
             Self::Headset => "The headset MetalVR streams this game to, and its setup.",
+            Self::Uninstall => {
+                "Remove the game from this Mac, or a Windows program from the library."
+            }
         }
     }
 }
@@ -99,16 +104,32 @@ pub(super) fn macos_major() -> u32 {
 }
 
 impl MetalSharpApp {
+    /// The tabs of the selected game's settings, with Uninstall last for a game that can leave MetalSharp.
     fn game_settings_tabs(&self) -> &'static [GameSettingsTab] {
-        if self.live.selected_pipeline == "metalvr" {
-            &[GameSettingsTab::Headset, GameSettingsTab::Graphics]
-        } else {
-            &[
+        let uninstall = self
+            .games
+            .get(self.selected_game)
+            .is_some_and(|game| self.can_uninstall(game));
+        match (self.live.selected_pipeline == "metalvr", uninstall) {
+            (true, false) => &[GameSettingsTab::Headset, GameSettingsTab::Graphics],
+            (true, true) => &[
+                GameSettingsTab::Headset,
+                GameSettingsTab::Graphics,
+                GameSettingsTab::Uninstall,
+            ],
+            (false, false) => &[
                 GameSettingsTab::Graphics,
                 GameSettingsTab::Runtime,
                 GameSettingsTab::Advanced,
                 GameSettingsTab::Presentation,
-            ]
+            ],
+            (false, true) => &[
+                GameSettingsTab::Graphics,
+                GameSettingsTab::Runtime,
+                GameSettingsTab::Advanced,
+                GameSettingsTab::Presentation,
+                GameSettingsTab::Uninstall,
+            ],
         }
     }
 
@@ -141,6 +162,7 @@ impl MetalSharpApp {
             GameSettingsTab::Advanced => self.advanced_rows(&game, narrow, cx),
             GameSettingsTab::Presentation => self.presentation_rows(&game, narrow, cx),
             GameSettingsTab::Headset => self.headset_rows(narrow, cx),
+            GameSettingsTab::Uninstall => self.uninstall_rows(&game, narrow, cx),
         };
 
         let mut navigation = div()
@@ -190,13 +212,14 @@ impl MetalSharpApp {
                     ),
             )
             .children(rows)
-            .child(
+            // the Uninstall tab changes nothing about how the game starts
+            .children((tab != GameSettingsTab::Uninstall).then(|| {
                 div()
                     .pt(px(14.0))
                     .text_size(px(12.0))
                     .text_color(rgba((p.control_text << 8) | 0x80))
-                    .child("Changes apply when the game next starts."),
-            );
+                    .child("Changes apply when the game next starts.")
+            }));
         let scroller = div()
             .relative()
             .flex_1()
@@ -972,6 +995,55 @@ impl MetalSharpApp {
             );
         }
         Some(p.setting_row("Standalone app", detail, buttons, narrow))
+    }
+
+    /// The Uninstall tab: what uninstalling the game removes and keeps, and the button that asks to (the same
+    /// prompt as its art menu's Uninstall…).
+    fn uninstall_rows(
+        &self,
+        game: &LibGame,
+        narrow: bool,
+        cx: &mut Context<Self>,
+    ) -> Vec<gpui::Div> {
+        let p = self.theme.page_palette();
+        let (title, desc, label) = match game.source.as_deref() {
+            Some("windows") => (
+                "Remove from Library",
+                "MetalSharp stops listing it. Its files and the Windows Programs prefix (saves and settings) stay on disk.",
+                "Remove…",
+            ),
+            Some("gamejolt") => (
+                "Uninstall",
+                "Removes its Game Jolt folder. This cannot be undone.",
+                "Uninstall…",
+            ),
+            Some("epic") => (
+                "Uninstall",
+                "Deletes the game's files. Its bottle (saves and settings) and your Epic library stay.",
+                "Uninstall…",
+            ),
+            _ => (
+                "Uninstall",
+                "Deletes the game's folder. The GOG prefix (saves and settings) and your GOG library stay.",
+                "Uninstall…",
+            ),
+        };
+        let target = game.clone();
+        vec![
+            p.setting_row(
+                title,
+                desc,
+                p.button("game-settings-uninstall", label, false)
+                    .text_color(rgb(crate::page_palette::tc(0xff8585)))
+                    .border_color(rgba(crate::page_palette::tca(0xff5c5c55)))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.game_settings_open = false;
+                        this.game_uninstall_prompt = Some(target.clone());
+                        cx.notify();
+                    })),
+                narrow,
+            ),
+        ]
     }
 
     fn presentation_rows(

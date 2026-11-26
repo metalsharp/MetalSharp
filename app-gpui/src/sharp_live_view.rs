@@ -64,38 +64,8 @@ impl SharpPreview {
             }
             SharpSource::Gog => {
                 let status = live.gog_status.clone().unwrap_or(Value::Null);
+                // GOG's prefix is set up and removed from the GOG button's settings in the header
                 let initialized = b(&status, "prefixInitialized");
-                let busy =
-                    live.gog_loading.contains("setup") || live.gog_loading.contains("removing");
-                // games uninstall from their own cards; this removes GOG's Wine prefix
-                let label = if live.gog_loading.contains("removing") {
-                    "Removing…".to_owned()
-                } else if live.gog_loading.contains("setup") {
-                    "Installing…".to_owned()
-                } else if initialized {
-                    "Remove Prefix".to_owned()
-                } else {
-                    "Install GOG".to_owned()
-                };
-                controls = controls.child(
-                    button(self, "sharp-gog-prefix", label, false, !busy).on_click(cx.listener(
-                        move |this, _, _, cx| {
-                            let live = this.live.as_ref().unwrap();
-                            if live.gog_loading.contains("setup")
-                                || live.gog_loading.contains("removing")
-                            {
-                                return;
-                            }
-                            if initialized {
-                                this.live.as_mut().unwrap().confirm =
-                                    Some(SharpConfirm::RemoveGogPrefix);
-                                cx.notify();
-                            } else {
-                                this.initialize_gog_prefix(cx);
-                            }
-                        },
-                    )),
-                );
                 let authenticated = b(&status, "authenticated");
                 let login_busy = live.gog_loading.contains("login");
                 let label = if authenticated {
@@ -581,31 +551,36 @@ impl SharpPreview {
         }
     }
 
-    /// A store card's actions: its main action (Play, Stop, Install) across the card, and under it the game's
-    /// graphics lane beside Uninstall, as the deck's hero has them.
+    /// A store card's actions: the game's graphics lane (the deck's dropdown) with its main action (Play, Stop)
+    /// beside it, or the main action (Install) across the card for a game that isn't installed. Uninstalling is in
+    /// the game's settings (its gear's Uninstall tab).
     fn card_actions(
         &self,
-        primary: gpui::Stateful<gpui::Div>,
         lane: Option<gpui::Div>,
-        uninstall: Option<gpui::Stateful<gpui::Div>>,
+        primary: gpui::Stateful<gpui::Div>,
     ) -> gpui::Div {
-        let primary = primary
-            .w_full()
-            .h(px(40.0))
-            .rounded(px(8.0))
-            .text_size(px(14.0));
-        let mut actions = div().flex().flex_col().gap(px(8.0)).child(primary);
-        if lane.is_some() || uninstall.is_some() {
-            actions = actions.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .children(lane.map(|lane| div().flex_1().min_w_0().child(lane)))
-                    .children(uninstall.map(|button| button.flex_none().h(px(34.0)))),
-            );
+        match lane {
+            Some(lane) => div()
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .child(div().flex_1().min_w_0().child(lane))
+                .child(
+                    primary
+                        .flex_none()
+                        .h(px(34.0))
+                        .px(px(20.0))
+                        .rounded(px(8.0))
+                        .text_size(px(14.0)),
+                ),
+            None => div().child(
+                primary
+                    .w_full()
+                    .h(px(38.0))
+                    .rounded(px(8.0))
+                    .text_size(px(14.0)),
+            ),
         }
-        actions
     }
 
     fn gate(&self, heading: &str, desc: &str) -> gpui::Div {
@@ -978,28 +953,7 @@ impl SharpPreview {
                             cx,
                         )
                     });
-                    let uninstall = installed.then(|| {
-                        let busy = live.gog_loading.contains(&format!("{id}:uninstall"));
-                        let confirm = (id.clone(), s(&game, "title").to_owned());
-                        self.action(
-                            format!("gog-uninstall-{id}"),
-                            "Uninstall",
-                            false,
-                            true,
-                            !busy,
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if !busy {
-                                this.live.as_mut().unwrap().confirm =
-                                    Some(SharpConfirm::UninstallGog(
-                                        confirm.0.clone(),
-                                        confirm.1.clone(),
-                                    ));
-                                cx.notify();
-                            }
-                        }))
-                    });
-                    body = body.child(self.card_actions(primary, lane, uninstall));
+                    body = body.child(self.card_actions(lane, primary));
                     let card = self.card_shell(
                         &format!("gog-{id}"),
                         card_width,
@@ -1119,29 +1073,7 @@ impl SharpPreview {
                             cx,
                         )
                     });
-                    let uninstall = installed.then(|| {
-                        let busy =
-                            running || live.epic_loading.contains(&format!("{app}:uninstall"));
-                        let confirm = (app.clone(), s(&game, "title").to_owned());
-                        self.action(
-                            format!("epic-uninstall-{app}"),
-                            "Uninstall",
-                            false,
-                            true,
-                            !busy,
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if !busy {
-                                this.live.as_mut().unwrap().confirm =
-                                    Some(SharpConfirm::UninstallEpic(
-                                        confirm.0.clone(),
-                                        confirm.1.clone(),
-                                    ));
-                                cx.notify();
-                            }
-                        }))
-                    });
-                    body = body.child(self.card_actions(primary, lane, uninstall));
+                    body = body.child(self.card_actions(lane, primary));
                     // Epic games' mouse mode, which only this card sets
                     if installed {
                         let mouse_app = app.clone();

@@ -102,11 +102,8 @@ pub(super) fn gamejolt_engine(game: &Value) -> String {
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum SharpConfirm {
     UninstallApp(String, String),
-    RemoveGogPrefix,
     DisconnectGog,
-    UninstallGog(String, String),
     DisconnectEpic,
-    UninstallEpic(String, String),
     UninstallGameJolt(String, String, String),
 }
 
@@ -819,35 +816,6 @@ impl SharpPreview {
                             }
                             this.refresh_gog(cx);
                         },
-                    );
-                }
-                cx.notify();
-            },
-        );
-    }
-
-    fn remove_gog_prefix(&mut self, cx: &mut Context<Self>) {
-        self.live_mut().gog_loading.insert("removing".into());
-        cx.notify();
-        live::call(
-            cx,
-            "POST",
-            "/sharp-library/gog/remove-prefix",
-            Some(json!({})),
-            MS(30_000),
-            |this, r, cx| {
-                this.live_mut().gog_loading.remove("removing");
-                if r.as_ref().is_some_and(is_ok) {
-                    if let Some(status) = r.as_ref().and_then(|r| r.get("status")).cloned() {
-                        this.live_mut().gog_status = Some(status);
-                    }
-                    this.refresh_gog(cx);
-                    toast::success(cx, "GOG prefix removed");
-                } else {
-                    toast::error(
-                        cx,
-                        error_text(r.as_ref())
-                            .unwrap_or_else(|| "Failed to remove GOG prefix".into()),
                     );
                 }
                 cx.notify();
@@ -2250,11 +2218,8 @@ impl SharpPreview {
         self.live_mut().confirm = None;
         match action {
             SharpConfirm::UninstallApp(id, name) => self.uninstall_app(id, name, cx),
-            SharpConfirm::RemoveGogPrefix => self.remove_gog_prefix(cx),
             SharpConfirm::DisconnectGog => self.disconnect_gog(cx),
-            SharpConfirm::UninstallGog(id, title) => self.uninstall_gog_game(id, title, cx),
             SharpConfirm::DisconnectEpic => self.logout_epic(cx),
-            SharpConfirm::UninstallEpic(app, title) => self.uninstall_epic_game(app, title, cx),
             SharpConfirm::UninstallGameJolt(id, name, dir) => {
                 self.uninstall_gamejolt(id, name, dir, cx)
             }
@@ -2264,27 +2229,18 @@ impl SharpPreview {
 
     pub(super) fn confirm_copy(action: &SharpConfirm) -> (String, String, &'static str) {
         match action {
-            SharpConfirm::UninstallApp(_, name) => (format!("Uninstall {name}?"), String::new(), "Uninstall"),
-            SharpConfirm::RemoveGogPrefix => (
-                "Remove the GOG Wine prefix?".into(),
-                "This will permanently delete the isolated Wine prefix and all Wine Mono components. Downloaded GOG games will stay on disk but cannot launch until the prefix is re-created.".into(),
-                "Remove",
-            ),
+            SharpConfirm::UninstallApp(_, name) => {
+                (format!("Uninstall {name}?"), String::new(), "Uninstall")
+            }
             SharpConfirm::DisconnectGog => (
                 "Disconnect GOG?".into(),
                 "Disconnect GOG and show Login again? Installed games will stay on disk.".into(),
                 "Disconnect",
             ),
-            SharpConfirm::UninstallGog(_, title) => (format!("Delete {title} from disk?"), String::new(), "Delete"),
             SharpConfirm::DisconnectEpic => (
                 "Disconnect Epic Games?".into(),
                 "Installed games and isolated game bottles will stay on disk.".into(),
                 "Disconnect",
-            ),
-            SharpConfirm::UninstallEpic(_, title) => (
-                format!("Uninstall {title}?"),
-                "This deletes its downloaded Epic game files and isolated Wine bottle.".into(),
-                "Uninstall",
             ),
             SharpConfirm::UninstallGameJolt(_, name, _) => (
                 format!("Uninstall {name}?"),
