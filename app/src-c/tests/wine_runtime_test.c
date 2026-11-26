@@ -561,6 +561,24 @@ int main(int argc, char** argv) {
             free(found);
         }
         unsetenv("METALSHARP_APP_RESOURCES");
+
+        /* An installed app that is its own source (nothing of this release to install from) is left as it is: it
+         * is never copied onto itself, which held every launch on a damaged one. */
+        {
+            char installed[PATH_MAX], staging[PATH_MAX], error[256] = "";
+            snprintf(path, sizeof(path), "%s/runtime", home);
+            (void)mkdir(path, 0755);
+            snprintf(installed, sizeof(installed), "%s/runtime/MetalSharp-Wine-x86_64.app", home);
+            (void)mkdir(installed, 0755);
+            snprintf(path, sizeof(path), "%s/Contents", installed);
+            (void)mkdir(path, 0755);
+            snprintf(staging, sizeof(staging), "%s.new", installed);
+            setenv("METALSHARP_WINE_X86_64_APP_SOURCE", installed, 1);
+            EXPECT(ms_wine_x86_64_install_app(home, error, sizeof(error)));
+            EXPECT(access(staging, F_OK) != 0);
+            EXPECT(access(path, F_OK) == 0);
+            unsetenv("METALSHARP_WINE_X86_64_APP_SOURCE");
+        }
         unsetenv("METALSHARP_HOME");
     }
 

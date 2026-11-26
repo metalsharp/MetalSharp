@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **MetalSharp opens in about a second** — the backend's startup refresh held setup's state, and with it the window's first load, until the other runtime's Wine app was refreshed too: a deep signature check of a 4.4 GB app at best. On the FEX build, a damaged x86_64 Wine app was its own source, so every launch copied it onto itself, failed, and held the app for about 20 seconds. Setup's state now waits only for the active runtime, the other app is refreshed after it, and an app is never reinstalled from itself.
+
 ## v1.5.0 — 2026-11-22
 
 MetalSharp 1.5.0 runs on [MetalSharp Wine 9.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v9.0) on both runtimes. VKD3D / DXVK is one lane on both of them, from Direct3D 12 down to Direct3D 3 with [MetalVulkan 7.0](https://github.com/metalsharp/MetalVulkan). This release also has game settings from the Collection grid, Report a problem, Glass Transparency, and black and white themes.
