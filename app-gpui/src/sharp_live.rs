@@ -2024,6 +2024,7 @@ impl SharpPreview {
                         this.live_mut().gj_storage = Some(storage.clone());
                     }
                     this.request_covers(cx);
+                    this.backfill_gamejolt(cx);
                     cx.notify();
                 }
                 if then_sync {
@@ -2044,6 +2045,44 @@ impl SharpPreview {
                 }
             },
         );
+    }
+
+    /// Games listed before their Game Jolt art and title were known (downloaded before, or from a page the app didn't
+    /// see) look themselves up on Game Jolt, each once a launch; the list is read again when one finds its game.
+    fn backfill_gamejolt(&mut self, cx: &mut Context<Self>) {
+        static TRIED: std::sync::Mutex<Option<HashSet<std::path::PathBuf>>> =
+            std::sync::Mutex::new(None);
+        let dirs: Vec<std::path::PathBuf> = {
+            let mut tried = TRIED.lock().unwrap_or_else(|e| e.into_inner());
+            let tried = tried.get_or_insert_with(HashSet::new);
+            let Some(live) = self.live.as_ref() else {
+                return;
+            };
+            live.gj_games
+                .iter()
+                .filter_map(|game| game.get("install_dir").and_then(Value::as_str))
+                .map(std::path::PathBuf::from)
+                .filter(|dir| !crate::host_actions::gamejolt_has_title(dir))
+                .filter(|dir| tried.insert(dir.clone()))
+                .collect()
+        };
+        if dirs.is_empty() {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            let found = cx
+                .background_executor()
+                .spawn(async move {
+                    dirs.iter()
+                        .filter(|dir| crate::host_actions::fetch_gamejolt_art_by_name(dir).is_ok())
+                        .count()
+                })
+                .await;
+            if found > 0 {
+                let _ = this.update(cx, |this, cx| this.load_gamejolt(cx, false));
+            }
+        })
+        .detach();
     }
 
     pub(super) fn sync_gamejolt(&mut self, show: bool, cx: &mut Context<Self>) {
@@ -2076,6 +2115,7 @@ impl SharpPreview {
                     this.live_mut().gj_storage = Some(storage.clone());
                 }
                 this.request_covers(cx);
+                this.backfill_gamejolt(cx);
                 if show {
                     toast::success(
                         cx,

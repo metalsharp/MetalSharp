@@ -538,13 +538,108 @@ fn save_gamejolt_art(game_dir: &Path, kind: &str, ext: &str, bytes: &[u8]) -> st
 /// known (a download started elsewhere) keeps its executable's icon, and Change Image still picks another.
 pub fn fetch_gamejolt_art(game_dir: &Path, page_url: &str) -> Result<(), String> {
     let id = gamejolt_game_id(page_url).ok_or("not a Game Jolt game page")?;
+    fetch_gamejolt_game(game_dir, id, Some(page_url))
+}
+
+/// The art and title of a game whose Game Jolt page isn't known: the id saved with it before, else the Game Jolt game
+/// whose title (or URL name) is its folder's name. Games already saved with their title are left alone.
+pub fn fetch_gamejolt_art_by_name(game_dir: &Path) -> Result<(), String> {
+    let meta: Option<Value> = std::fs::read(game_dir.join(GAMEJOLT_META_DIR).join("gamejolt.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+    if meta
+        .as_ref()
+        .and_then(|meta| meta.get("title"))
+        .and_then(Value::as_str)
+        .is_some_and(|title| !title.is_empty())
+    {
+        return Ok(());
+    }
+    let saved = meta
+        .as_ref()
+        .and_then(|meta| meta.get("gameId"))
+        .and_then(Value::as_u64);
+    let id = match saved {
+        Some(id) => id,
+        None => {
+            let name = game_dir
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .ok_or("no folder name")?;
+            find_gamejolt_game(&name).ok_or("no Game Jolt game by that name")?
+        }
+    };
+    let page = meta
+        .as_ref()
+        .and_then(|meta| meta.get("pageUrl"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    fetch_gamejolt_game(game_dir, id, page.as_deref())
+}
+
+/// Whether a Game Jolt game's folder has Game Jolt's title for it, saved with its art.
+pub fn gamejolt_has_title(game_dir: &Path) -> bool {
+    std::fs::read(game_dir.join(GAMEJOLT_META_DIR).join("gamejolt.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|meta| {
+            meta.get("title")
+                .and_then(Value::as_str)
+                .map(|t| !t.is_empty())
+        })
+        .unwrap_or(false)
+}
+
+/// Letters and digits only, lowercased: "The Joy of Creation: Story Mode", "the-joy-of-creation-story-mode" and
+/// "the_joy_of_creation_story_mode" are one name.
+fn gamejolt_name_key(name: &str) -> String {
+    name.chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
+/// The Game Jolt game named `name` (a download's folder): only one whose title or URL name is that name, so a game
+/// never takes another's art.
+fn find_gamejolt_game(name: &str) -> Option<u64> {
+    let key = gamejolt_name_key(name);
+    if key.len() < 3 {
+        return None;
+    }
+    let query = name.replace(['-', '_'], " ");
+    let url = url::Url::parse_with_params(
+        "https://gamejolt.com/site-api/web/search/games",
+        &[("q", query.as_str())],
+    )
+    .ok()?;
+    let reply = crate::artwork::download(crate::artwork::http_agent(), url.as_str(), None)?;
+    let reply: Value = serde_json::from_slice(&reply).ok()?;
+    gamejolt_search_match(&reply, &key)
+}
+
+/// In Game Jolt's search reply, the first game whose title or URL name has the key `key`.
+fn gamejolt_search_match(reply: &Value, key: &str) -> Option<u64> {
+    reply
+        .pointer("/payload/games")?
+        .as_array()?
+        .iter()
+        .find(|game| {
+            ["title", "slug"].iter().any(|field| {
+                game.get(*field)
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| gamejolt_name_key(value) == key)
+            })
+        })
+        .and_then(|game| game.get("id"))
+        .and_then(Value::as_u64)
+        .filter(|id| *id > 0)
+}
+
+/// Game Jolt's art and title for game `id`, into its folder: the thumbnail as its card, the header as its hero, and
+/// its title (which the backend names it by) in `.metalsharp/gamejolt.json` with its id and page.
+fn fetch_gamejolt_game(game_dir: &Path, id: u64, page_url: Option<&str>) -> Result<(), String> {
     let dir = game_dir.join(GAMEJOLT_META_DIR);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let meta = json!({ "gameId": id, "pageUrl": page_url });
-    let _ = std::fs::write(
-        dir.join("gamejolt.json"),
-        serde_json::to_vec_pretty(&meta).unwrap_or_default(),
-    );
     let reply = crate::artwork::download(
         crate::artwork::http_agent(),
         &format!("https://gamejolt.com/site-api/web/discover/games/{id}"),
@@ -552,6 +647,17 @@ pub fn fetch_gamejolt_art(game_dir: &Path, page_url: &str) -> Result<(), String>
     )
     .ok_or("Game Jolt did not answer")?;
     let reply: Value = serde_json::from_slice(&reply).map_err(|e| e.to_string())?;
+    let mut meta = json!({ "gameId": id });
+    if let Some(page_url) = page_url {
+        meta["pageUrl"] = json!(page_url);
+    }
+    if let Some(title) = gamejolt_title(&reply) {
+        meta["title"] = json!(title);
+    }
+    let _ = std::fs::write(
+        dir.join("gamejolt.json"),
+        serde_json::to_vec_pretty(&meta).unwrap_or_default(),
+    );
     let (card, hero) = gamejolt_art_urls(&reply);
     for (kind, url) in [("card", card), ("hero", hero)] {
         let Some(url) = url else { continue };
@@ -565,6 +671,15 @@ pub fn fetch_gamejolt_art(game_dir: &Path, page_url: &str) -> Result<(), String>
         save_gamejolt_art(game_dir, kind, ext, &bytes).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// The game's title in Game Jolt's reply, trimmed; none when it is empty or too long to be a name.
+fn gamejolt_title(reply: &Value) -> Option<String> {
+    let game = reply
+        .pointer("/payload/game")
+        .or_else(|| reply.get("game"))?;
+    let title = game.get("title")?.as_str()?.trim();
+    (!title.is_empty() && title.chars().count() <= 160).then(|| title.to_string())
 }
 
 #[cfg(test)]
@@ -627,6 +742,38 @@ mod gamejolt_art_tests {
         assert_eq!(image_extension(b"\x89PNG\r\n\x1a\n0000"), Some("png"));
         assert_eq!(
             image_extension(b"<svg xmlns='http://www.w3.org/2000/svg'/>"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_folder_finds_its_game_by_title_or_url_name() {
+        assert_eq!(
+            gamejolt_name_key("The Joy of Creation: Story Mode"),
+            gamejolt_name_key("the-joy-of-creation-story-mode")
+        );
+        let reply = json!({"payload": {"games": [
+            {"id": 482710, "slug": "tjoc_sm_android", "title": "The Joy of Creation: Story Mode – Android [UNOFFICIAL]"},
+            {"id": 139218, "slug": "tjocsm", "title": "The Joy of Creation: Story Mode"},
+        ]}});
+        assert_eq!(
+            gamejolt_search_match(&reply, &gamejolt_name_key("the-joy-of-creation-story-mode")),
+            Some(139218)
+        );
+        assert_eq!(gamejolt_search_match(&reply, "tjocsm"), Some(139218));
+        // a near name is not the game
+        assert_eq!(
+            gamejolt_search_match(&reply, &gamejolt_name_key("the-joy-of-creation")),
+            None
+        );
+        assert_eq!(
+            gamejolt_title(
+                &json!({"payload": {"game": {"title": " The Joy of Creation: Story Mode "}}})
+            ),
+            Some("The Joy of Creation: Story Mode".into())
+        );
+        assert_eq!(
+            gamejolt_title(&json!({"payload": {"game": {"title": ""}}})),
             None
         );
     }

@@ -864,6 +864,34 @@ static char* saved_gamejolt_art(const char* game_directory, const char* kind) {
     return NULL;
 }
 
+/* A game's name before the user renames it: Game Jolt's own title (saved with its art in .metalsharp/gamejolt.json),
+ * else its folder's name, with spaces for the dashes and underscores of a download's slug and its words capitalized
+ * when it has no capitals of its own ("the-joy-of-creation" reads "The Joy Of Creation"). */
+static char* gamejolt_default_name(const char* directory, const char* folder) {
+    char* meta = join_path(directory, ".metalsharp/gamejolt.json");
+    char* raw = meta ? read_text(meta) : NULL;
+    char error[96];
+    ms_json* json = raw ? ms_json_parse(raw, strlen(raw), error, sizeof(error)) : NULL;
+    char* title = json ? field(json, "title", "") : NULL;
+    free(meta);
+    free(raw);
+    ms_json_free(json);
+    if (title && title[0] && strlen(title) <= 160)
+        return title;
+    free(title);
+    char* name = strdup(folder ? folder : "");
+    bool capitals = false;
+    for (char* c = name; c && *c; ++c) {
+        if (*c == '-' || *c == '_')
+            *c = ' ';
+        capitals = capitals || (*c >= 'A' && *c <= 'Z');
+    }
+    for (char* c = name; name && !capitals && *c; ++c)
+        if (*c >= 'a' && *c <= 'z' && (c == name || c[-1] == ' '))
+            *c = (char)(*c - 'a' + 'A');
+    return name;
+}
+
 static void write_pipeline_options(ms_json_writer* writer) {
     static const char* const options[][2] = {
         {"d3dmetal", "D3DMetal"}, {"vkd3d", "VKD3D / DXVK"}, {"dxmt", "Mullion (DXMT)"}, {"wine_bare", "OpenGL"}};
@@ -891,7 +919,9 @@ static void write_game(ms_json_writer* writer, const char* home, const char* dir
     const char* slash = strrchr(directory, '/');
     const char* name = slash ? slash + 1 : directory;
     snprintf(id, sizeof(id), "gamejolt_%llx", path_hash(directory));
-    char* display_name = custom_game_name(home, id, name);
+    char* default_name = gamejolt_default_name(directory, name);
+    char* display_name = custom_game_name(home, id, default_name ? default_name : name);
+    free(default_name);
     ms_json_writer_object_begin(writer);
     ms_json_writer_key(writer, "id");
     ms_json_writer_string(writer, id);

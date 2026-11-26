@@ -375,7 +375,7 @@ impl LibraryPage {
             Self::Gog => "source-gog.svg",
             Self::Epic => "source-epic.svg",
             Self::WindowsPrograms => "icon-windows.svg",
-            Self::GameJolt => "source-gamejolt.svg",
+            Self::GameJolt => "icon-bolt.svg",
             Self::Logs => "icon-logs.svg",
         }
     }

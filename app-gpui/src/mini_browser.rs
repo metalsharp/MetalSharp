@@ -133,6 +133,16 @@ fn gamejolt_sign_in_host(host: &str) -> bool {
         .iter()
         .any(|d| host == *d || host.strip_suffix(d).is_some_and(|p| p.ends_with('.')))
 }
+thread_local! {
+    /// The last Game Jolt game page the browser was on.
+    static LAST_GAMEJOLT_PAGE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+/// Remember the Game Jolt browser's page when it is a game's page (or a page under it, such as its download page).
+fn remember_gamejolt_page(url: &str) {
+    if crate::host_actions::gamejolt_game_id(url).is_some() {
+        LAST_GAMEJOLT_PAGE.with(|page| *page.borrow_mut() = Some(url.to_string()));
+    }
+}
 /// Whether the Game Jolt browser's page is Google's sign-in, whose own frames (session checks, challenges) load.
 pub fn gamejolt_signing_in(raw: &str) -> bool {
     Url::parse(raw).is_ok_and(|url| {
@@ -584,6 +594,12 @@ mod native {
                     return;
                 }
                 let mut allow = false;
+                if is_main_frame && *self.ivars().purpose.get().unwrap() == BrowserPurpose::GameJolt {
+                    // the page the browser leaves: a game's page, before Game Jolt hands a download to its CDN
+                    if let Some(url) = unsafe { _web_view.URL() }.and_then(|url| url.absoluteString()) {
+                        remember_gamejolt_page(&url.to_string());
+                    }
+                }
                 if is_main_frame {
                     if let Some(raw) = raw {
                         if *self.ivars().purpose.get().unwrap() == BrowserPurpose::GogAuth {
@@ -789,11 +805,14 @@ mod native {
                 let id = NEXT_DOWNLOAD.with(|n| { let id = n.get(); n.set(id + 1); id });
                 let expected = response.expectedContentLength();
                 let total = (expected > 0).then_some(expected as u64);
-                // the browser's page when the download starts: the game's page, whose art the game gets (#822)
+                // the browser's page when the download starts: the game's page, whose art the game gets (#822). A
+                // download Game Jolt hands to its CDN starts on the CDN's address, so the game page it left stands in.
                 let page_url = unsafe { download.webView() }
                     .and_then(|web| unsafe { web.URL() })
                     .and_then(|url| url.absoluteString())
-                    .map(|url| url.to_string());
+                    .map(|url| url.to_string())
+                    .filter(|url| crate::host_actions::gamejolt_game_id(url).is_some())
+                    .or_else(|| LAST_GAMEJOLT_PAGE.with(|page| page.borrow().clone()));
                 let retained = unsafe { Retained::retain(download as *const WKDownload as *mut WKDownload) };
                 // WebKit holds download delegates weakly; keep ours alive until the transfer ends.
                 let keep = unsafe { Retained::retain(self as *const Delegate as *mut Delegate) };

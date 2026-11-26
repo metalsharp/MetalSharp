@@ -1028,14 +1028,23 @@ impl MetalSharpApp {
                                 let organized = crate::host_actions::organize_gamejolt_download(
                                     &path, &filename, &dir,
                                 );
-                                // its art from its Game Jolt page, before the sync that lists it (#822)
-                                if let (Ok(game_dir), Some(page_url)) = (&organized, &page_url)
-                                    && let Err(error) =
-                                        crate::host_actions::fetch_gamejolt_art(game_dir, page_url)
-                                {
-                                    eprintln!(
-                                        "MetalSharp: no Game Jolt art for {filename}: {error}"
-                                    );
+                                // its art and title from its Game Jolt page, before the sync that lists it
+                                // (#822); a download whose page isn't known finds its game by its name
+                                if let Ok(game_dir) = &organized {
+                                    let fetched = match &page_url {
+                                        Some(page_url) => crate::host_actions::fetch_gamejolt_art(
+                                            game_dir, page_url,
+                                        ),
+                                        None => Err("no Game Jolt page".into()),
+                                    }
+                                    .or_else(|_| {
+                                        crate::host_actions::fetch_gamejolt_art_by_name(game_dir)
+                                    });
+                                    if let Err(error) = fetched {
+                                        eprintln!(
+                                            "MetalSharp: no Game Jolt art for {filename}: {error}"
+                                        );
+                                    }
                                 }
                                 let synced = live
                                     .request("POST", "/gamejolt/sync", None, live::DEFAULT_TIMEOUT)

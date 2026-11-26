@@ -1192,6 +1192,22 @@ int main(int argc, char** argv) {
     assert(!strcmp(getenv("MS_GRAPHICS_BACKEND"), "fna_arm64"));
     assert(!getenv("DXMT_CONFIG_FILE"));
     {
+        /* A Game Jolt game is named by Game Jolt's own title, saved with its art; without it, by its folder, with
+         * no dashes or underscores (a download's slug) */
+        char* gj_home = join(home, "gamejolt-names");
+        char* response;
+        fixture(home, "gamejolt-names/GameJolt/the-joy_of-creation/Game.exe", "game");
+        response = ms_gamejolt_json(gj_home);
+        assert(response && strstr(response, "\"name\":\"The Joy Of Creation\""));
+        free(response);
+        fixture(home, "gamejolt-names/GameJolt/the-joy_of-creation/.metalsharp/gamejolt.json",
+                "{\"gameId\":139218,\"title\":\"The Joy of Creation: Story Mode\"}");
+        response = ms_gamejolt_json(gj_home);
+        assert(response && strstr(response, "\"name\":\"The Joy of Creation: Story Mode\""));
+        free(response);
+        free(gj_home);
+    }
+    {
         /* The x86_64 runtime's lanes, as Steam games have them (#822): no DXMT(32) or D3D9 of their own any more */
         const char* expected[] = {"d3dmetal", "vkd3d", "dxmt", "wine_bare"};
         const char* expected_names[] = {"D3DMetal", "VKD3D / DXVK", "Mullion (DXMT)", "OpenGL"};
