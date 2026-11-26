@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/hdiutil-retry.sh"
 
 if [ "$#" -lt 1 ]; then
   echo "usage: $0 <app-or-dmg> [<app-or-dmg> ...]" >&2
@@ -58,7 +59,7 @@ verify_developer_id_dmg() {
     exit 1
   fi
 
-  hdiutil verify "$dmg"
+  retry_hdiutil verify "$dmg"
   codesign --verify --verbose=4 "$dmg"
   signature_info="$(codesign --display --verbose=4 "$dmg" 2>&1)"
   if ! printf '%s\n' "$signature_info" | grep -q "Authority=Developer ID Application"; then

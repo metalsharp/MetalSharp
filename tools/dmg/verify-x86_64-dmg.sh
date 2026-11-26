@@ -10,6 +10,7 @@
 # METALSHARP_X86_64_VERIFY_ALLOW_ADHOC=1 accepts an ad-hoc outer app (local and
 # unsigned builds) and then skips the team check.
 set -euo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/hdiutil-retry.sh"
 
 DMG="${1:?usage: tools/dmg/verify-x86_64-dmg.sh path/to/MetalSharp-<ver>-arm64.dmg [source MetalSharp-Wine-x86_64.app]}"
 SOURCE_WINE_APP="${2:-}"
@@ -29,7 +30,7 @@ cleanup() {
   rmdir "$MOUNT_DIR" 2>/dev/null || true
 }
 trap cleanup EXIT
-hdiutil attach "$DMG" -mountpoint "$MOUNT_DIR" -nobrowse -readonly -quiet
+retry_hdiutil attach "$DMG" -mountpoint "$MOUNT_DIR" -nobrowse -readonly -quiet
 
 APP="$MOUNT_DIR/MetalSharp.app"
 [ -d "$APP" ] || fail "DMG does not contain MetalSharp.app"

@@ -6,6 +6,7 @@
 # app (Info.plist MetalSharpVariant=fex) carrying Resources/MetalSharp-Wine.app,
 # which is copied as is and verified, never re-signed.
 set -euo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/hdiutil-retry.sh"
 
 if [ "$#" -ne 2 ]; then
   echo "usage: $0 <MetalSharp.app> <output-dir>" >&2
@@ -72,5 +73,5 @@ hdiutil create \
   -format UDZO \
   -imagekey zlib-level=9 \
   "$DMG"
-hdiutil verify "$DMG"
+retry_hdiutil verify "$DMG"
 echo "Built DMG: $DMG"
