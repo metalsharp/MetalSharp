@@ -888,7 +888,13 @@ impl Render for SharpPreview {
                 div()
                     .mb(px(10.0))
                     .text_size(px(10.0))
-                    .text_color(gpui::rgba(crate::page_palette::tca(0xf0efe799)))
+                    .text_color(gpui::rgba(crate::page_palette::tca(
+                        if self.palette.glass {
+                            0xffffffd9
+                        } else {
+                            0xf0efe799
+                        },
+                    )))
                     .font_family("Georgia")
                     .child(
                         eyebrow
@@ -911,7 +917,12 @@ impl Render for SharpPreview {
                     .mt(px(8.0))
                     .text_size(px(13.0))
                     .line_height(px(17.55))
-                    .text_color(rgb(crate::page_palette::tc(0xaeb3b2)))
+                    // over glass, which may be light, the subtitle stays as bright as the title
+                    .text_color(rgb(crate::page_palette::tc(if self.palette.glass {
+                        0xeee9dd
+                    } else {
+                        0xaeb3b2
+                    })))
                     .child(subtitle),
             );
         let header_copy = if stacked {
