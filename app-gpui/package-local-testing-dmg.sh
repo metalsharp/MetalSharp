@@ -77,8 +77,7 @@ hdiutil create \
   -volname "MetalSharp GPUI $VERSION Test" \
   -srcfolder "$STAGE" \
   -ov \
-  -format UDZO \
-  -imagekey zlib-level=9 \
+  -format ULFO \
   "$DMG"
 hdiutil verify "$DMG"
 "$ROOT/tools/dmg/verify-dmg-runtime-assets.sh" "$DMG"

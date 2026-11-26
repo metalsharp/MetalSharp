@@ -66,12 +66,13 @@ if [ "$VARIANT" = "fex" ]; then
 fi
 ln -s /Applications "$STAGE/Applications"
 rm -f "$DMG"
+# ULFO (LZFSE): on the 3.9 GB FEX app, 36s and 1.53 GB where UDZO at zlib-level=9 took 220s for 1.56 GB.
+# Every macOS MetalSharp supports mounts it.
 hdiutil create \
   -volname "MetalSharp" \
   -srcfolder "$STAGE" \
   -ov \
-  -format UDZO \
-  -imagekey zlib-level=9 \
+  -format ULFO \
   "$DMG"
 retry_hdiutil verify "$DMG"
 echo "Built DMG: $DMG"
