@@ -11,7 +11,9 @@ if [ ! -s "$DMG" ]; then
   exit 1
 fi
 
-MOUNT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-dmg-mount.XXXXXX")"
+# The mount point is in /tmp, not $TMPDIR: macOS refuses to mount an image on a folder of an external volume
+# ("attach failed - Permission denied"), and a release runner keeps its TMPDIR on one.
+MOUNT_DIR="$(mktemp -d "/tmp/metalsharp-dmg-mount.XXXXXX")"
 LIST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-dmg-bundles.XXXXXX")"
 
 cleanup() {
@@ -20,7 +22,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-retry_hdiutil attach "$DMG" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
+retry_hdiutil attach "$DMG" -mountpoint "$MOUNT_DIR" -nobrowse >/dev/null
 
 APP_DIR="$(find "$MOUNT_DIR" -maxdepth 1 -name '*.app' -type d | head -n 1)"
 if [ -z "$APP_DIR" ]; then
