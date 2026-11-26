@@ -81,7 +81,7 @@ pub fn x86_64_pipeline(id: &str) -> &str {
 
 /// The pipelines a game can pick on FEX. D3DMetal, GPTK and the D3D9 route are not part of it, nor
 /// Mono/FNA (FNA games run as Windows programs under FEX). VKD3D / DXVK is one lane, as on x86_64:
-/// MetalSharp Wine 9.0 runs VKD3D-Proton's D3D12 with the full DXVK (D3D11 to D3D3, 64- and 32-bit) in it.
+/// MetalSharp Wine (since 9.0) runs VKD3D-Proton's D3D12 with the full DXVK (D3D11 to D3D3, 64- and 32-bit) in it.
 pub const FEX_PIPELINE_OPTIONS: [(&str, &str); 4] = [
     ("dxmt", "Mullion (DXMT)"),
     // Mullion with MetalVR: the VR server starts before the game, and SteamVR and OpenXR find the headset
