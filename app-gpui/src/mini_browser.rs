@@ -108,8 +108,12 @@ impl BrowserPurpose {
                         "lego.com",
                     ])
             }
-            // Store pages plus the GameJolt download/CDN hosts that serve builds.
-            Self::GameJolt => suffix(&["gamejolt.com", "gamejolt.net", "gjcdn.net"]),
+            // Store pages plus the GameJolt download/CDN hosts that serve builds, and "Sign in with Google",
+            // which leaves Game Jolt for Google's sign-in and comes back on gamejolt.com/x/social/callback.
+            Self::GameJolt => {
+                suffix(&["gamejolt.com", "gamejolt.net", "gjcdn.net"])
+                    || gamejolt_sign_in_host(host)
+            }
             Self::SteamApiKeyHelp => exact(&["steamcommunity.com", "www.steamcommunity.com"]),
             Self::SteamStore => exact(&[
                 "steampowered.com",
@@ -121,6 +125,22 @@ impl BrowserPurpose {
             }
         }
     }
+}
+/// Google's sign-in, which Game Jolt's "Sign in with Google" redirects through (accounts.google.com, and
+/// accounts.youtube.com, where Google sets its session).
+fn gamejolt_sign_in_host(host: &str) -> bool {
+    ["google.com", "youtube.com"]
+        .iter()
+        .any(|d| host == *d || host.strip_suffix(d).is_some_and(|p| p.ends_with('.')))
+}
+/// Whether the Game Jolt browser's page is Google's sign-in, whose own frames (session checks, challenges) load.
+pub fn gamejolt_signing_in(raw: &str) -> bool {
+    Url::parse(raw).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url
+                .host_str()
+                .is_some_and(|host| gamejolt_sign_in_host(&host.to_ascii_lowercase()))
+    })
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum UrlPolicyError {
@@ -593,7 +613,7 @@ mod native {
                                 .is_ok();
                         }
                     }
-                } else if self.auth_window() {
+                } else if self.auth_window() || self.gamejolt_signing_in(_web_view) {
                     // Captcha/consent frames (reCAPTCHA, hCaptcha, Arkose) come
                     // from their own hosts; the main frame stays on the allowlist.
                     allow = raw.as_deref().is_some_and(subframe_allowed);
@@ -640,7 +660,7 @@ mod native {
                 let allow = !is_attachment && unsafe { response.canShowMIMEType() }
                     && response_url.as_deref().is_some_and(|url| match self.ivars().fixture_initial_url.as_deref() {
                         Some(initial)=>url==initial || url=="about:blank",
-                        None if !unsafe { response.isForMainFrame() } && self.auth_window() => subframe_allowed(url),
+                        None if !unsafe { response.isForMainFrame() } && (self.auth_window() || self.gamejolt_signing_in(_web_view)) => subframe_allowed(url),
                         None=>validate_navigation(*self.ivars().purpose.get().unwrap(), url).is_ok(),
                     });
                 handler.call((if allow {
@@ -934,6 +954,14 @@ mod native {
                 popup: Cell::new(false),
             });
             unsafe { objc2::msg_send![super(this), init] }
+        }
+        /// The Game Jolt browser on Google's sign-in page.
+        fn gamejolt_signing_in(&self, web_view: &WKWebView) -> bool {
+            self.ivars().fixture_initial_url.is_none()
+                && self.ivars().purpose.get() == Some(&BrowserPurpose::GameJolt)
+                && unsafe { web_view.URL() }
+                    .and_then(|url| url.absoluteString())
+                    .is_some_and(|url| gamejolt_signing_in(&url.to_string()))
         }
         fn auth_window(&self) -> bool {
             self.ivars().fixture_initial_url.is_none()
@@ -2256,6 +2284,36 @@ mod tests {
         assert!(
             validate_navigation(BrowserPurpose::GameJolt, "https://steamcommunity.com/").is_err()
         );
+    }
+    #[test]
+    fn gamejolt_signs_in_with_google() {
+        // "Sign in with Google" leaves Game Jolt for Google's sign-in and comes back on Game Jolt's callback.
+        for raw in [
+            "https://accounts.google.com/v3/signin/identifier?redirect_uri=https%3A%2F%2Fgamejolt.com%2Fx%2Fsocial%2Fcallback",
+            "https://accounts.youtube.com/accounts/SetSID",
+            "https://gamejolt.com/x/social/callback?code=1",
+        ] {
+            assert!(
+                validate_navigation(BrowserPurpose::GameJolt, raw).is_ok(),
+                "{raw}"
+            );
+        }
+        for raw in [
+            "https://google.com.evil.test/",
+            "https://evilgoogle.com/",
+            "http://accounts.google.com/",
+            "https://user@accounts.google.com/",
+        ] {
+            assert!(
+                validate_navigation(BrowserPurpose::GameJolt, raw).is_err(),
+                "{raw}"
+            );
+        }
+        assert!(gamejolt_signing_in(
+            "https://accounts.google.com/v3/signin/identifier"
+        ));
+        assert!(!gamejolt_signing_in("https://gamejolt.com/login"));
+        assert!(!gamejolt_signing_in("http://accounts.google.com/"));
     }
     #[test]
     fn gog_callback_is_exact_and_one_shot() {
