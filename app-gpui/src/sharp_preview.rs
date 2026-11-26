@@ -65,17 +65,15 @@ impl SharpSource {
             Self::GameJolt => "Indie games library",
         }
     }
-    fn header(self) -> (&'static str, &'static str, &'static str) {
-        let e = "METALSHARP · INSTALLERS & LAUNCHERS";
+    fn header(self) -> (&'static str, &'static str) {
         match self {
             Self::Installers => (
-                e,
                 "Sharp Library",
                 "Install and manage Windows applications outside Steam.",
             ),
-            Self::Gog => (e, "GOG Library", "GOG games library"),
-            Self::Epic => (e, "Epic Library", "Epic games library"),
-            Self::GameJolt => (e, "Game Jolt Library", "Indie games library"),
+            Self::Gog => ("GOG Library", "GOG games library"),
+            Self::Epic => ("Epic Library", "Epic games library"),
+            Self::GameJolt => ("Game Jolt Library", "Indie games library"),
         }
     }
 }
@@ -878,31 +876,12 @@ impl Render for SharpPreview {
             (width * 0.03).clamp(30.0, 42.0)
         };
         let source = self.state.source;
-        let (eyebrow, title, subtitle) = source.header();
+        let (title, subtitle) = source.header();
         let header_copy = div()
             .min_w_0()
             .flex()
             .flex_col()
             .gap(px(5.0))
-            .child(
-                div()
-                    .mb(px(10.0))
-                    .text_size(px(10.0))
-                    .text_color(gpui::rgba(crate::page_palette::tca(
-                        if self.palette.glass {
-                            0xffffffd9
-                        } else {
-                            0xf0efe799
-                        },
-                    )))
-                    .font_family("Georgia")
-                    .child(
-                        eyebrow
-                            .chars()
-                            .map(|ch| format!("{ch} "))
-                            .collect::<String>(),
-                    ),
-            )
             .child(
                 div()
                     .font_family("Georgia")
