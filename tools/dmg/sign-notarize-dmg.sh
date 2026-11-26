@@ -37,7 +37,11 @@ if [ "$password_credentials" -ne 1 ] && [ "$api_key_credentials" -ne 1 ]; then
   exit 1
 fi
 
-codesign --force --sign "$APPLE_SIGNING_IDENTITY" --timestamp -i com.metalsharp.app.dmg "$dmg"
+# CSC_KEYCHAIN (prepare-apple-signing.sh's keychain) is the only place the identity is looked up: a Mac with the same
+# Developer ID in another keychain (System, or a second release runner's) makes a name lookup "ambiguous".
+KEYCHAIN_ARGS=()
+[ -z "${CSC_KEYCHAIN:-}" ] || KEYCHAIN_ARGS=(--keychain "$CSC_KEYCHAIN")
+codesign --force --sign "$APPLE_SIGNING_IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} --timestamp -i com.metalsharp.app.dmg "$dmg"
 codesign --verify --verbose=4 "$dmg"
 
 notary_args=(notarytool submit "$dmg" --wait --timeout 2h --output-format json)
