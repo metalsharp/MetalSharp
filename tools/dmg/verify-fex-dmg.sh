@@ -24,13 +24,15 @@ case "$(basename "$DMG")" in
   *) fail "FEX DMG must be named MetalSharp-<version>-arm64-FEX.dmg: $DMG" ;;
 esac
 
-MOUNT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-fex-dmg-mount.XXXXXX")"
+# Mount on the boot volume: TMPDIR can be on a volume with ownership off (the release runners' is), and macOS refuses
+# a mount there ("attach failed - Permission denied").
+MOUNT_DIR="$(mktemp -d "/private/tmp/metalsharp-fex-dmg-mount.XXXXXX")"
 cleanup() {
   hdiutil detach "$MOUNT_DIR" -quiet 2>/dev/null || true
   rmdir "$MOUNT_DIR" 2>/dev/null || true
 }
 trap cleanup EXIT
-retry_hdiutil attach "$DMG" -mountpoint "$MOUNT_DIR" -nobrowse -readonly -quiet
+retry_hdiutil attach "$DMG" -mountpoint "$MOUNT_DIR" -nobrowse -readonly >/dev/null
 
 APP="$MOUNT_DIR/MetalSharp.app"
 [ -d "$APP" ] || fail "DMG does not contain MetalSharp.app"

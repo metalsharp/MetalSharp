@@ -11,7 +11,9 @@ if [ ! -s "$DMG" ]; then
   exit 1
 fi
 
-MOUNT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-dmg-mount.XXXXXX")"
+# Mount on the boot volume: TMPDIR can be on a volume with ownership off (the release runners' is), and macOS refuses
+# a mount there ("attach failed - Permission denied").
+MOUNT_DIR="$(mktemp -d "/private/tmp/metalsharp-dmg-mount.XXXXXX")"
 LIST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-dmg-bundles.XXXXXX")"
 
 cleanup() {
@@ -20,7 +22,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-retry_hdiutil attach "$DMG" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
+retry_hdiutil attach "$DMG" -mountpoint "$MOUNT_DIR" -nobrowse >/dev/null
 
 APP_DIR="$(find "$MOUNT_DIR" -maxdepth 1 -name '*.app' -type d | head -n 1)"
 if [ -z "$APP_DIR" ]; then
