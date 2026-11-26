@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v1.6.0 — 2026-11-26
+
+MetalSharp 1.6.0 runs on [MetalSharp Wine 10.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v10.0) on both runtimes: Wine 11.22 on both, a faster Mullion, and the Rockstar Games Launcher on the x86_64 runtime too. MetalSharp itself opens in about a second, Game Jolt has its own page with its games' art and names, and the GOG, Epic and Windows Programs Collection views are cleaner, with each game's Uninstall in its settings.
 
 ### Added
 
@@ -8,6 +10,10 @@
 - **Game Jolt art and names** (#822) — a game downloaded in the Game Jolt browser gets its card art (the game's thumbnail, whole, on a portrait card of its own over a blur of it), its hero art (its header) and its name (its title on Game Jolt, such as "The Joy of Creation: Story Mode") from its Game Jolt page, in place of its executable's icon and its download's folder name. They're saved in the game's folder (`.metalsharp/gamejolt-card.*`, `.metalsharp/gamejolt-hero.*`, and its Game Jolt id, page and title in `.metalsharp/gamejolt.json`). A download Game Jolt hands to its CDN keeps the game page it came from, and a game whose page isn't known (one downloaded before) finds its game on Game Jolt by its folder's name, taking only an exact title match. A game without either is named by its folder, without its dashes or underscores. **Change Image** and **Rename** still pick others.
 - **Game Jolt browser toolbar** (#822) — back, forward, reload and the Game Jolt games page, and the page's zoom (50 % to 200 %).
 - **Launch summary in the day's log** (#834) — each game launch writes how it runs to `logs/<date>.log`, which Report a problem includes: the runtime, the route, MetalSharp and MetalSharp Wine's versions, the executable and its folder, Wine's command line, and the environment that picks the game's rendering (Wine, Mullion, DXVK, VKD3D, Metal, Rosetta, FEX). A variable named like a credential is left out. With Settings > Graphics runtime logs on, the game's runtime log starts with it too.
+
+### Changed
+
+- **MetalSharp Wine 9.0 → 10.0** — both builds carry and download [MetalSharp Wine 10.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v10.0) (`MS_WINE_RELEASE_VERSION`, and Release CI's `METALSHARP_WINE_TAG`). Both runtimes are Wine 11.22, with Mullion's faster textures, render targets and draws, msync as WineForge's USync 6, and USB licence dongles; the x86_64 runtime runs the Rockstar Games Launcher. An update lays out the new runtime from the app it carries, or downloads it.
 
 ### Fixed
 
@@ -20,6 +26,7 @@
 - **Uninstall in a game's settings** — a GOG, Epic or Game Jolt game's settings, and a Windows program's, have an **Uninstall** tab, which asks as the art menu's Uninstall… does. Collection cards no longer have an Uninstall button.
 - **The store button's menu reads under Liquid Glass** — its Uninstall item ("Uninstall GOG…") was washed out over light glass; the menu is now nearly opaque, as the graphics selector's list is.
 - **Glass at the top of every page** — with Liquid Glass, each header control ran up into the page's glass behind it, a band of the theme's color between the control and the window's title bar. Glass blends with glass near it, and the page's glass began at the window's top edge, just above the controls; it now starts above the window.
+- **GTA V Enhanced from Epic showed "Buy now"** (#840) — Epic games start under an `EpicGamesLauncher.exe`, as on Windows, so launchers that look for it above them (the Rockstar Games Launcher) find it and keep the Epic entitlement. By @multision.
 - **Diagnostic launch logs printed `\n`** — the FNA and Rain World launch headers wrote a literal backslash-n instead of a line break.
 - **MetalSharp opens in about a second** — the backend's startup refresh held setup's state, and with it the window's first load, until the other runtime's Wine app was refreshed too: a deep signature check of a 4.4 GB app at best. On the FEX build, a damaged x86_64 Wine app was its own source, so every launch copied it onto itself, failed, and held the app for about 20 seconds. Setup's state now waits only for the active runtime, the other app is refreshed after it, and an app is never reinstalled from itself.
 
