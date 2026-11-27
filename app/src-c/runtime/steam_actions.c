@@ -3,6 +3,7 @@
 #define _DARWIN_C_SOURCE 1
 #endif
 #endif
+#include "metalsharp_backend/cache.h"
 #include "metalsharp_backend/host_os.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/ngx_core.h"
@@ -1120,18 +1121,22 @@ static bool x86_64_metalsharp_wine(void) {
 }
 
 static void set_launch_cache_env(const char* home, unsigned id, const char* pipeline) {
-    char fex_subdir[64];
+    char fex_subdir[64], cache_folder[64];
     const char* subdir = pipeline;
     char shader[PATH_MAX], cache[PATH_MAX], summary[PATH_MAX * 2];
     /* the last launch's game folder is not this one's */
     unsetenv("MULLION_LOG_PATH");
-    /* Mullion's caches are not DXMT's: the fex build keeps its own. */
+    /* each runtime's logs and its own lanes' caches are apart, the fex build's as fex-<lane> */
     if (ms_wine_is_fex()) {
         snprintf(fex_subdir, sizeof(fex_subdir), "fex-%s", pipeline);
         subdir = fex_subdir;
     }
-    snprintf(shader, sizeof(shader), "%s/shader-cache/%s/%u", home, subdir, id);
-    snprintf(cache, sizeof(cache), "%s/pipeline-cache/%s/%u", home, subdir, id);
+    /* Mullion's caches are one folder for both runtimes where both run Mullion (cache.c ms_cache_lane_folder): a game
+     * switched from one to the other finds its shaders converted and its pipelines compiled */
+    ms_cache_adopt_mullion_cache(home, pipeline, id);
+    ms_cache_lane_folder(pipeline, cache_folder, sizeof(cache_folder));
+    snprintf(shader, sizeof(shader), "%s/shader-cache/%s/%u", home, cache_folder, id);
+    snprintf(cache, sizeof(cache), "%s/pipeline-cache/%s/%u", home, cache_folder, id);
     (void)ensure_directory(shader);
     (void)ensure_directory(cache);
     snprintf(summary, sizeof(summary), "shader=%s/;pipeline=%s/", shader, cache);
