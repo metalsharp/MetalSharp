@@ -186,12 +186,19 @@ int main(int argc, char** argv) {
         json = ms_cache_clear_json(home, (const unsigned char*)clear_unknown, strlen(clear_unknown));
         EXPECT(json && strstr(json, "\"ok\":false"));
         free(json);
-        /* Mullion's Clear empties MetalSharp's per-game folders and, without "shared", leaves Metal's
-         * cache that every Mullion game shares (reported apart) alone. */
-        snprintf(command, sizeof(command), "mkdir -p '%s/shader-cache/fex-dxmt/9' '%s/shader-cache/fex-dxmt_32/8'", home,
+        /* Mullion's lanes are one folder for both runtimes (mullion, mullion_32), the other lanes the fex build's own.
+         * Mullion's Clear empties those per-game folders and, without "shared", leaves Metal's cache that every
+         * Mullion game shares (reported apart) alone. */
+        {
+            char folder[64];
+            EXPECT(!strcmp(ms_cache_lane_folder("dxmt", folder, sizeof(folder)), "mullion"));
+            EXPECT(!strcmp(ms_cache_lane_folder("dxmt_32", folder, sizeof(folder)), "mullion_32"));
+            EXPECT(!strcmp(ms_cache_lane_folder("vkd3d", folder, sizeof(folder)), "fex-vkd3d"));
+        }
+        snprintf(command, sizeof(command), "mkdir -p '%s/shader-cache/mullion/9' '%s/shader-cache/mullion_32/8'", home,
                  home);
         EXPECT(system(command) == 0);
-        snprintf(path, sizeof(path), "%s/shader-cache/fex-dxmt/9/shaders_320.db", home);
+        snprintf(path, sizeof(path), "%s/shader-cache/mullion/9/shaders_320.db", home);
         write_text(path, "mullion shaders\n");
         json = ms_cache_size_json(home);
         EXPECT(json && strstr(json, "\"shared_bytes\":") && strstr(json, "\"apps\":2,"));
@@ -200,8 +207,38 @@ int main(int argc, char** argv) {
         EXPECT(json && strstr(json, "\"bytes_freed\":16"));
         free(json);
         EXPECT(access(path, F_OK) != 0);
-        snprintf(path, sizeof(path), "%s/shader-cache/fex-dxmt", home);
+        snprintf(path, sizeof(path), "%s/shader-cache/mullion", home);
         EXPECT(access(path, F_OK) == 0);
+        /* a game's Mullion caches either runtime made in its own folder become the shared ones: the larger, and the
+         * other runtime's copy goes; a shared folder with caches is kept, and a folder of DXMT's own caches is not
+         * Mullion's */
+        snprintf(command, sizeof(command), "mkdir -p '%s/shader-cache/fex-dxmt/5' '%s/shader-cache/dxmt/5' '%s/shader-cache/dxmt/6'",
+                 home, home, home);
+        EXPECT(system(command) == 0);
+        snprintf(path, sizeof(path), "%s/shader-cache/fex-dxmt/5/pipelines_400_v130_0.metallib", home);
+        write_text(path, "the fex build's archive, the larger\n");
+        snprintf(path, sizeof(path), "%s/shader-cache/dxmt/5/shaders_400.v130.db", home);
+        write_text(path, "x86_64\n");
+        snprintf(path, sizeof(path), "%s/shader-cache/dxmt/6/dxmt-shaders.cache", home);
+        write_text(path, "DXMT's own\n");
+        ms_cache_adopt_mullion_cache(home, "dxmt", 5);
+        snprintf(path, sizeof(path), "%s/shader-cache/mullion/5/pipelines_400_v130_0.metallib", home);
+        EXPECT(access(path, F_OK) == 0);
+        snprintf(path, sizeof(path), "%s/shader-cache/fex-dxmt/5", home);
+        EXPECT(access(path, F_OK) != 0);
+        snprintf(path, sizeof(path), "%s/shader-cache/dxmt/5", home);
+        EXPECT(access(path, F_OK) != 0);
+        snprintf(command, sizeof(command), "mkdir -p '%s/shader-cache/fex-dxmt/5'", home);
+        EXPECT(system(command) == 0);
+        snprintf(path, sizeof(path), "%s/shader-cache/fex-dxmt/5/shaders_400.v130.db", home);
+        write_text(path, "made again by an older backend\n");
+        ms_cache_adopt_mullion_cache(home, "dxmt", 5);
+        EXPECT(access(path, F_OK) == 0);
+        ms_cache_adopt_mullion_cache(home, "dxmt", 6);
+        snprintf(path, sizeof(path), "%s/shader-cache/dxmt/6/dxmt-shaders.cache", home);
+        EXPECT(access(path, F_OK) == 0);
+        snprintf(path, sizeof(path), "%s/shader-cache/mullion/6", home);
+        EXPECT(access(path, F_OK) != 0);
     }
 
     /* The startup refresh and a migration's install never replace MetalSharp Wine at once: the

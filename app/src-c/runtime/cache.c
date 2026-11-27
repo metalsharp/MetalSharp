@@ -9,6 +9,7 @@
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/wine_runtime.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <limits.h>
@@ -180,17 +181,95 @@ static bool fex_cache_lane(const char* lane) {
     return false;
 }
 
+/* Mullion is the runtime's DXMT lane on the FEX runtime and on MetalSharp Wine x86_64 (which routes the vkd3d lane);
+ * the x86_64 regular runtime's is DXMT itself, whose caches are not Mullion's. */
+static bool runtime_runs_mullion(void) {
+    return ms_wine_is_fex() || ms_wine_routes_lane("vkd3d");
+}
+
+const char* ms_cache_lane_folder(const char* lane, char* out, size_t out_size) {
+    if (runtime_runs_mullion() && !strcmp(lane, "dxmt"))
+        snprintf(out, out_size, "mullion");
+    else if (runtime_runs_mullion() && !strcmp(lane, "dxmt_32"))
+        snprintf(out, out_size, "mullion_32");
+    else
+        snprintf(out, out_size, "%s%s", ms_wine_is_fex() ? "fex-" : "", lane);
+    return out;
+}
+
 /* The folders MetalSharp owns for a lane, per game: up to four, written to roots[]; returns how many. */
 static size_t fex_lane_roots(const char* home, const char* lane, char roots[6][PATH_MAX]) {
     static const char* const kinds[] = {"shader-cache", "pipeline-cache"};
-    const char* prefix = ms_wine_is_fex() ? "fex-" : "";
+    char folder[64];
     size_t count = 0;
     for (size_t k = 0; k < 2; k++) {
-        snprintf(roots[count++], PATH_MAX, "%s/%s/%s%s", home, kinds[k], prefix, lane);
+        snprintf(roots[count++], PATH_MAX, "%s/%s/%s", home, kinds[k], ms_cache_lane_folder(lane, folder, sizeof(folder)));
         if (!strcmp(lane, "dxmt"))
-            snprintf(roots[count++], PATH_MAX, "%s/%s/%sdxmt_32", home, kinds[k], prefix);
+            snprintf(roots[count++], PATH_MAX, "%s/%s/%s", home, kinds[k],
+                     ms_cache_lane_folder("dxmt_32", folder, sizeof(folder)));
     }
     return count;
+}
+
+/* Whether a folder holds Mullion's caches: its shader database (shaders_<metal>.v<version>.db) or pipeline archive
+ * shards (pipelines_<metal>_v<version>_<n>.metallib), and their bytes. DXMT's own caches are named otherwise. */
+static bool mullion_cache_folder(const char* path, unsigned long long* bytes) {
+    DIR* dir = opendir(path);
+    struct dirent* entry;
+    bool found = false;
+    struct cache_stats stats = {0};
+    if (!dir)
+        return false;
+    while (!found && (entry = readdir(dir)) != NULL) {
+        const char* rest = NULL;
+        if (!strncmp(entry->d_name, "shaders_", 8))
+            rest = entry->d_name + 8;
+        else if (!strncmp(entry->d_name, "pipelines_", 10))
+            rest = entry->d_name + 10;
+        if (!rest || !isdigit((unsigned char)*rest))
+            continue;
+        while (isdigit((unsigned char)*rest))
+            rest++;
+        found = (rest[0] == '.' || rest[0] == '_') && rest[1] == 'v';
+    }
+    closedir(dir);
+    if (found)
+        collect_stats(path, 1, &stats);
+    *bytes = stats.bytes;
+    return found;
+}
+
+void ms_cache_adopt_mullion_cache(const char* home, const char* lane, unsigned appid) {
+    static const char* const kinds[] = {"shader-cache", "pipeline-cache"};
+    char folder[64];
+    if (!home || !lane || !runtime_runs_mullion() || (strcmp(lane, "dxmt") && strcmp(lane, "dxmt_32")))
+        return;
+    ms_cache_lane_folder(lane, folder, sizeof(folder));
+    for (size_t k = 0; k < 2; k++) {
+        char shared[PATH_MAX], parent[PATH_MAX], own[2][PATH_MAX];
+        unsigned long long bytes[2] = {0, 0}, shared_bytes = 0;
+        bool held[2];
+        int keep;
+        snprintf(shared, sizeof(shared), "%s/%s/%s/%u", home, kinds[k], folder, appid);
+        /* a shared folder with Mullion's caches is the game's already */
+        if (mullion_cache_folder(shared, &shared_bytes))
+            continue;
+        snprintf(own[0], sizeof(own[0]), "%s/%s/fex-%s/%u", home, kinds[k], lane, appid);
+        snprintf(own[1], sizeof(own[1]), "%s/%s/%s/%u", home, kinds[k], lane, appid);
+        held[0] = mullion_cache_folder(own[0], &bytes[0]);
+        held[1] = mullion_cache_folder(own[1], &bytes[1]);
+        if (!held[0] && !held[1])
+            continue;
+        keep = held[0] && (!held[1] || bytes[0] >= bytes[1]) ? 0 : 1;
+        snprintf(parent, sizeof(parent), "%s/%s/%s", home, kinds[k], folder);
+        (void)mkdir(parent, 0755);
+        /* an empty shared folder made at an earlier launch gives way */
+        (void)rmdir(shared);
+        if (rename(own[keep], shared) != 0)
+            continue;
+        if (held[1 - keep])
+            (void)remove_tree(own[1 - keep]);
+    }
 }
 
 /* Mullion's folder in the user's cache folder: Metal's pipeline cache for every Mullion game (one
