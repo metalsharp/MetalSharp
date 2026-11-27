@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Black Myth: Wukong and Palworld run on D3D12 on Mullion** (metalsharp/MetalSharp-Wine#136) — on the Mullion (DXMT) lane they were started with `-dx11 -d3d11`, from when Mullion had no D3D12. Black Myth: Wukong's D3D11 renderer now exits about five seconds after it starts, with no window: it reads a D3D12 adapter it never made (for FSR). Both now start on their D3D12 renderer, which Mullion runs, with DLSS and Frame Generation.
+
 ## v1.6.0 — 2026-11-26
 
 MetalSharp 1.6.0 runs on [MetalSharp Wine 10.5](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v10.5) on both runtimes: Wine 11.22 on both, a faster Mullion, the Rockstar Games Launcher on the x86_64 runtime too, and the Metal HUD and DLSS on every x86_64 lane. MetalSharp itself opens in about a second, Game Jolt has its own page with its games' art and names, and the GOG, Epic and Windows Programs Collection views are cleaner, with each game's Uninstall in its settings.

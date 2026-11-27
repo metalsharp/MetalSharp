@@ -1375,10 +1375,6 @@ static void build_launch_args(unsigned id, const char* pipeline, char** argv, si
     else if (id == 312520 && !strcmp(pipeline, "dxmt"))
         append_launch_arg(argv, count, max, "-force-d3d11");
 
-    if ((id == 1623730 || id == 2358720) && !strcmp(pipeline, "dxmt")) {
-        append_launch_arg(argv, count, max, "-dx11");
-        append_launch_arg(argv, count, max, "-d3d11");
-    }
     /* A direct launch tells these Source and Valve games about Steam; the fex build launches them
      * through Steam. */
     if (!ms_wine_is_fex() &&
