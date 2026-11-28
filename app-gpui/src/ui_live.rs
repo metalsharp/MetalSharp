@@ -1652,18 +1652,24 @@ impl MetalSharpApp {
                 .clone()
                 .filter(|u| !u.is_empty())
                 .unwrap_or_else(|| steam_cdn(appid, "header"));
+            // The Steam client's own library art (`/art/library`) comes right after custom grid art: newer games
+            // keep theirs at content-hashed URLs, so the fixed CDN URLs below miss for them. A card never falls back
+            // to the store page's background, a dark blur that buried those cards; the store's hashed header does.
             let mut card = vec![
                 C::Backend(format!("/art/grid/{appid}/poster")),
                 C::Backend(format!("/art/grid/{appid}/header")),
+                C::Backend(format!("/art/library/{appid}/poster")),
                 C::Url(primary.clone()),
                 C::Url(format!("https://steamdb.info/resize/600x900/{primary}")),
                 C::Url(steam_cdn(appid, "library_hero")),
                 C::Url(header.clone()),
-                C::Url(store_background(appid)),
+                C::StoreDetails { appid, hero: false },
+                C::Backend(format!("/art/library/{appid}/header")),
             ];
             card.extend(embedded);
             let hero = vec![
                 C::Backend(format!("/art/grid/{appid}/hero")),
+                C::Backend(format!("/art/library/{appid}/hero")),
                 C::Url(steam_cdn(appid, "library_hero")),
                 C::Url(primary),
                 C::Url(header),
