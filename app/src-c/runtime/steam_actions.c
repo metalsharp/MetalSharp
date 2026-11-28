@@ -3,23 +3,24 @@
 #define _DARWIN_C_SOURCE 1
 #endif
 #endif
-#include "metalsharp_backend/cache.h"
-#include "metalsharp_backend/host_os.h"
 #include "metalsharp_backend/steam_actions.h"
-#include "metalsharp_backend/ngx_core.h"
-#include "metalsharp_backend/game_registry.h"
-#include "metalsharp_backend/d3dmetal.h"
+#include "metalsharp_backend/cache.h"
 #include "metalsharp_backend/config.h"
+#include "metalsharp_backend/d3dmetal.h"
+#include "metalsharp_backend/frame_rate.h"
 #include "metalsharp_backend/game_executable.h"
+#include "metalsharp_backend/game_registry.h"
+#include "metalsharp_backend/host_os.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/launch_log.h"
 #include "metalsharp_backend/local_socket.h"
 #include "metalsharp_backend/logs.h"
-#include "metalsharp_backend/frame_rate.h"
 #include "metalsharp_backend/metalfx.h"
-#include "metalsharp_backend/mtsp.h"
-#include "metalsharp_backend/process.h"
 #include "metalsharp_backend/metalvr.h"
+#include "metalsharp_backend/mtsp.h"
+#include "metalsharp_backend/ngx_core.h"
+#include "metalsharp_backend/process.h"
 #include "metalsharp_backend/rosetta.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam.h"
@@ -7257,6 +7258,11 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         if (ensure_directory(runtime_log_dir))
             snprintf(runtime_log, sizeof(runtime_log), "%s/launch.stderr.log", runtime_log_dir);
     }
+    /* The launch's own log (#834): the Mac, the runtime's versions and Wine settings, the summary, Wine's errors and
+     * how the game ended. */
+    char launch_log[PATH_MAX] = "";
+    if (!ms_launch_log_begin(home, id, pipeline, summary_runtime, launch_log, sizeof(launch_log)))
+        launch_log[0] = '\0';
     child = fork();
     if (child < 0) {
         char* error = strdup(strerror(errno));
@@ -7285,6 +7291,19 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         /* The user's own settings last, over the route's. */
         if (tuning_provider && tuning_id)
             ms_game_tuning_apply_child(home, tuning_provider, tuning_id);
+        /* Wine's errors in the launch's log instead of nowhere (#834), unless Game Settings set WINEDEBUG: its fixmes
+         * and warnings stay off. Settings > Graphics runtime logs, below, takes Wine's output for its own log. */
+        if (launch_log[0] && !runtime_log[0]) {
+            int log_fd = open(launch_log, O_WRONLY | O_APPEND | O_CREAT, 0644);
+            if (log_fd >= 0) {
+                const char* debug = getenv("WINEDEBUG");
+                if (!debug || !strcmp(debug, "-all"))
+                    setenv("WINEDEBUG", "fixme-all,warn-all", 1);
+                (void)dup2(log_fd, STDERR_FILENO);
+                (void)dup2(log_fd, STDOUT_FILENO);
+                close(log_fd);
+            }
+        }
         if (runtime_log[0]) {
             int log_fd = open(runtime_log, O_WRONLY | O_CREAT | O_APPEND, 0644);
             if (log_fd >= 0) {
@@ -7368,6 +7387,15 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         if (runtime_log[0])
             write_launch_summary(STDERR_FILENO, summary_stamp, summary_runtime, id, pipeline, env_pipeline, executable,
                                  cwd, argv);
+        if (launch_log[0]) {
+            int launch_fd = open(launch_log, O_WRONLY | O_APPEND | O_CLOEXEC);
+            write_launch_summary(launch_fd, summary_stamp, summary_runtime, id, pipeline, env_pipeline, executable, cwd,
+                                 argv);
+            if (launch_fd >= 0) {
+                (void)!write(launch_fd, "\n--- Wine ---\n", 14);
+                close(launch_fd);
+            }
+        }
         if (id == 8500) {
             dprintf(STDERR_FILENO, "command=");
             for (size_t i = 0; i < argc; i++)
@@ -7405,6 +7433,9 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
     free(cpu_shim);
     free(prefix);
     free(cwd);
+    /* registered here so its launch's log is known when it ends (#834); the caller registers it again, as it did */
+    ms_process_register_game_executable(id, child, executable);
+    ms_process_set_launch_log(id, home, launch_log, pipeline);
     *pid = child;
     return NULL;
 }

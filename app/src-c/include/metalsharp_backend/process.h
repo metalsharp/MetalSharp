@@ -18,6 +18,9 @@ bool ms_process_wine_program_running(const char* home);
  * a Wine process of that executable does. */
 void ms_process_register_game_executable(unsigned, pid_t, const char*);
 void ms_process_register_pending_game(unsigned, pid_t, unsigned);
+/* The log of a registered game's launch (#834; launch_log.h): when the game ends, or MetalSharp stops it, the log says
+ * how. Call after registering the game. */
+void ms_process_set_launch_log(unsigned appid, const char* home, const char* path, const char* route);
 /* Game Settings' low priority: lowers the Wine process running `executable` (a file name) to nice 10
  * once it is seen, whoever started it, for the next ten minutes. */
 void ms_process_watch_game_priority(const char* home, const char* executable);

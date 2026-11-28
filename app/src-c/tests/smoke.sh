@@ -443,7 +443,9 @@ import json, sys
 v = json.load(sys.stdin)
 assert v["ok"] is True
 assert len(v["logs"]) == 1
-assert len(v["logs"][0]["lines"]) == 2
+# the backend's start; its health checks (/status) are not logged (#834)
+assert len(v["logs"][0]["lines"]) == 1
+assert not any("Backend status checked" in line for line in v["logs"][0]["lines"])
 assert all("name" in entry and isinstance(entry["lines"], list) for entry in v["logs"])
 '
 stream=$(curl --silent --fail --unix-socket "$sock" "http://localhost/logs/stream?after=0")

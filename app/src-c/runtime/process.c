@@ -4,12 +4,13 @@
 #endif
 #endif
 #include "metalsharp_backend/process.h"
+#include "metalsharp_backend/battlenet.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/launch_log.h"
+#include "metalsharp_backend/rockstar.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/ubisoft.h"
-#include "metalsharp_backend/rockstar.h"
-#include "metalsharp_backend/battlenet.h"
 #include "metalsharp_backend/wine_runtime.h"
 #include <ctype.h>
 #include <dirent.h>
@@ -41,6 +42,14 @@ typedef struct running_game {
     bool wine_fallback;
     /* Base name of the launched .exe, lower case; empty when unknown. */
     char executable[128];
+    /* Its launch's log (#834): the log's path, MetalSharp's home and the route, when the launch has one; when it
+     * started, and the launched process's status once it is reaped. */
+    char* launch_log;
+    char* launch_home;
+    char launch_route[64];
+    unsigned long long launch_started_ms;
+    bool leader_exited;
+    int leader_status;
     struct running_game* next;
 } running_game;
 typedef struct retired_child {
@@ -438,13 +447,26 @@ static void retire_child_if_needed(pid_t pid) {
     }
 }
 
+/* A game leaves the list: its launch's log says how it ended (#834), then it is freed. */
+static void release_game(running_game* g, bool stopped) {
+    if (g->launch_log)
+        ms_launch_log_end(g->launch_home, g->launch_log, g->appid, g->launch_route, g->leader_exited, g->leader_status,
+                          stopped, process_monotonic_millis() - g->launch_started_ms);
+    free(g->launch_log);
+    free(g->launch_home);
+    free(g);
+}
+
 static void remember(unsigned appid, pid_t pid) {
     running_game* g;
     reap_retired_children();
     for (g = g_running; g; g = g->next)
         if (g->appid == appid) {
-            if (g->pid != pid)
+            if (g->pid != pid) {
                 retire_child_if_needed(g->pid);
+                g->leader_exited = false;
+                g->leader_status = 0;
+            }
             g->pid = pid;
             g->wine_fallback = false;
             return;
@@ -500,6 +522,29 @@ void ms_process_register_game(unsigned appid, pid_t pid) {
     }
 }
 
+void ms_process_set_launch_log(unsigned appid, const char* home, const char* path, const char* route) {
+    if (!appid || !home || !path || !path[0])
+        return;
+    pthread_mutex_lock(&g_running_mutex);
+    for (running_game* g = g_running; g; g = g->next)
+        if (g->appid == appid) {
+            /* a launch the game's next one replaced before its end was seen */
+            if (g->launch_log)
+                ms_launch_log_end(g->launch_home, g->launch_log, g->appid, g->launch_route, false, 0, false,
+                                  process_monotonic_millis() - g->launch_started_ms);
+            free(g->launch_log);
+            free(g->launch_home);
+            g->launch_log = strdup(path);
+            g->launch_home = strdup(home);
+            snprintf(g->launch_route, sizeof(g->launch_route), "%s", route ? route : "?");
+            g->launch_started_ms = process_monotonic_millis();
+            g->leader_exited = false;
+            g->leader_status = 0;
+            break;
+        }
+    pthread_mutex_unlock(&g_running_mutex);
+}
+
 void ms_process_register_game_executable(unsigned appid, pid_t pid, const char* executable) {
     if (appid > 0 && pid > 0) {
         pthread_mutex_lock(&g_running_mutex);
@@ -516,7 +561,7 @@ static void forget(unsigned appid) {
             running_game* old = *p;
             retire_child_if_needed(old->pid);
             *p = old->next;
-            free(old);
+            release_game(old, true);
             return;
         }
         p = &(*p)->next;
@@ -533,6 +578,9 @@ static bool signal_game_process(pid_t pid, int signal_number) {
 static bool process_group_active(pid_t pid) {
     return kill(-pid, 0) == 0 || errno == EPERM;
 }
+
+/* As active(), recording the launched process's status in `g` when it is reaped (for its launch's log). */
+static bool game_active(running_game* g);
 
 static bool active(pid_t pid) {
     int status;
@@ -553,14 +601,34 @@ static bool active(pid_t pid) {
         return true;
     return process_group_active(pid);
 }
+static bool game_active(running_game* g) {
+    int status;
+    pid_t waited;
+    if (g->pid <= 0 || g->leader_exited)
+        return g->pid > 0 && process_group_active(g->pid);
+    waited = waitpid(g->pid, &status, WNOHANG);
+    if (waited == g->pid) {
+        g->leader_exited = true;
+        g->leader_status = status;
+        return process_group_active(g->pid);
+    }
+    if (waited == 0)
+        return true;
+    if (waited < 0 && errno != ECHILD)
+        return errno == EINTR || errno == EPERM;
+    if (kill(g->pid, 0) == 0 || errno == EPERM)
+        return true;
+    return process_group_active(g->pid);
+}
+
 static void prune(void) {
     running_game** p = &g_running;
     reap_retired_children();
     while (*p) {
-        if (!active((*p)->pid) && (*p)->keep_until_ms <= process_monotonic_millis()) {
+        if (!game_active(*p) && (*p)->keep_until_ms <= process_monotonic_millis()) {
             running_game* old = *p;
             *p = old->next;
-            free(old);
+            release_game(old, false);
         } else
             p = &(*p)->next;
     }
@@ -730,7 +798,7 @@ char* ms_process_running_json(const char* home) {
     pthread_mutex_lock(&g_running_mutex);
     if (wine_processes.count > 0 && g_last_registered_appid > 0) {
         for (g = g_running; g; g = g->next)
-            if (g->appid == g_last_registered_appid && !active(g->pid)) {
+            if (g->appid == g_last_registered_appid && !game_active(g)) {
                 /* The launched process and its group are gone. A game whose
                  * executable is known runs on only while that executable does
                  * (closing it from inside the game stops it); otherwise any

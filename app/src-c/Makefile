@@ -40,6 +40,7 @@ SOURCES := \
 	runtime/config.c \
 	runtime/cache.c \
 	runtime/logs.c \
+	runtime/launch_log.c \
 	runtime/metalfx.c \
 	runtime/frame_rate.c \
 	runtime/mtsp.c \

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **A log for every game launch** (#834) — each launch MetalSharp starts has its own log, `logs/launches/<date>_<time>-<appid>-<route>.log`, and Report a problem puts the game's five newest in its zip. It starts with the Mac (chip, macOS and its build, memory), MetalSharp's and MetalSharp Wine's versions and the runtime's renderers (Mullion, DXVK, VKD3D-Proton and the rest, from their `VERSION`), and the prefix's Wine settings: its Windows version and DPI. The launch summary follows (route, command line, and the environment: sync mode, DLL overrides and the rest), then Wine's own errors, which `WINEDEBUG=-all` used to discard (fixmes and warnings stay off; Game Settings' own `WINEDEBUG` wins). When the game ends, a line Wine repeated is kept once with how many times it came, and the log, and the day's log, say how it ended: its exit code or the signal that stopped it, how long it ran, and whether it looks like a crash (a signal, a failing exit code, or Wine's unhandled exception), or that it was stopped from MetalSharp. When a game's route changes, its next launch says how the last one, on the other route, ended.
+
+### Changed
+
+- **Quieter day logs** (#834) — the app's health checks no longer log "Backend status checked" every few seconds, and "Loading Steam library" is logged at most once in ten minutes, and on a refresh.
+
 ### Fixed
 
 - **Black Myth: Wukong and Palworld run on D3D12 on Mullion** (metalsharp/MetalSharp-Wine#136) — on the Mullion (DXMT) lane they were started with `-dx11 -d3d11`, from when Mullion had no D3D12. Black Myth: Wukong's D3D11 renderer now exits about five seconds after it starts, with no window: it reads a D3D12 adapter it never made (for FSR). Both now start on their D3D12 renderer, which Mullion runs, with DLSS and Frame Generation.
