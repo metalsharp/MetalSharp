@@ -2,8 +2,9 @@
 //! which the user attaches to an issue themselves. Nothing is sent anywhere. Every text line goes through
 //! `diagnostics::redact_line` first, so a credential-bearing line is replaced, as it is on the Logs page.
 //!
-//! The zip holds MetalSharp's logs of today and yesterday, the game's Mullion logs (`logs/dxmt/<appid>` and
-//! `logs/fex-dxmt/<appid>`, where the backend points `MULLION_LOG_PATH`), the three newest crash reports, and
+//! The zip holds MetalSharp's logs of today and yesterday, the game's five newest launch logs (`logs/launches`: the
+//! Mac, versions, Wine settings, Wine's errors and how each launch ended), the game's Mullion logs (`logs/dxmt/<appid>`
+//! and `logs/fex-dxmt/<appid>`, where the backend points `MULLION_LOG_PATH`), the three newest crash reports, and
 //! `system.txt`: the Mac, macOS, MetalSharp's version and build, and the game's route and settings.
 use crate::diagnostics::redact_line;
 use std::fs;
@@ -176,6 +177,26 @@ pub fn build(home: &Path, desktop: &Path, game: &GameFacts) -> io::Result<PathBu
         }
     }
     if game.appid != 0 {
+        // the game's own launch logs (#834): `<date>_<time>-<appid>-<route>.log`, newest first
+        let marker = format!("-{}-", game.appid);
+        let launches: Vec<PathBuf> = newest_files(&logs.join("launches"), usize::MAX)
+            .into_iter()
+            .filter(|file| {
+                file.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.contains(&marker) && name.ends_with(".log"))
+            })
+            .take(5)
+            .collect();
+        if !launches.is_empty() {
+            fs::create_dir_all(folder.join("launches"))?;
+            for file in launches {
+                copy_redacted(
+                    &file,
+                    &folder.join("launches").join(file.file_name().unwrap()),
+                )?;
+            }
+        }
         for lane in ["dxmt", "fex-dxmt"] {
             let source = logs.join(lane).join(game.appid.to_string());
             let files = newest_files(&source, 8);
@@ -253,6 +274,18 @@ mod tests {
             "info: Mullion\n",
         )
         .unwrap();
+        // the game's launch logs go in (#834); another game's (appid 7300) don't
+        fs::create_dir_all(home.join("logs/launches")).unwrap();
+        fs::write(
+            home.join("logs/launches/2026-11-27_21-30-00-730-dxmt.log"),
+            "Launch ended: exit code 0 after 5s\nAuthorization: Bearer launch-private\n",
+        )
+        .unwrap();
+        fs::write(
+            home.join("logs/launches/2026-11-27_21-31-00-7300-dxmt.log"),
+            "another game\n",
+        )
+        .unwrap();
         let game = GameFacts {
             name: "Counter-Strike 2".into(),
             appid: 730,
@@ -274,6 +307,14 @@ mod tests {
                 .unwrap();
         assert!(log.contains("launch ok") && !log.contains("fixture-private"));
         assert!(folder.join("mullion/fex-dxmt/cs2_d3d11.log").is_file());
+        let launch =
+            fs::read_to_string(folder.join("launches/2026-11-27_21-30-00-730-dxmt.log")).unwrap();
+        assert!(launch.contains("Launch ended") && !launch.contains("launch-private"));
+        assert!(
+            !folder
+                .join("launches/2026-11-27_21-31-00-7300-dxmt.log")
+                .exists()
+        );
         let system = fs::read_to_string(folder.join("system.txt")).unwrap();
         assert!(
             system.contains("Counter-Strike 2")

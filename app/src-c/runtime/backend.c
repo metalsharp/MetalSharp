@@ -61,6 +61,7 @@
 #include <strings.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 #ifndef O_NOFOLLOW
@@ -484,8 +485,8 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, 405, body);
         return true;
     }
+    /* the app's health check, every few seconds: not logged (#834) */
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/status") == 0) {
-        ms_log_event(context->metalsharp_home, "Backend status checked");
         body = make_json(context->version, context->metalsharp_home, context->dev_mode);
         if (body == NULL)
             return false;
@@ -1270,7 +1271,15 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         return true;
     }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/steam/library") == 0) {
-        ms_log_event(context->metalsharp_home, "Loading Steam library...");
+        /* logged once in ten minutes, and on a refresh (#834): the app asks for the library often */
+        static time_t library_logged;
+        bool refresh = request->query != NULL && strcmp(request->query, "refresh=1") == 0;
+        time_t now = time(NULL);
+        if (refresh || now - library_logged >= 600) {
+            library_logged = now;
+            ms_log_event(context->metalsharp_home,
+                         refresh ? "Refreshing Steam library..." : "Loading Steam library...");
+        }
         body = request->query != NULL && strcmp(request->query, "refresh=1") == 0
                    ? ms_steam_library_refresh_json(context->metalsharp_home)
                    : ms_steam_library_json(context->metalsharp_home);

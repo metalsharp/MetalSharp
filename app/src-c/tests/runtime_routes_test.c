@@ -13,6 +13,7 @@
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/ubisoft.h"
 #include "metalsharp_backend/bottle_actions.h"
+#include "metalsharp_backend/launch_log.h"
 // clang-format on
 #define main metalsharp_backend_main_for_test
 #include "../runtime/main.c"
@@ -1127,6 +1128,88 @@ static void test_uninstall_downloaded_runtime(const char* root) {
     assert(!ms_wine_runtime_present(home, "bogus") && !ms_wine_runtime_present(NULL, inactive));
 }
 
+/* #834: a launch's own log, its header, Wine's repeated lines grouped, and how the launch ended. */
+static char* slurp(const char* path) {
+    FILE* file = fopen(path, "rb");
+    char* data = NULL;
+    long length;
+    if (!file)
+        return NULL;
+    if (fseek(file, 0, SEEK_END) == 0 && (length = ftell(file)) >= 0 && fseek(file, 0, SEEK_SET) == 0 &&
+        (data = calloc(1, (size_t)length + 1)))
+        (void)!fread(data, 1, (size_t)length, file);
+    fclose(file);
+    return data;
+}
+
+static void test_launch_logs(const char* home) {
+    char windows[256], dpi[64], path[PATH_MAX], record[PATH_MAX];
+    char* text;
+    fixture(home, "prefix-steam/system.reg",
+            "WINE REGISTRY Version 2\n\n[Software\\\\Microsoft\\\\Windows NT\\\\CurrentVersion] 1795841041\n"
+            "\"CurrentBuild\"=\"19045\"\n\"ProductName\"=\"Windows 10 Pro\"\n");
+    fixture(home, "prefix-steam/user.reg",
+            "WINE REGISTRY Version 2\n\n[Control Panel\\\\Desktop] 1795841041\n\"LogPixels\"=dword:00000090\n");
+    {
+        char prefix[PATH_MAX];
+        snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
+        ms_launch_log_prefix_settings(prefix, windows, sizeof(windows), dpi, sizeof(dpi));
+    }
+    assert(!strcmp(windows, "Windows 10 Pro (build 19045)"));
+    assert(!strcmp(dpi, "144 (150 %)"));
+
+    /* the last launch was on another route: the new one says how that ended */
+    fixture(home, "logs/launches/last/4115450", "route=vkd3d\nended=exit code 1 after 12s; it looks like a crash\n");
+    assert(ms_launch_log_begin(home, 4115450, "dxmt", "fex", path, sizeof(path)));
+    assert(strstr(path, "/logs/launches/") && strstr(path, "-4115450-dxmt.log"));
+    text = slurp(path);
+    assert(text && strstr(text, "appid 4115450, route dxmt, fex runtime"));
+    assert(strstr(text, "Mac: ") && strstr(text, "macOS ") && strstr(text, "GB memory"));
+    assert(strstr(text, "Wine settings: Windows Windows 10 Pro (build 19045), DPI 144 (150 %)"));
+    assert(strstr(text, "Route changed from vkd3d to dxmt. The last launch, on vkd3d: exit code 1 after 12s"));
+    free(text);
+
+    /* Wine's lines: a line repeated across threads is kept once, where it first came, with its count */
+    {
+        FILE* file = fopen(path, "a");
+        assert(file);
+        fputs("0124:err:module:import_dll Library X.dll not found\n0130:err:d3d:wined3d_debug_callback 42\n", file);
+        for (int i = 0; i < 500; i++)
+            fprintf(file, "%04x:err:module:import_dll Library X.dll not found\n", 0x124 + i % 3);
+        fputs("0124:err:seh:NtRaiseException Unhandled exception code c0000005\n", file);
+        fclose(file);
+    }
+    ms_launch_log_end(home, path, 4115450, "dxmt", true, 1 << 8, false, 75000);
+    for (int i = 0; i < 200; i++) {
+        text = slurp(path);
+        bool done = text && strstr(text, "Launch ended");
+        free(text);
+        if (done)
+            break;
+        usleep(10000);
+    }
+    text = slurp(path);
+    assert(text && strstr(text, "0124:err:module:import_dll Library X.dll not found  [repeated 501 times]"));
+    assert(strstr(text, "0130:err:d3d:wined3d_debug_callback 42\n"));
+    assert(strstr(strstr(text, "repeated 501 times"), "wined3d_debug_callback"));
+    assert(!strstr(strstr(text, "repeated 501 times"), "import_dll"));
+    /* exit code 1, and Wine's unhandled exception: a crash */
+    assert(strstr(text, "Launch ended: exit code 1 after 1m 15s; it looks like a crash"));
+    free(text);
+    snprintf(record, sizeof(record), "%s/logs/launches/last/4115450", home);
+    text = slurp(record);
+    assert(text && !strcmp(text, "route=dxmt\nended=exit code 1 after 1m 15s; it looks like a crash\n"));
+    free(text);
+    {
+        char today[PATH_MAX];
+        assert(ms_log_today_path(home, today, sizeof(today)));
+        text = slurp(today);
+        assert(text && strstr(text, "appid=4115450 Route changed from vkd3d to dxmt"));
+        assert(strstr(text, "Launch ended: appid=4115450 route=dxmt, exit code 1 after 1m 15s"));
+        free(text);
+    }
+}
+
 /* /art/library serves the Steam client's own library art, from either cache layout: flat files (older games) and
  * content-hashed folders (newer ones, which have nothing at the fixed CDN URLs). The newest file of a kind wins. */
 static void dated_fixture(const char* home, const char* relative, const char* bytes, time_t when) {
@@ -1203,6 +1286,7 @@ int main(int argc, char** argv) {
     assert(getenv("DYLD_FALLBACK_LIBRARY_PATH") == NULL && getenv("SteamAppId") == NULL);
     assert(getenv("GRAPHICS_BACKEND") == NULL);
     assert(getenv("METALSHARP_TEST_SENTINEL") && !strcmp(getenv("METALSHARP_TEST_SENTINEL"), "9123"));
+    test_launch_logs(home);
     test_library_art(home);
     assert(valid_pipeline("d3dmetal"));
     assert(valid_pipeline("dxmt"));

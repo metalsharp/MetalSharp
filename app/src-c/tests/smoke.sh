@@ -31,7 +31,7 @@ printf '%s' "$response" | python3 -c '
 import json, os, sys
 v = json.load(sys.stdin)
 assert v["ok"] is True
-assert v["version"] == "1.6.0"
+assert v["version"] == "1.7.0"
 assert v["dev_mode"] is False
 assert v["metalsharp_home"] == os.environ["METALSHARP_HOME"]
 assert isinstance(v["pid"], int) and v["pid"] > 0
@@ -443,14 +443,16 @@ import json, sys
 v = json.load(sys.stdin)
 assert v["ok"] is True
 assert len(v["logs"]) == 1
-assert len(v["logs"][0]["lines"]) == 2
+# only the backend start line: health checks on /status are not logged, issue 834
+assert len(v["logs"][0]["lines"]) == 1
+assert not any("Backend status checked" in line for line in v["logs"][0]["lines"])
 assert all("name" in entry and isinstance(entry["lines"], list) for entry in v["logs"])
 '
 stream=$(curl --silent --fail --unix-socket "$sock" "http://localhost/logs/stream?after=0")
 printf '%s' "$stream" | python3 -c '
 import json, sys
 v = json.load(sys.stdin)
-assert v["ok"] is True and v["total"] == 2 and len(v["lines"]) == 2
+assert v["ok"] is True and v["total"] == 1 and len(v["lines"]) == 1
 '
 crashes=$(curl --silent --fail --unix-socket "$sock" "http://localhost/logs/crash-reports")
 printf '%s' "$crashes" | python3 -c 'import json, sys; assert json.load(sys.stdin) == {"ok": True, "reports": []}'

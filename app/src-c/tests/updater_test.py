@@ -22,7 +22,7 @@ FEX_BACKEND = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else None
 SRC_C = Path(__file__).resolve().parent.parent
 # MetalSharp: keep the synthetic release ahead of the app version; the
 # set-version script bumps this alongside the app version.
-VERSION = "1.6.1"  # Synthetic release must be newer than the current app.
+VERSION = "1.7.1"  # Synthetic release must be newer than the current app.
 
 
 class UnixHTTPConnection(http.client.HTTPConnection):

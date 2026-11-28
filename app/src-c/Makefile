@@ -4,7 +4,7 @@ PROJECT_ROOT := $(abspath ../..)
 BUILD_DIR ?= $(CURDIR)/build
 TARGET ?= $(BUILD_DIR)/metalsharp-backend
 INSTALL_TARGET ?= $(TARGET)
-VERSION ?= 1.6.0
+VERSION ?= 1.7.0
 # regular: the x86_64 Wine runtime through Rosetta; fex: MetalSharp Wine (arm64, FEX)
 VARIANT ?= regular
 JSON_TEST ?= $(BUILD_DIR)/json-test
@@ -40,6 +40,7 @@ SOURCES := \
 	runtime/config.c \
 	runtime/cache.c \
 	runtime/logs.c \
+	runtime/launch_log.c \
 	runtime/metalfx.c \
 	runtime/frame_rate.c \
 	runtime/mtsp.c \
