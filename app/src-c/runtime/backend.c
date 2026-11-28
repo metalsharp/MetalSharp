@@ -405,6 +405,71 @@ static bool handle_grid_art(const ms_http_request* request, ms_http_response* re
     return true;
 }
 
+/* Serve the library art the Steam client downloaded for a game (Steam/appcache/librarycache/<appid>/). Newer games
+ * keep it in content-hashed folders (<hash>/library_capsule.jpg) and have none at the fixed CDN URLs the library
+ * tries, so without this their cards fell back to the store page's background. Kinds: poster (the portrait cover),
+ * hero, header; the newest file of the kind wins. */
+static bool handle_library_art(const ms_http_request* request, ms_http_response* response,
+                               const char* metalsharp_home) {
+    long appid = 0;
+    char kind[16] = {0};
+    if (sscanf(request->path, "/art/library/%ld/%15s", &appid, kind) != 2 || appid <= 0 || appid > 4294967295L) {
+        set_json_response(response, 404, strdup("{\"ok\":false,\"error\":\"invalid library art request\"}"));
+        return true;
+    }
+    static const char* const poster[] = {"library_600x900_2x.jpg",
+                                         "library_600x900.jpg",
+                                         "*/library_600x900_2x.jpg",
+                                         "*/library_600x900.jpg",
+                                         "*/library_capsule_2x.jpg",
+                                         "*/library_capsule.jpg",
+                                         NULL};
+    static const char* const hero[] = {"library_hero.jpg", "*/library_hero.jpg", NULL};
+    static const char* const header[] = {"library_header.jpg", "header.jpg", "*/library_header.jpg", "*/header.jpg",
+                                         NULL};
+    const char* const* names = !strcmp(kind, "poster")   ? poster
+                               : !strcmp(kind, "hero")   ? hero
+                               : !strcmp(kind, "header") ? header
+                                                         : NULL;
+    if (!names) {
+        set_json_response(response, 404, strdup("{\"ok\":false,\"error\":\"unknown library art kind\"}"));
+        return true;
+    }
+    char newest[PATH_MAX] = {0};
+    struct stat newest_stat;
+    bool found = false;
+    memset(&newest_stat, 0, sizeof(newest_stat));
+    for (size_t i = 0; names[i]; i++) {
+        char pattern[PATH_MAX], match[PATH_MAX];
+        struct stat match_stat;
+        snprintf(pattern, sizeof(pattern),
+                 "%s/prefix-steam/drive_c/Program Files (x86)/Steam/appcache/librarycache/%ld/%s", metalsharp_home,
+                 appid, names[i]);
+        if (newest_grid_art(pattern, match, sizeof(match), &match_stat) &&
+            (!found || match_stat.st_mtime > newest_stat.st_mtime)) {
+            snprintf(newest, sizeof(newest), "%s", match);
+            newest_stat = match_stat;
+            found = true;
+        }
+    }
+    if (!found) {
+        set_json_response(response, 404, strdup("{\"ok\":false,\"error\":\"no library art\"}"));
+        return true;
+    }
+    size_t length = 0;
+    unsigned char* data = read_binary(newest, &length);
+    if (!data) {
+        set_json_response(response, 500, strdup("{\"ok\":false,\"error\":\"failed to read library art\"}"));
+        return true;
+    }
+    response->status = 200;
+    response->content_type = image_type(newest);
+    response->body = data;
+    response->body_length = length;
+    response->owns_body = true;
+    return true;
+}
+
 bool ms_backend_handle(const ms_http_request* request, ms_http_response* response, void* context_ptr) {
     ms_backend_context* context = (ms_backend_context*)context_ptr;
     char* body;
@@ -430,6 +495,9 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     }
     if (strcmp(request->method, "GET") == 0 && strncmp(request->path, "/art/grid/", 10) == 0) {
         return handle_grid_art(request, response, context->metalsharp_home);
+    }
+    if (strcmp(request->method, "GET") == 0 && strncmp(request->path, "/art/library/", 13) == 0) {
+        return handle_library_art(request, response, context->metalsharp_home);
     }
     /* the two Wine runtimes (FEX | x86_64): which is active and installed, and the switch between them, after which
      * the frontend restarts the backend on the other one */

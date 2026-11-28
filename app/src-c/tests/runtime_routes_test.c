@@ -25,6 +25,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <sys/time.h>
 
 static void wait_for_test_child(pid_t child) {
     pid_t result;
@@ -1209,6 +1210,54 @@ static void test_launch_logs(const char* home) {
     }
 }
 
+/* /art/library serves the Steam client's own library art, from either cache layout: flat files (older games) and
+ * content-hashed folders (newer ones, which have nothing at the fixed CDN URLs). The newest file of a kind wins. */
+static void dated_fixture(const char* home, const char* relative, const char* bytes, time_t when) {
+    fixture(home, relative, bytes);
+    char* path = join(home, relative);
+    struct timeval times[2] = {{when, 0}, {when, 0}};
+    assert(utimes(path, times) == 0);
+    free(path);
+}
+
+static int library_art(const char* home, const char* path, const char** body) {
+    ms_backend_context context = {.version = "test", .metalsharp_home = home, .dev_mode = false};
+    ms_http_request request = {.method = (char*)"GET", .target = (char*)path, .path = (char*)path};
+    static ms_http_response response;
+    if (response.owns_body)
+        free((void*)response.body);
+    memset(&response, 0, sizeof(response));
+    assert(ms_backend_handle(&request, &response, &context));
+    *body = response.status == 200 ? (const char*)response.body : NULL;
+    return response.status;
+}
+
+static void test_library_art(const char* home) {
+    const char* cache = "prefix-steam/drive_c/Program Files (x86)/Steam/appcache/librarycache";
+    char path[PATH_MAX];
+    const char* body = NULL;
+    snprintf(path, sizeof(path), "%s/111/library_600x900.jpg", cache);
+    dated_fixture(home, path, "flat poster", 1000);
+    snprintf(path, sizeof(path), "%s/222/library_600x900.jpg", cache);
+    dated_fixture(home, path, "old poster", 1000);
+    snprintf(path, sizeof(path), "%s/222/0123456789abcdef0123456789abcdef01234567/library_capsule.jpg", cache);
+    dated_fixture(home, path, "hashed poster", 2000);
+    snprintf(path, sizeof(path), "%s/222/89abcdef0123456789abcdef0123456789abcdef/library_hero.jpg", cache);
+    dated_fixture(home, path, "hashed hero", 2000);
+    snprintf(path, sizeof(path), "%s/222/89abcdef0123456789abcdef0123456789abcdef/library_hero_blur.jpg", cache);
+    dated_fixture(home, path, "blur", 3000);
+    snprintf(path, sizeof(path), "%s/222/fedcba9876543210fedcba9876543210fedcba98/library_header.jpg", cache);
+    dated_fixture(home, path, "hashed header", 2000);
+    assert(library_art(home, "/art/library/111/poster", &body) == 200 && !strcmp(body, "flat poster"));
+    assert(library_art(home, "/art/library/222/poster", &body) == 200 && !strcmp(body, "hashed poster"));
+    assert(library_art(home, "/art/library/222/hero", &body) == 200 && !strcmp(body, "hashed hero"));
+    assert(library_art(home, "/art/library/222/header", &body) == 200 && !strcmp(body, "hashed header"));
+    assert(library_art(home, "/art/library/111/hero", &body) == 404);
+    assert(library_art(home, "/art/library/222/background", &body) == 404);
+    assert(library_art(home, "/art/library/0/poster", &body) == 404);
+    assert(library_art(home, "/art/library/333/poster", &body) == 404);
+}
+
 int main(int argc, char** argv) {
     if (argc >= 2 && !strcmp(argv[1], "--wine-exe-probe")) {
         for (;;)
@@ -1238,6 +1287,7 @@ int main(int argc, char** argv) {
     assert(getenv("GRAPHICS_BACKEND") == NULL);
     assert(getenv("METALSHARP_TEST_SENTINEL") && !strcmp(getenv("METALSHARP_TEST_SENTINEL"), "9123"));
     test_launch_logs(home);
+    test_library_art(home);
     assert(valid_pipeline("d3dmetal"));
     assert(valid_pipeline("dxmt"));
     assert(valid_pipeline("dxmt_32"));

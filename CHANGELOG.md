@@ -12,6 +12,7 @@
 
 ### Fixed
 
+- **Newer Steam games' cards show their cover** — cards for recent Steam games, such as Phantom Blade Zero and CONTROL Resonant, were a dark blue blur in the dock and the collection. Steam keeps their art at content-hashed URLs, so every fixed CDN URL the library tries missed, and the card fell back to the store page's background. Cards and heroes now use the art the Steam client already downloaded for the game (its `appcache/librarycache`, in either layout, through the backend's new `/art/library/<appid>/<poster|hero|header>`) right after custom grid art. A card's last fallbacks are the store's own header image and the client's header; it no longer uses the store page's background. Cards already showing the blur replace it on their own.
 - **Black Myth: Wukong and Palworld run on D3D12 on Mullion** (metalsharp/MetalSharp-Wine#136) — on the Mullion (DXMT) lane they were started with `-dx11 -d3d11`, from when Mullion had no D3D12. Black Myth: Wukong's D3D11 renderer now exits about five seconds after it starts, with no window: it reads a D3D12 adapter it never made (for FSR). Both now start on their D3D12 renderer, which Mullion runs, with DLSS and Frame Generation.
 
 ## v1.6.0 — 2026-11-26
