@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- **Game Jolt downloads after the first get their own name and art** (#822) — a game downloaded after another could show up as the first one, with its name and art (Playtime with Percy as Five Nights at Frickbear's 3), or not at all. Game Jolt changes pages without the browser navigating, so the page a download was credited to could still be the first game's. A download is now credited to the game its own URL names (`…/data/games/…/<id>/files/…`), and a game whose build has the same file name as another game's (both `Windows.zip`, say) unpacks into a folder of its own (`Windows (2)`) instead of into the other game's. Downloading a game again still uses its folder.
+- **Game Jolt cards use the game's own portrait art** (#822) — a card was the game's landscape thumbnail laid across a blurred card. A game with portrait key art on its page now gets that as its card, as it is; the thumbnail on a card is kept for games without any. Games downloaded before keep their card until they are downloaded again or given another with **Change Image**.
 - **Black Myth: Wukong and Palworld run on D3D12 on Mullion** (metalsharp/MetalSharp-Wine#136) — on the Mullion (DXMT) lane they were started with `-dx11 -d3d11`, from when Mullion had no D3D12. Black Myth: Wukong's D3D11 renderer now exits about five seconds after it starts, with no window: it reads a D3D12 adapter it never made (for FSR). Both now start on their D3D12 renderer, which Mullion runs, with DLSS and Frame Generation.
 
 ## v1.6.0 — 2026-11-26
