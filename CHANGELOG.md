@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v1.7.0 — 2026-11-28
+
+MetalSharp 1.7.0 runs on [MetalSharp Wine 11.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v11.0) on both runtimes: Overwatch and Age of Empires II: Definitive Edition run on the FEX runtime, Phantom Blade Zero on both, games no longer freeze when they start a program, and DLSS Frame Generation stops flickering and ghosting. Every game launch gets a log of its own, with the Mac, versions, Wine settings, Wine's errors and how it ended, and Report a problem includes them. Newer Steam games show their covers, and Game Jolt downloads get their own name and portrait art.
 
 ### Added
 
@@ -8,6 +10,8 @@
 
 ### Changed
 
+- **MetalSharp Wine 10.5 → 11.0** — both builds carry and download [MetalSharp Wine 11.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v11.0) (`MS_WINE_RELEASE_VERSION`, and Release CI's `METALSHARP_WINE_TAG`). On the FEX runtime: Overwatch starts and no longer crashes loading into a match, Age of Empires II: Definitive Edition starts and plays, Phantom Blade Zero starts, and FEX compiles faster. On both: Phantom Blade Zero starts on the x86_64 runtime too, games no longer freeze for seconds when they start a program, Black Myth: Wukong can turn on DLSS Frame Generation, and Mullion's Frame Generation no longer flickers or ghosts. An update lays out the new runtime from the app it carries, or downloads it.
+- **One Mullion cache for both runtimes** (#848) — a game's shader and pipeline caches are shared by the FEX and x86_64 runtimes where both run Mullion, so switching a game's runtime no longer converts and compiles everything again (Phantom Blade Zero kept 6.0 GB in one and 2.9 GB of the same in the other).
 - **Quieter day logs** (#834) — the app's health checks no longer log "Backend status checked" every few seconds, and "Loading Steam library" is logged at most once in ten minutes, and on a refresh.
 
 ### Fixed

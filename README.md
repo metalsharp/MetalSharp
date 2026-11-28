@@ -6,7 +6,7 @@
 
 </p>
 
-<a href="https://github.com/metalsharp/MetalSharp/releases/tag/v1.6.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v1.6.0&style=for-the-badge" alt="Release"></a>
+<a href="https://github.com/metalsharp/MetalSharp/releases/tag/v1.7.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v1.7.0&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases"><img src="https://img.shields.io/github/downloads/metalsharp/MetalSharp/total?style=for-the-badge" alt="Downloads"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-purple.svg?style=for-the-badge" alt="License"></a>
 <a href="https://discord.gg/kQfFNvVWt"><img src="https://img.shields.io/badge/Discord-Join%20Chat-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
@@ -23,7 +23,7 @@
 
 ## Quick start: 
 
-MetalSharp 1.6.0 ships two different runtimes, both [MetalSharp Wine 10.5](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v10.5) and both using the same graphics engines; 
+MetalSharp 1.7.0 ships two different runtimes, both [MetalSharp Wine 11.0](https://github.com/metalsharp/MetalSharp-Wine/releases/tag/v11.0) and both using the same graphics engines; 
 
 - X86_64 Wine 11.22 under Rosetta 2, for MacOS 15+
 - Arm64/Arm64EC Wine 11.22 with FEX, for MacOS 26.4+
@@ -62,7 +62,7 @@ Download your preferred DMG, and run it. Move MetalSharp into the applications f
 - Apple Silicon Mac M1-M5, MacOS 15+
 - About ~4 GB Free Space (Extra Prefixes, or 'Bottles' Take up More Space. 
 
-**_For Arm64 Version with FEX (MetalSharp Wine 10.5):_**
+**_For Arm64 Version with FEX (MetalSharp Wine 11.0):_**
 
 - Apple Silicon Mac M1-M5, MacOS 26.4+
 - About ~4 GB Free Space (Extra Prefixes, or 'Bottles' Take up More Space.
