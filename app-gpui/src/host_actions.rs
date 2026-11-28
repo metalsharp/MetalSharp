@@ -386,13 +386,39 @@ fn safe_download_stem(filename: &str) -> String {
     }
 }
 
+/// The Game Jolt game id a folder was saved with (`.metalsharp/gamejolt.json`), if any.
+fn gamejolt_folder_game(game_dir: &Path) -> Option<u64> {
+    std::fs::read(game_dir.join(GAMEJOLT_META_DIR).join("gamejolt.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|meta| meta.get("gameId").and_then(Value::as_u64))
+}
+
+/// The folder a download of `game_id` unpacks into: the download's name, unless another game already has that folder
+/// (two games' builds are often both `Windows.zip`), then `<name> (2)` and on. A game downloaded again keeps its folder;
+/// a download whose game isn't known goes where its name says, as before.
+fn gamejolt_game_folder(gamejolt_dir: &Path, stem: &str, game_id: Option<u64>) -> PathBuf {
+    let mut candidate = gamejolt_dir.join(stem);
+    let mut suffix = 2;
+    while candidate.exists() {
+        let owner = gamejolt_folder_game(&candidate);
+        if game_id.is_none() || owner == game_id {
+            break;
+        }
+        candidate = gamejolt_dir.join(format!("{stem} ({suffix})"));
+        suffix += 1;
+    }
+    candidate
+}
+
 /// main `organizeGameJoltDownload` (extraction only; caller syncs). Returns the game's folder.
 pub fn organize_gamejolt_download(
     download: &Path,
     filename: &str,
     gamejolt_dir: &Path,
+    game_id: Option<u64>,
 ) -> Result<PathBuf, String> {
-    let game_dir = gamejolt_dir.join(safe_download_stem(filename));
+    let game_dir = gamejolt_game_folder(gamejolt_dir, &safe_download_stem(filename), game_id);
     std::fs::create_dir_all(&game_dir).map_err(|e| e.to_string())?;
     let lower = filename.to_lowercase();
     let run = |program: &str, args: &[&std::ffi::OsStr]| -> Result<(), String> {
@@ -476,6 +502,69 @@ pub fn gamejolt_game_id(page_url: &str) -> Option<u64> {
     }
     let _slug = segments.next()?;
     segments.next()?.parse().ok().filter(|id| *id > 0)
+}
+
+/// The Game Jolt game a build download is of, from the download's own URL:
+/// `https://download.gamejolt.net/<token>/data/games/<n>/<n>/<id>/files/<hash>/<file>`.
+pub fn gamejolt_download_game_id(download_url: &str) -> Option<u64> {
+    let url = url::Url::parse(download_url).ok()?;
+    let host = url.host_str()?;
+    let gamejolt = |domain: &str| host == domain || host.ends_with(&format!(".{domain}"));
+    if url.scheme() != "https" || !(gamejolt("gamejolt.net") || gamejolt("gamejolt.com")) {
+        return None;
+    }
+    let segments: Vec<&str> = url.path_segments()?.collect();
+    let at = segments
+        .windows(2)
+        .position(|pair| pair == ["data", "games"])?;
+    if segments.get(at + 5) != Some(&"files") {
+        return None;
+    }
+    segments.get(at + 4)?.parse().ok().filter(|id| *id > 0)
+}
+
+/// The game page a download is credited to, for its art and name. The game its URL names wins: Game Jolt changes
+/// pages without navigating, so the browser's page, and the last game page it navigated from, can still be a game
+/// downloaded before (#822). One of those pages stands in when it is that game's; without a game in the URL, the
+/// browser's page, then the last one, as before.
+pub fn gamejolt_download_page(
+    download_url: Option<&str>,
+    current_page: Option<&str>,
+    last_page: Option<&str>,
+) -> Option<String> {
+    let pages = [current_page, last_page];
+    let mut pages = pages
+        .into_iter()
+        .flatten()
+        .filter(|page| gamejolt_game_id(page).is_some());
+    match download_url.and_then(gamejolt_download_game_id) {
+        Some(id) => Some(
+            pages
+                .find(|page| gamejolt_game_id(page) == Some(id))
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("https://gamejolt.com/games/game/{id}")),
+        ),
+        None => pages.next().map(str::to_owned),
+    }
+}
+
+/// The game's own portrait art among the images on its page (Game Jolt's overview `mediaItems`): its key art, which
+/// makes a card as it is. A thumbnail is landscape; one is used only when the game has no portrait art.
+pub fn gamejolt_portrait_art(overview: &Value) -> Option<String> {
+    overview
+        .pointer("/payload/mediaItems")
+        .or_else(|| overview.get("mediaItems"))?
+        .as_array()?
+        .iter()
+        .filter_map(|item| item.get("media_item"))
+        .filter(|media| media.get("type").and_then(Value::as_str) == Some("game-screenshot"))
+        .find(|media| {
+            let size = |key| media.get(key).and_then(Value::as_f64).unwrap_or(0.0);
+            size("width") > 0.0 && size("height") >= size("width") * 1.2
+        })
+        .and_then(|media| media.get("img_url").and_then(Value::as_str))
+        .filter(|url| url.starts_with("https://"))
+        .map(str::to_owned)
 }
 
 /// The card (thumbnail) and hero (header) image URLs in Game Jolt's reply for a game
@@ -659,8 +748,26 @@ fn fetch_gamejolt_game(game_dir: &Path, id: u64, page_url: Option<&str>) -> Resu
         serde_json::to_vec_pretty(&meta).unwrap_or_default(),
     );
     let (card, hero) = gamejolt_art_urls(&reply);
-    for (kind, url) in [("card", card), ("hero", hero)] {
+    // the game's own portrait art makes its card as it is; the thumbnail, laid on a card, only without it (#822)
+    let portrait = crate::artwork::download(
+        crate::artwork::http_agent(),
+        &format!("https://gamejolt.com/site-api/web/discover/games/overview/{id}"),
+        None,
+    )
+    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+    .and_then(|overview| gamejolt_portrait_art(&overview));
+    // (kind, url, whether it is the game's own portrait art); the first of a kind that downloads and draws is saved
+    let sources = [
+        ("card", portrait, true),
+        ("card", card, false),
+        ("hero", hero, false),
+    ];
+    let mut saved: Vec<&str> = Vec::new();
+    for (kind, url, own_portrait) in sources {
         let Some(url) = url else { continue };
+        if saved.contains(&kind) {
+            continue;
+        }
         let Some(bytes) = crate::artwork::download(crate::artwork::http_agent(), &url, None) else {
             continue;
         };
@@ -670,12 +777,14 @@ fn fetch_gamejolt_game(game_dir: &Path, id: u64, page_url: Option<&str>) -> Resu
         };
         // a card is portrait: a landscape thumbnail is laid on a card of its own (a crop would cut its title off)
         if kind == "card"
+            && !own_portrait
             && let Some(card) = portrait_card(&bytes)
         {
             save_gamejolt_art(game_dir, kind, "png", &card).map_err(|e| e.to_string())?;
-            continue;
+        } else {
+            save_gamejolt_art(game_dir, kind, ext, &bytes).map_err(|e| e.to_string())?;
         }
-        save_gamejolt_art(game_dir, kind, ext, &bytes).map_err(|e| e.to_string())?;
+        saved.push(kind);
     }
     Ok(())
 }
@@ -732,6 +841,105 @@ fn gamejolt_title(reply: &Value) -> Option<String> {
 #[cfg(test)]
 mod gamejolt_art_tests {
     use super::*;
+
+    const PERCY_BUILD: &str = "https://download.gamejolt.net/07c0b1d3,1795929846,7/data/games/10/217/669217/files/6a812860ca0e0/playtime-with-percy.zip";
+
+    #[test]
+    fn a_build_download_names_its_game() {
+        assert_eq!(gamejolt_download_game_id(PERCY_BUILD), Some(669217));
+        for other in [
+            "https://download.gamejolt.net/x/data/games/10/217/669217/playtime-with-percy.zip",
+            "https://download.gamejolt.net/x/data/games/10/217/nan/files/a/b.zip",
+            "http://download.gamejolt.net/x/data/games/10/217/669217/files/a/b.zip",
+            "https://example.com/x/data/games/10/217/669217/files/a/b.zip",
+            "not a url",
+        ] {
+            assert_eq!(gamejolt_download_game_id(other), None, "{other}");
+        }
+    }
+
+    // #822: Playtime with Percy, downloaded after Five Nights at Frickbear's 3, got Frickbear's name and art, because
+    // Game Jolt changed pages without the browser navigating and the last game page was still Frickbear's.
+    #[test]
+    fn a_download_is_credited_to_the_game_its_url_names() {
+        let frickbears = "https://gamejolt.com/games/frickbears3/930477";
+        let percy = "https://gamejolt.com/games/playtime-with-percy/669217";
+        assert_eq!(
+            gamejolt_download_page(Some(PERCY_BUILD), Some(frickbears), Some(frickbears))
+                .as_deref(),
+            Some("https://gamejolt.com/games/game/669217")
+        );
+        assert_eq!(
+            gamejolt_download_page(Some(PERCY_BUILD), Some(frickbears), Some(percy)).as_deref(),
+            Some(percy)
+        );
+        // a download whose URL names no game: the browser's page, else the last game page
+        let cdn = Some("https://cdn.example.com/build.zip");
+        assert_eq!(
+            gamejolt_download_page(cdn, Some(percy), Some(frickbears)).as_deref(),
+            Some(percy)
+        );
+        assert_eq!(
+            gamejolt_download_page(cdn, Some("https://gamejolt.com/"), Some(frickbears)).as_deref(),
+            Some(frickbears)
+        );
+        assert_eq!(gamejolt_download_page(cdn, None, None), None);
+    }
+
+    #[test]
+    fn two_games_with_the_same_build_name_get_their_own_folders() {
+        let dir = std::env::temp_dir().join(format!("ms-gamejolt-folders-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let first = dir.join("Windows");
+        std::fs::create_dir_all(first.join(GAMEJOLT_META_DIR)).unwrap();
+        std::fs::write(
+            first.join(GAMEJOLT_META_DIR).join("gamejolt.json"),
+            br#"{"gameId": 930477}"#,
+        )
+        .unwrap();
+        // the same game again keeps its folder; another game gets the next free one
+        assert_eq!(gamejolt_game_folder(&dir, "Windows", Some(930477)), first);
+        assert_eq!(
+            gamejolt_game_folder(&dir, "Windows", Some(669217)),
+            dir.join("Windows (2)")
+        );
+        std::fs::create_dir_all(dir.join("Windows (2)")).unwrap();
+        assert_eq!(
+            gamejolt_game_folder(&dir, "Windows", Some(669217)),
+            dir.join("Windows (3)")
+        );
+        // a game that isn't known goes where its name says, as before
+        assert_eq!(gamejolt_game_folder(&dir, "Windows", None), first);
+        assert_eq!(
+            gamejolt_game_folder(&dir, "Percy", Some(669217)),
+            dir.join("Percy")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // #822: Five Nights at Frickbear's 3's thumbnail is 1013x569; its key art (1013x1274) is the card it should have
+    #[test]
+    fn a_game_with_portrait_art_gets_it_as_its_card() {
+        let item = |kind: &str, width: u32, height: u32, url: &str| json!({"media_item": {"type": kind, "width": width, "height": height, "img_url": url}});
+        let overview = json!({"payload": {"mediaItems": [
+            item("game-screenshot", 1280, 720, "https://i.gjcdn.net/a/screenshot0.png"),
+            {"type": "video", "url": "https://www.youtube.com/watch?v=x"},
+            item("game-screenshot", 1013, 1274, "https://i.gjcdn.net/a/carmouleartworkfinal2.png"),
+            item("game-screenshot", 1353, 2040, "https://i.gjcdn.net/a/ca_keyart.png"),
+        ]}});
+        assert_eq!(
+            gamejolt_portrait_art(&overview).as_deref(),
+            Some("https://i.gjcdn.net/a/carmouleartworkfinal2.png")
+        );
+        // nearly square art isn't a card, and neither is anything but the game's own screenshots
+        let none = json!({"payload": {"mediaItems": [
+            item("game-screenshot", 1000, 1100, "https://i.gjcdn.net/a/square.png"),
+            item("game-header", 1000, 2000, "https://i.gjcdn.net/a/header.png"),
+            item("game-screenshot", 1000, 2000, "http://i.gjcdn.net/a/insecure.png"),
+        ]}});
+        assert_eq!(gamejolt_portrait_art(&none), None);
+        assert_eq!(gamejolt_portrait_art(&json!({})), None);
+    }
 
     #[test]
     fn a_game_page_names_its_game() {
