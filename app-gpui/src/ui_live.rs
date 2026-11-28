@@ -1025,8 +1025,12 @@ impl MetalSharpApp {
                         let (organized, synced) = cx
                             .background_executor()
                             .spawn(async move {
+                                // another game's folder of the same name is left alone (#822)
+                                let game_id = page_url
+                                    .as_deref()
+                                    .and_then(crate::host_actions::gamejolt_game_id);
                                 let organized = crate::host_actions::organize_gamejolt_download(
-                                    &path, &filename, &dir,
+                                    &path, &filename, &dir, game_id,
                                 );
                                 // its art and title from its Game Jolt page, before the sync that lists it
                                 // (#822); a download whose page isn't known finds its game by its name

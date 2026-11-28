@@ -805,14 +805,25 @@ mod native {
                 let id = NEXT_DOWNLOAD.with(|n| { let id = n.get(); n.set(id + 1); id });
                 let expected = response.expectedContentLength();
                 let total = (expected > 0).then_some(expected as u64);
-                // the browser's page when the download starts: the game's page, whose art the game gets (#822). A
-                // download Game Jolt hands to its CDN starts on the CDN's address, so the game page it left stands in.
-                let page_url = unsafe { download.webView() }
+                // the game's page, whose art and name the game gets (#822): the game the download's own URL names
+                // (`…/data/games/<n>/<n>/<id>/files/…`), since Game Jolt changes pages without navigating and the
+                // browser's page can still be a game downloaded before; the browser's page, or the game page it last
+                // left, when the URL names none
+                let download_url = response
+                    .URL()
+                    .or_else(|| unsafe { download.originalRequest() }.and_then(|request| request.URL()))
+                    .and_then(|url| url.absoluteString())
+                    .map(|url| url.to_string());
+                let current_page = unsafe { download.webView() }
                     .and_then(|web| unsafe { web.URL() })
                     .and_then(|url| url.absoluteString())
-                    .map(|url| url.to_string())
-                    .filter(|url| crate::host_actions::gamejolt_game_id(url).is_some())
-                    .or_else(|| LAST_GAMEJOLT_PAGE.with(|page| page.borrow().clone()));
+                    .map(|url| url.to_string());
+                let last_page = LAST_GAMEJOLT_PAGE.with(|page| page.borrow().clone());
+                let page_url = crate::host_actions::gamejolt_download_page(
+                    download_url.as_deref(),
+                    current_page.as_deref(),
+                    last_page.as_deref(),
+                );
                 let retained = unsafe { Retained::retain(download as *const WKDownload as *mut WKDownload) };
                 // WebKit holds download delegates weakly; keep ours alive until the transfer ends.
                 let keep = unsafe { Retained::retain(self as *const Delegate as *mut Delegate) };
