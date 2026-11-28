@@ -408,23 +408,28 @@ static bool handle_grid_art(const ms_http_request* request, ms_http_response* re
  * keep it in content-hashed folders (<hash>/library_capsule.jpg) and have none at the fixed CDN URLs the library
  * tries, so without this their cards fell back to the store page's background. Kinds: poster (the portrait cover),
  * hero, header; the newest file of the kind wins. */
-static bool handle_library_art(const ms_http_request* request, ms_http_response* response, const char* metalsharp_home) {
+static bool handle_library_art(const ms_http_request* request, ms_http_response* response,
+                               const char* metalsharp_home) {
     long appid = 0;
     char kind[16] = {0};
     if (sscanf(request->path, "/art/library/%ld/%15s", &appid, kind) != 2 || appid <= 0 || appid > 4294967295L) {
         set_json_response(response, 404, strdup("{\"ok\":false,\"error\":\"invalid library art request\"}"));
         return true;
     }
-    static const char* const poster[] = {"library_600x900_2x.jpg", "library_600x900.jpg", "*/library_600x900_2x.jpg",
-                                         "*/library_600x900.jpg", "*/library_capsule_2x.jpg", "*/library_capsule.jpg",
+    static const char* const poster[] = {"library_600x900_2x.jpg",
+                                         "library_600x900.jpg",
+                                         "*/library_600x900_2x.jpg",
+                                         "*/library_600x900.jpg",
+                                         "*/library_capsule_2x.jpg",
+                                         "*/library_capsule.jpg",
                                          NULL};
     static const char* const hero[] = {"library_hero.jpg", "*/library_hero.jpg", NULL};
     static const char* const header[] = {"library_header.jpg", "header.jpg", "*/library_header.jpg", "*/header.jpg",
                                          NULL};
-    const char* const* names = !strcmp(kind, "poster") ? poster
-                               : !strcmp(kind, "hero") ? hero
+    const char* const* names = !strcmp(kind, "poster")   ? poster
+                               : !strcmp(kind, "hero")   ? hero
                                : !strcmp(kind, "header") ? header
-                                                          : NULL;
+                                                         : NULL;
     if (!names) {
         set_json_response(response, 404, strdup("{\"ok\":false,\"error\":\"unknown library art kind\"}"));
         return true;
